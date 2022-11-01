@@ -1,7 +1,8 @@
-import ByteWriter from './bytewriter';
+import ByteWriter from './util/bytewriter';
 
 export default function clientHello(host: string, publicKey: ArrayBuffer) {
   const hello = new ByteWriter(1024);
+
   hello.writeUint8(0x16);
   hello.comment('record type: handshake');
   hello.writeUint8(0x03, 0x01);

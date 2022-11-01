@@ -1,5 +1,5 @@
 
-import highlightCommented from './highlightCommented';
+import highlightCommented from './util/highlightCommented';
 import clientHello from './clientHello';
 
 async function startTls(host: string, port: number) {
