@@ -1,3 +1,13 @@
+// src/highlightCommented.ts
+function highlightCommented_default(s, colour) {
+  const css = [];
+  s = s.replace(/  .+$/gm, (m) => {
+    css.push(`color: ${colour}`, "color: inherit");
+    return `  %c${m}%c`;
+  });
+  return [s, ...css];
+}
+
 // src/bytewriter.ts
 var ByteWriter = class {
   offset;
@@ -88,21 +98,9 @@ var ByteWriter = class {
   }
 };
 
-// src/highlightCommented.ts
-function highlightCommented_default(s, colour) {
-  const css = [];
-  s = s.replace(/  .+$/gm, (m) => {
-    css.push(`color: ${colour}`, "color: inherit");
-    return `  %c${m}%c`;
-  });
-  return [s, ...css];
-}
-
-// src/index.ts
-async function startTls(host, port) {
+// src/clientHello.ts
+function clientHello(host, publicKey) {
   const hello = new ByteWriter(1024);
-  const keys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
-  const rawPublicKey = await crypto.subtle.exportKey("raw", keys.publicKey);
   hello.writeUint8(22);
   hello.comment("record type: handshake");
   hello.writeUint8(3, 1);
@@ -122,8 +120,6 @@ async function startTls(host, port) {
   const endCiphers = hello.lengthUint16("ciphers");
   hello.writeUint8(19, 1);
   hello.comment("cipher: TLS_AES_128_GCM_SHA256");
-  hello.writeUint8(0, 255);
-  hello.comment("cipher: TLS_EMPTY_RENEGOTIATION_INFO_SCSV");
   endCiphers();
   const endCompressionMethods = hello.lengthUint8("compression methods");
   hello.writeUint8(0);
@@ -180,7 +176,7 @@ async function startTls(host, port) {
   hello.writeUint8(0, 23);
   hello.comment("secp256r1 (NIST P-256) key share");
   const endKeyShare = hello.lengthUint16("key share");
-  hello.writeBytes(new Uint8Array(rawPublicKey));
+  hello.writeBytes(new Uint8Array(publicKey));
   hello.comment("key");
   endKeyShare();
   endKeyShares();
@@ -188,6 +184,14 @@ async function startTls(host, port) {
   endExtensions();
   endHandshakeHeader();
   endRecordHeader();
+  return hello;
+}
+
+// src/index.ts
+async function startTls(host, port) {
+  const keys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
+  const publicKey = await crypto.subtle.exportKey("raw", keys.publicKey);
+  const hello = clientHello(host, publicKey);
   console.log(...highlightCommented_default(hello.commentedString(), "#aaa"));
   const ws = await new Promise((resolve) => {
     const ws2 = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
