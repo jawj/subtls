@@ -58,7 +58,7 @@ export default class ByteWriter {
     return () => {
       const length = this.offset - offset - 1;
       this.dataView.setUint8(offset, length);
-      this.comment(`${length} bytes follow${comment ? `: ${comment}` : ''}`, offset + 1);
+      this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, offset + 1);
     };
   }
 
@@ -68,7 +68,7 @@ export default class ByteWriter {
     return () => {
       const length = this.offset - offset - 2;
       this.dataView.setUint16(offset, length);
-      this.comment(`${length} bytes follow${comment ? `: ${comment}` : ''}`, offset + 2);
+      this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, offset + 2);
     };
   }
 
@@ -78,8 +78,8 @@ export default class ByteWriter {
     return () => {
       const length = this.offset - offset - 3;
       this.dataView.setUint8(offset, (length & 0xff0000) >> 16);
-      this.dataView.setUint16(offset, length & 0xffff);
-      this.comment(`${length} bytes follow${comment ? `: ${comment}` : ''}`, offset + 3);
+      this.dataView.setUint16(offset + 1, length & 0xffff);
+      this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, offset + 3);
     };
   }
 
@@ -87,16 +87,12 @@ export default class ByteWriter {
     return this.uint8Array.subarray(0, this.offset);
   }
 
-  commentedString(s = '%c') {
-    const css = ['color: #000'];
+  commentedString(s = '') {
     for (let i = 0; i < this.offset; i++) {
       s += this.uint8Array[i].toString(16).padStart(2, '0') + ' ';
       const comment = this.comments[i + 1];
-      if (comment !== undefined) {
-        s += ` %c${comment}\n%c`;
-        css.push('color: #888', 'color: #000');
-      }
+      if (comment !== undefined) s += ` ${comment}\n`;
     }
-    return [s, ...css];
+    return s;
   }
 }
