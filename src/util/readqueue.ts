@@ -56,7 +56,7 @@ export class ReadQueue {
           offset += outstandingBytes;  // not technically necessary
         }
       }
-      return result;
+      return resolve(result);
     }
   }
 
@@ -66,7 +66,7 @@ export class ReadQueue {
 
   async read(bytes: number) {
     if (this.outstandingRequest !== undefined) throw new Error('Can’t read while already awaiting read');
-    return new Promise(resolve => {
+    return new Promise((resolve: (data: Uint8Array) => void) => {
       this.outstandingRequest = { resolve, bytes };
       this.dequeue();
     });

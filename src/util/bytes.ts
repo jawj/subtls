@@ -1,4 +1,4 @@
-export default class ByteWriter {
+export default class Bytes {
   offset: number;
   arrayBuffer: ArrayBuffer;
   dataView: DataView;
@@ -6,22 +6,36 @@ export default class ByteWriter {
   comments: Record<number, string>;
   textEncoder: TextEncoder;
 
-  constructor(maxBytes: number) {
+  constructor(arrayOrMaxBytes: number | Uint8Array) {
     this.offset = 0;
-    this.arrayBuffer = new ArrayBuffer(maxBytes);
+    this.uint8Array = typeof arrayOrMaxBytes === 'number' ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
+    this.arrayBuffer = this.uint8Array.buffer;
     this.dataView = new DataView(this.arrayBuffer);
-    this.uint8Array = new Uint8Array(this.arrayBuffer);
     this.comments = {};
     this.textEncoder = new TextEncoder();
+  }
+
+  subarray(length: number) {
+    // this advances the offset and returns a subarray for external writing (e.g. with crypto.getRandomValues()) or reading
+    return this.uint8Array.subarray(this.offset, this.offset += length);
   }
 
   comment(s: string, offset = this.offset) {
     this.comments[offset] = s;
   }
 
-  subarray(length: number) {
-    // this advances the offset and returns a subarray for external writing (e.g. with crypto.getRandomValues())
-    return this.uint8Array.subarray(this.offset, this.offset += length);
+  // reading
+
+  readUint8() {
+    const result = this.dataView.getUint8(this.offset);
+    this.offset += 1;
+    return result;
+  }
+
+  readUint16() {
+    const result = this.dataView.getUint16(this.offset);
+    this.offset += 2;
+    return result;
   }
 
   // writing
@@ -39,7 +53,7 @@ export default class ByteWriter {
     return this;
   }
 
-  writeUint8(...args: number[]): ByteWriter {
+  writeUint8(...args: number[]): Bytes {
     for (const arg of args) {
       this.dataView.setUint8(this.offset, arg);
       this.offset += 1;
@@ -47,7 +61,7 @@ export default class ByteWriter {
     return this;
   }
 
-  writeUint16(...args: number[]): ByteWriter {
+  writeUint16(...args: number[]): Bytes {
     for (const arg of args) {
       this.dataView.setUint16(this.offset, arg);
       this.offset += 2;
@@ -69,6 +83,7 @@ export default class ByteWriter {
         this.dataView.setUint8(startOffset, (length & 0xff0000) >> 16);
         this.dataView.setUint16(startOffset + 1, length & 0xffff);
       }
+      else throw new Error(`Invalid length for length field: ${lengthBytes}`);
       this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, endOffset);
     };
   }

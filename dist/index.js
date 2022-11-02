@@ -8,27 +8,37 @@ function highlightCommented_default(s, colour) {
   return [s, ...css];
 }
 
-// src/util/bytewriter.ts
-var ByteWriter = class {
+// src/util/bytes.ts
+var Bytes = class {
   offset;
   arrayBuffer;
   dataView;
   uint8Array;
   comments;
   textEncoder;
-  constructor(maxBytes) {
+  constructor(arrayOrMaxBytes) {
     this.offset = 0;
-    this.arrayBuffer = new ArrayBuffer(maxBytes);
+    this.uint8Array = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
+    this.arrayBuffer = this.uint8Array.buffer;
     this.dataView = new DataView(this.arrayBuffer);
-    this.uint8Array = new Uint8Array(this.arrayBuffer);
     this.comments = {};
     this.textEncoder = new TextEncoder();
+  }
+  subarray(length) {
+    return this.uint8Array.subarray(this.offset, this.offset += length);
   }
   comment(s, offset = this.offset) {
     this.comments[offset] = s;
   }
-  subarray(length) {
-    return this.uint8Array.subarray(this.offset, this.offset += length);
+  readUint8() {
+    const result = this.dataView.getUint8(this.offset);
+    this.offset += 1;
+    return result;
+  }
+  readUint16() {
+    const result = this.dataView.getUint16(this.offset);
+    this.offset += 2;
+    return result;
   }
   writeBytes(bytes) {
     this.uint8Array.set(bytes, this.offset);
@@ -68,7 +78,8 @@ var ByteWriter = class {
       else if (lengthBytes === 3) {
         this.dataView.setUint8(startOffset, (length & 16711680) >> 16);
         this.dataView.setUint16(startOffset + 1, length & 65535);
-      }
+      } else
+        throw new Error(`Invalid length for length field: ${lengthBytes}`);
       this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`, endOffset);
     };
   }
@@ -98,16 +109,16 @@ var ByteWriter = class {
 
 // src/clientHello.ts
 function clientHello(host, publicKey) {
-  const hello = new ByteWriter(1024);
+  const hello = new Bytes(1024);
   hello.writeUint8(22);
   hello.comment("record type: handshake");
-  hello.writeUint8(3, 1);
+  hello.writeUint16(769);
   hello.comment("TLS protocol version 1.0");
   const endRecordHeader = hello.lengthUint16();
   hello.writeUint8(1);
   hello.comment("handshake type: client hello");
   const endHandshakeHeader = hello.lengthUint24();
-  hello.writeUint8(3, 3);
+  hello.writeUint16(771);
   hello.comment("TLS version 1.2 (middlebox compatibility)");
   crypto.getRandomValues(hello.subarray(32));
   hello.comment("client random");
@@ -116,7 +127,7 @@ function clientHello(host, publicKey) {
   hello.comment("session ID (middlebox compatibility)");
   endSessionId();
   const endCiphers = hello.lengthUint16("ciphers");
-  hello.writeUint8(19, 1);
+  hello.writeUint16(4865);
   hello.comment("cipher: TLS_AES_128_GCM_SHA256");
   endCiphers();
   const endCompressionMethods = hello.lengthUint8("compression methods");
@@ -124,7 +135,7 @@ function clientHello(host, publicKey) {
   hello.comment("compression method: none");
   endCompressionMethods();
   const endExtensions = hello.lengthUint16("extensions");
-  hello.writeUint8(0, 0);
+  hello.writeUint16(0);
   hello.comment("extension type: SNI");
   const endSNIExt = hello.lengthUint16("SNI data");
   const endSNI = hello.lengthUint16("SNI records");
@@ -135,7 +146,7 @@ function clientHello(host, publicKey) {
   endHostname();
   endSNI();
   endSNIExt();
-  hello.writeUint8(0, 11);
+  hello.writeUint16(11);
   hello.comment("extension type: EC point formats");
   const endFormatTypesExt = hello.lengthUint16("formats data");
   const endFormatTypes = hello.lengthUint8("formats");
@@ -143,35 +154,35 @@ function clientHello(host, publicKey) {
   hello.comment("format: uncompressed");
   endFormatTypes();
   endFormatTypesExt();
-  hello.writeUint8(0, 10);
+  hello.writeUint16(10);
   hello.comment("extension type: supported groups (curves)");
   const endGroupsExt = hello.lengthUint16("groups data");
   const endGroups = hello.lengthUint16("groups");
-  hello.writeUint8(0, 23);
+  hello.writeUint16(23);
   hello.comment("curve secp256r1 (NIST P-256)");
   endGroups();
   endGroupsExt();
-  hello.writeUint8(0, 13);
+  hello.writeUint16(13);
   hello.comment("extension type: signature algorithms");
   const endSigsExt = hello.lengthUint16("signature algorithms data");
   const endSigs = hello.lengthUint16("signature algorithms");
-  hello.writeUint8(4, 3);
+  hello.writeUint16(1027);
   hello.comment("ECDSA-SECP256r1-SHA256");
   endSigs();
   endSigsExt();
-  hello.writeUint8(0, 43);
+  hello.writeUint16(43);
   hello.comment("extension type: supported TLS versions");
   const endVersionsExt = hello.lengthUint16("TLS versions data");
   const endVersions = hello.lengthUint8("TLS versions");
-  hello.writeUint8(3, 4);
+  hello.writeUint16(772);
   hello.comment("TLS version 1.3");
   endVersions();
   endVersionsExt();
-  hello.writeUint8(0, 51);
+  hello.writeUint16(51);
   hello.comment("extension type: key share");
   const endKeyShareExt = hello.lengthUint16("key share data");
   const endKeyShares = hello.lengthUint16("key shares");
-  hello.writeUint8(0, 23);
+  hello.writeUint16(23);
   hello.comment("secp256r1 (NIST P-256) key share");
   const endKeyShare = hello.lengthUint16("key share");
   hello.writeBytes(new Uint8Array(publicKey));
@@ -185,20 +196,106 @@ function clientHello(host, publicKey) {
   return hello;
 }
 
+// src/util/readqueue.ts
+var ReadQueue = class {
+  queue;
+  outstandingRequest;
+  constructor(ws) {
+    this.queue = [];
+    ws.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+  }
+  enqueue(data) {
+    this.queue.push(data);
+    this.dequeue();
+  }
+  dequeue() {
+    if (this.outstandingRequest === void 0)
+      return;
+    const { resolve, bytes } = this.outstandingRequest;
+    const bytesInQueue = this.bytesInQueue();
+    if (bytesInQueue < bytes)
+      return;
+    this.outstandingRequest = void 0;
+    const firstItem = this.queue[0];
+    const firstItemLength = firstItem.length;
+    if (firstItemLength === bytes) {
+      this.queue.shift();
+      return resolve(firstItem);
+    } else if (firstItemLength > bytes) {
+      this.queue[0] = firstItem.subarray(bytes);
+      return resolve(firstItem.subarray(0, bytes));
+    } else {
+      const result = new Uint8Array(bytes);
+      let outstandingBytes = bytes;
+      let offset = 0;
+      while (outstandingBytes > 0) {
+        const nextItem = this.queue[0];
+        const nextItemLength = nextItem.length;
+        if (nextItemLength <= outstandingBytes) {
+          this.queue.shift();
+          result.set(nextItem, offset);
+          offset += nextItemLength;
+          outstandingBytes -= nextItemLength;
+        } else {
+          this.queue[0] = nextItem.subarray(outstandingBytes);
+          result.set(nextItem.subarray(0, outstandingBytes), offset);
+          outstandingBytes -= outstandingBytes;
+          offset += outstandingBytes;
+        }
+      }
+      return resolve(result);
+    }
+  }
+  bytesInQueue() {
+    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
+  }
+  async read(bytes) {
+    if (this.outstandingRequest !== void 0)
+      throw new Error("Can\u2019t read while already awaiting read");
+    return new Promise((resolve) => {
+      this.outstandingRequest = { resolve, bytes };
+      this.dequeue();
+    });
+  }
+};
+
+// src/util/tlsrecord.ts
+async function readTlsRecord(reader) {
+  const headerData = await reader.read(5);
+  const header = new Bytes(headerData);
+  const type = header.readUint8();
+  if (type < 20 || type > 24)
+    throw new Error(`Illegal TLS record type ${type} / 0x${type.toString(16)}`);
+  const version = header.readUint16();
+  if (version != 771)
+    throw new Error(`Unsupported TLS record version ${version} / 0x${version.toString(16)}`);
+  const length = header.readUint16();
+  const content = await reader.read(length);
+  return { type, content };
+}
+var RecordTypeNames = {
+  20: "0x14 ChangeCipherSpec",
+  21: `0x15 Alert`,
+  22: `0x16 Handshake`,
+  23: `0x17 Application`,
+  24: `0x18 Heartbeat`
+};
+
 // src/index.ts
 async function startTls(host, port) {
   const keys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const publicKey = await crypto.subtle.exportKey("raw", keys.publicKey);
-  const hello = clientHello(host, publicKey);
-  console.log(...highlightCommented_default(hello.commentedString(), "#aaa"));
   const ws = await new Promise((resolve) => {
     const ws2 = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
     ws2.addEventListener("open", () => resolve(ws2));
-    ws2.addEventListener("message", (msg) => console.log(new Uint8Array(msg.data)));
   });
+  const reader = new ReadQueue(ws);
+  const hello = clientHello(host, publicKey);
+  console.log(...highlightCommented_default(hello.commentedString(), "#aaa"));
   const bytes = hello.array();
-  console.log(bytes);
   ws.send(bytes);
+  const { type, content } = await readTlsRecord(reader);
+  console.log(RecordTypeNames[type], content);
 }
 startTls("google.com", 443);
