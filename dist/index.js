@@ -11,7 +11,6 @@ function highlightCommented_default(s, colour) {
 // src/util/bytes.ts
 var Bytes = class {
   offset;
-  arrayBuffer;
   dataView;
   uint8Array;
   comments;
@@ -19,16 +18,23 @@ var Bytes = class {
   constructor(arrayOrMaxBytes) {
     this.offset = 0;
     this.uint8Array = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.arrayBuffer = this.uint8Array.buffer;
-    this.dataView = new DataView(this.arrayBuffer);
+    this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
     this.comments = {};
     this.textEncoder = new TextEncoder();
   }
   subarray(length) {
     return this.uint8Array.subarray(this.offset, this.offset += length);
   }
+  slice(length) {
+    return this.uint8Array.slice(this.offset, this.offset += length);
+  }
+  skip(length) {
+    this.offset += length;
+    return this;
+  }
   comment(s, offset = this.offset) {
     this.comments[offset] = s;
+    return this;
   }
   readUint8() {
     const result = this.dataView.getUint8(this.offset);
@@ -39,6 +45,25 @@ var Bytes = class {
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
     return result;
+  }
+  readUint24() {
+    const msb = this.readUint8();
+    const lsbs = this.readUint16();
+    return (msb << 16) + lsbs;
+  }
+  expectUint8(expectedValue, comment) {
+    const actualValue = this.readUint8();
+    if (comment !== void 0)
+      this.comment(comment);
+    if (actualValue !== expectedValue)
+      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
+  expectUint16(expectedValue, comment) {
+    const actualValue = this.readUint16();
+    if (comment !== void 0)
+      this.comment(comment);
+    if (actualValue !== expectedValue)
+      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
   writeBytes(bytes) {
     this.uint8Array.set(bytes, this.offset);
@@ -260,28 +285,28 @@ var ReadQueue = class {
 };
 
 // src/util/tlsrecord.ts
-async function readTlsRecord(reader) {
+var maxRecordLength = 1 << 14;
+async function readTlsRecord(reader, expectedType) {
   const headerData = await reader.read(5);
   const header = new Bytes(headerData);
   const type = header.readUint8();
   if (type < 20 || type > 24)
-    throw new Error(`Illegal TLS record type ${type} / 0x${type.toString(16)}`);
+    throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
+  if (expectedType !== void 0 && type !== expectedType)
+    throw new Error(`Unexpected TLS record type 0x${type.toString(16)} (expected ${expectedType})`);
   const version = header.readUint16();
-  if (version != 771)
-    throw new Error(`Unsupported TLS record version ${version} / 0x${version.toString(16)}`);
+  if ([769, 770, 771].indexOf(version) < 0)
+    throw new Error(`Unsupported TLS record version 0x${version.toString(16)}`);
   const length = header.readUint16();
+  if (length > maxRecordLength)
+    throw new Error(`Record too long: ${length} bytes`);
   const content = await reader.read(length);
-  return { type, content };
+  return { type, version, length, content };
 }
-var RecordTypeNames = {
-  20: "0x14 ChangeCipherSpec",
-  21: `0x15 Alert`,
-  22: `0x16 Handshake`,
-  23: `0x17 Application`,
-  24: `0x18 Heartbeat`
-};
 
 // src/index.ts
+var clientColour = "#aca";
+var serverColour = "#aac";
 async function startTls(host, port) {
   const keys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const publicKey = await crypto.subtle.exportKey("raw", keys.publicKey);
@@ -292,10 +317,23 @@ async function startTls(host, port) {
   });
   const reader = new ReadQueue(ws);
   const hello = clientHello(host, publicKey);
-  console.log(...highlightCommented_default(hello.commentedString(), "#aaa"));
-  const bytes = hello.array();
-  ws.send(bytes);
-  const { type, content } = await readTlsRecord(reader);
-  console.log(RecordTypeNames[type], content);
+  console.log(...highlightCommented_default(hello.commentedString(), clientColour));
+  ws.send(hello.array());
+  const shellodata = await readTlsRecord(reader, 22 /* Handshake */);
+  const shello = new Bytes(shellodata.content);
+  shello.expectUint8(2, "handshake type: server hello");
+  const helloLength = shello.readUint24();
+  shello.comment("handshake length");
+  shello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  const serverRandom = shello.slice(32);
+  shello.comment("server random");
+  shello.expectUint8(32, "session ID length");
+  shello.skip(32);
+  shello.comment("session ID (should match client hello)");
+  shello.expectUint16(4865, "cipher (matches client hello)");
+  shello.expectUint8(0, "no compression");
+  const extensionsLength = shello.readUint16();
+  shello.comment("extensions length");
+  console.log(...highlightCommented_default(shello.commentedString(), serverColour));
 }
-startTls("google.com", 443);
+startTls("cloudflare.com", 443);

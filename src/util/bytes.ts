@@ -1,6 +1,5 @@
 export default class Bytes {
   offset: number;
-  arrayBuffer: ArrayBuffer;
   dataView: DataView;
   uint8Array: Uint8Array;
   comments: Record<number, string>;
@@ -9,8 +8,7 @@ export default class Bytes {
   constructor(arrayOrMaxBytes: number | Uint8Array) {
     this.offset = 0;
     this.uint8Array = typeof arrayOrMaxBytes === 'number' ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.arrayBuffer = this.uint8Array.buffer;
-    this.dataView = new DataView(this.arrayBuffer);
+    this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
     this.comments = {};
     this.textEncoder = new TextEncoder();
   }
@@ -20,8 +18,18 @@ export default class Bytes {
     return this.uint8Array.subarray(this.offset, this.offset += length);
   }
 
+  slice(length: number) {
+    return this.uint8Array.slice(this.offset, this.offset += length);
+  }
+
+  skip(length: number) {
+    this.offset += length;
+    return this;
+  }
+
   comment(s: string, offset = this.offset) {
     this.comments[offset] = s;
+    return this;
   }
 
   // reading
@@ -36,6 +44,24 @@ export default class Bytes {
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
     return result;
+  }
+
+  readUint24() {
+    const msb = this.readUint8();
+    const lsbs = this.readUint16();
+    return (msb << 16) + lsbs;
+  }
+
+  expectUint8(expectedValue: number, comment?: string) {
+    const actualValue = this.readUint8();
+    if (comment !== undefined) this.comment(comment);
+    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
+
+  expectUint16(expectedValue: number, comment?: string) {
+    const actualValue = this.readUint16();
+    if (comment !== undefined) this.comment(comment);
+    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
 
   // writing
