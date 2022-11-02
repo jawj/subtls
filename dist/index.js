@@ -3,7 +3,7 @@ function highlightCommented_default(s, colour) {
   const css = [];
   s = s.replace(/  .+$/gm, (m) => {
     css.push(`color: ${colour}`, "color: inherit");
-    return `  %c${m}%c`;
+    return `%c${m}%c`;
   });
   return [s, ...css];
 }
