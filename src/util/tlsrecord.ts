@@ -23,17 +23,17 @@ export async function readTlsRecord(reader: ReadQueue, expectedType?: RecordType
   const headerData = await reader.read(5);
   const header = new Bytes(headerData);
 
-  const type = header.readUint8() as keyof typeof RecordTypeNames;
+  const type = header.readUint8('record type') as keyof typeof RecordTypeNames;
   if (type < 0x14 || type > 0x18) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
-  if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16)} (expected ${expectedType})`);
+  if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected ${expectedType.toString(16).padStart(2, '0')})`);
 
-  const version = header.readUint16();
-  if ([0x0301, 0x0302, 0x0303].indexOf(version) < 0) throw new Error(`Unsupported TLS record version 0x${version.toString(16)}`);
+  const version = header.readUint16('TLS version');
+  if ([0x0301, 0x0302, 0x0303].indexOf(version) < 0) throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, '0')}`);
 
-  const length = header.readUint16();
+  const length = header.readUint16('record length');
   if (length > maxRecordLength) throw new Error(`Record too long: ${length} bytes`)
 
   const content = await reader.read(length);
-  return { type, version, length, content };
+  return { header, type, version, length, content };
 }
 

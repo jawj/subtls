@@ -26,29 +26,53 @@ async function startTls(host: string, port: number) {
   ws.send(hello.array());
 
   const shellodata = await readTlsRecord(reader, RecordTypes.Handshake);
-  // console.log(shellodata, shellodata.content);
   const shello = new Bytes(shellodata.content);
-  // console.log(shello);
 
   shello.expectUint8(0x02, 'handshake type: server hello');
-  const helloLength = shello.readUint24();
-  shello.comment('handshake length');
+  const helloLength = shello.readUint24('server hello length');
 
   shello.expectUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
   const serverRandom = shello.slice(32);
   shello.comment('server random');
 
   shello.expectUint8(0x20, 'session ID length');
-  shello.skip(0x20);
-  shello.comment('session ID (should match client hello)');
+  shello.skip(0x20, 'session ID (should match client hello)');
 
   shello.expectUint16(0x1301, 'cipher (matches client hello)');
   shello.expectUint8(0x00, 'no compression');
 
-  const extensionsLength = shello.readUint16();
-  shello.comment('extensions length');
+  const extensionsLength = shello.readUint16('extensions length');
 
-  console.log(...highlightCommented(shello.commentedString(), serverColour));
+  while (shello.remainingBytes() > 0) {
+    const extensionType = shello.readUint16('extension type');
+    const extensionLength = shello.readUint16('extension length');
+
+    if (extensionType === 0x002b) {
+      if (extensionLength !== 2) throw new Error(`Unexpected extension length: ${extensionLength} (expected 2)`);
+      shello.expectUint16(0x0304, 'TLS version 1.3');
+
+    } else if (extensionType === 0x0033) {
+      shello.expectUint16(0x0017, 'secp256r1 (NIST P-256) key share');
+      shello.expectUint16(65);
+      const serverPublicKey = shello.slice(65);
+      shello.comment('key');
+
+    } else {
+      throw new Error(`Unexpected extension 0x${extensionType.toString(16).padStart(4, '0')}, length ${extensionLength}`)
+    }
+  }
+
+  if (shello.remainingBytes() !== 0) throw new Error(`Unexpected additional data at end of server hello`);
+  console.log(...highlightCommented(shellodata.header.commentedString() + shello.commentedString(), serverColour));
+
+  const changeCipherRecord = await readTlsRecord(reader, RecordTypes.ChangeCipherSpec);
+  const ccipher = new Bytes(changeCipherRecord.content);
+  ccipher.expectUint8(0x01, 'dummy ChangeCipherSpec payload (middlebox compatibility)');
+  if (ccipher.remainingBytes() !== 0) throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
+  console.log(...highlightCommented(changeCipherRecord.header.commentedString() + ccipher.commentedString(), serverColour));
+
+  const record = await readTlsRecord(reader, RecordTypes.Application);
+  console.log(RecordTypeNames[record.type], record);
 }
 
 startTls('cloudflare.com', 443);

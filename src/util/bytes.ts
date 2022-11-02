@@ -13,6 +13,10 @@ export default class Bytes {
     this.textEncoder = new TextEncoder();
   }
 
+  remainingBytes() {
+    return this.uint8Array.length - this.offset;
+  }
+
   subarray(length: number) {
     // this advances the offset and returns a subarray for external writing (e.g. with crypto.getRandomValues()) or reading
     return this.uint8Array.subarray(this.offset, this.offset += length);
@@ -22,8 +26,9 @@ export default class Bytes {
     return this.uint8Array.slice(this.offset, this.offset += length);
   }
 
-  skip(length: number) {
+  skip(length: number, comment?: string) {
     this.offset += length;
+    if (comment !== undefined) this.comment(comment);
     return this;
   }
 
@@ -34,21 +39,23 @@ export default class Bytes {
 
   // reading
 
-  readUint8() {
+  readUint8(comment?: string) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
+    if (comment !== undefined) this.comment(comment);
     return result;
   }
 
-  readUint16() {
+  readUint16(comment?: string) {
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
+    if (comment !== undefined) this.comment(comment);
     return result;
   }
 
-  readUint24() {
+  readUint24(comment?: string) {
     const msb = this.readUint8();
-    const lsbs = this.readUint16();
+    const lsbs = this.readUint16(comment);
     return (msb << 16) + lsbs;
   }
 

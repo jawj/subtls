@@ -22,33 +22,42 @@ var Bytes = class {
     this.comments = {};
     this.textEncoder = new TextEncoder();
   }
+  remainingBytes() {
+    return this.uint8Array.length - this.offset;
+  }
   subarray(length) {
     return this.uint8Array.subarray(this.offset, this.offset += length);
   }
   slice(length) {
     return this.uint8Array.slice(this.offset, this.offset += length);
   }
-  skip(length) {
+  skip(length, comment) {
     this.offset += length;
+    if (comment !== void 0)
+      this.comment(comment);
     return this;
   }
   comment(s, offset = this.offset) {
     this.comments[offset] = s;
     return this;
   }
-  readUint8() {
+  readUint8(comment) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
+    if (comment !== void 0)
+      this.comment(comment);
     return result;
   }
-  readUint16() {
+  readUint16(comment) {
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
+    if (comment !== void 0)
+      this.comment(comment);
     return result;
   }
-  readUint24() {
+  readUint24(comment) {
     const msb = this.readUint8();
-    const lsbs = this.readUint16();
+    const lsbs = this.readUint16(comment);
     return (msb << 16) + lsbs;
   }
   expectUint8(expectedValue, comment) {
@@ -285,23 +294,30 @@ var ReadQueue = class {
 };
 
 // src/util/tlsrecord.ts
+var RecordTypeNames = {
+  20: "0x14 ChangeCipherSpec",
+  21: `0x15 Alert`,
+  22: `0x16 Handshake`,
+  23: `0x17 Application`,
+  24: `0x18 Heartbeat`
+};
 var maxRecordLength = 1 << 14;
 async function readTlsRecord(reader, expectedType) {
   const headerData = await reader.read(5);
   const header = new Bytes(headerData);
-  const type = header.readUint8();
+  const type = header.readUint8("record type");
   if (type < 20 || type > 24)
     throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   if (expectedType !== void 0 && type !== expectedType)
-    throw new Error(`Unexpected TLS record type 0x${type.toString(16)} (expected ${expectedType})`);
-  const version = header.readUint16();
+    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected ${expectedType.toString(16).padStart(2, "0")})`);
+  const version = header.readUint16("TLS version");
   if ([769, 770, 771].indexOf(version) < 0)
-    throw new Error(`Unsupported TLS record version 0x${version.toString(16)}`);
-  const length = header.readUint16();
+    throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
+  const length = header.readUint16("record length");
   if (length > maxRecordLength)
     throw new Error(`Record too long: ${length} bytes`);
   const content = await reader.read(length);
-  return { type, version, length, content };
+  return { header, type, version, length, content };
 }
 
 // src/index.ts
@@ -322,18 +338,41 @@ async function startTls(host, port) {
   const shellodata = await readTlsRecord(reader, 22 /* Handshake */);
   const shello = new Bytes(shellodata.content);
   shello.expectUint8(2, "handshake type: server hello");
-  const helloLength = shello.readUint24();
-  shello.comment("handshake length");
+  const helloLength = shello.readUint24("server hello length");
   shello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
   const serverRandom = shello.slice(32);
   shello.comment("server random");
   shello.expectUint8(32, "session ID length");
-  shello.skip(32);
-  shello.comment("session ID (should match client hello)");
+  shello.skip(32, "session ID (should match client hello)");
   shello.expectUint16(4865, "cipher (matches client hello)");
   shello.expectUint8(0, "no compression");
-  const extensionsLength = shello.readUint16();
-  shello.comment("extensions length");
-  console.log(...highlightCommented_default(shello.commentedString(), serverColour));
+  const extensionsLength = shello.readUint16("extensions length");
+  while (shello.remainingBytes() > 0) {
+    const extensionType = shello.readUint16("extension type");
+    const extensionLength = shello.readUint16("extension length");
+    if (extensionType === 43) {
+      if (extensionLength !== 2)
+        throw new Error(`Unexpected extension length: ${extensionLength} (expected 2)`);
+      shello.expectUint16(772, "TLS version 1.3");
+    } else if (extensionType === 51) {
+      shello.expectUint16(23, "secp256r1 (NIST P-256) key share");
+      shello.expectUint16(65);
+      const serverPublicKey = shello.slice(65);
+      shello.comment("key");
+    } else {
+      throw new Error(`Unexpected extension 0x${extensionType.toString(16).padStart(4, "0")}, length ${extensionLength}`);
+    }
+  }
+  if (shello.remainingBytes() !== 0)
+    throw new Error(`Unexpected additional data at end of server hello`);
+  console.log(...highlightCommented_default(shellodata.header.commentedString() + shello.commentedString(), serverColour));
+  const changeCipherRecord = await readTlsRecord(reader, 20 /* ChangeCipherSpec */);
+  const ccipher = new Bytes(changeCipherRecord.content);
+  ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
+  if (ccipher.remainingBytes() !== 0)
+    throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
+  console.log(...highlightCommented_default(changeCipherRecord.header.commentedString() + ccipher.commentedString(), serverColour));
+  const record = await readTlsRecord(reader, 23 /* Application */);
+  console.log(RecordTypeNames[record.type], record);
 }
 startTls("cloudflare.com", 443);
