@@ -37,3 +37,7 @@ export async function readTlsRecord(reader: ReadQueue, expectedType?: RecordType
   return { header, type, version, length, content };
 }
 
+// export async function writeTlsRecord(data: Uint8Array, type: RecordTypes) {
+
+// }
+

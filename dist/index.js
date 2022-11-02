@@ -142,7 +142,7 @@ var Bytes = class {
 };
 
 // src/clientHello.ts
-function clientHello(host, publicKey) {
+function makeClientHello(host, publicKey) {
   const hello = new Bytes(1024);
   hello.writeUint8(22);
   hello.comment("record type: handshake");
@@ -320,58 +320,81 @@ async function readTlsRecord(reader, expectedType) {
   return { header, type, version, length, content };
 }
 
+// src/parseServerHello.ts
+function parseServerHello(hello) {
+  let serverPublicKey;
+  let tlsVersionSpecified;
+  hello.expectUint8(2, "handshake type: server hello");
+  const helloLength = hello.readUint24("server hello length");
+  hello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  hello.skip(32, "server random");
+  hello.expectUint8(32, "session ID length");
+  hello.skip(32, "session ID (should match client hello)");
+  hello.expectUint16(4865, "cipher (matches client hello)");
+  hello.expectUint8(0, "no compression");
+  const extensionsLength = hello.readUint16("extensions length");
+  while (hello.remainingBytes() > 0) {
+    const extensionType = hello.readUint16("extension type");
+    const extensionLength = hello.readUint16("extension length");
+    if (extensionType === 43) {
+      if (extensionLength !== 2)
+        throw new Error(`Unexpected extension length: ${extensionLength} (expected 2)`);
+      hello.expectUint16(772, "TLS version 1.3");
+      tlsVersionSpecified = true;
+    } else if (extensionType === 51) {
+      hello.expectUint16(23, "secp256r1 (NIST P-256) key share");
+      hello.expectUint16(65);
+      serverPublicKey = hello.slice(65);
+      hello.comment("key");
+    } else {
+      throw new Error(`Unexpected extension 0x${extensionType.toString(16).padStart(4, "0")}, length ${extensionLength}`);
+    }
+  }
+  if (hello.remainingBytes() !== 0)
+    throw new Error(`Unexpected additional data at end of server hello`);
+  if (tlsVersionSpecified !== true || serverPublicKey === void 0)
+    throw new Error(`Incomplete server hello`);
+  return serverPublicKey;
+}
+
 // src/index.ts
 var clientColour = "#aca";
 var serverColour = "#aac";
 async function startTls(host, port) {
   const keys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
-  const publicKey = await crypto.subtle.exportKey("raw", keys.publicKey);
+  const rawPublicKey = await crypto.subtle.exportKey("raw", keys.publicKey);
   const ws = await new Promise((resolve) => {
     const ws2 = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
     ws2.addEventListener("open", () => resolve(ws2));
   });
   const reader = new ReadQueue(ws);
-  const hello = clientHello(host, publicKey);
-  console.log(...highlightCommented_default(hello.commentedString(), clientColour));
-  ws.send(hello.array());
-  const shellodata = await readTlsRecord(reader, 22 /* Handshake */);
-  const shello = new Bytes(shellodata.content);
-  shello.expectUint8(2, "handshake type: server hello");
-  const helloLength = shello.readUint24("server hello length");
-  shello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
-  const serverRandom = shello.slice(32);
-  shello.comment("server random");
-  shello.expectUint8(32, "session ID length");
-  shello.skip(32, "session ID (should match client hello)");
-  shello.expectUint16(4865, "cipher (matches client hello)");
-  shello.expectUint8(0, "no compression");
-  const extensionsLength = shello.readUint16("extensions length");
-  while (shello.remainingBytes() > 0) {
-    const extensionType = shello.readUint16("extension type");
-    const extensionLength = shello.readUint16("extension length");
-    if (extensionType === 43) {
-      if (extensionLength !== 2)
-        throw new Error(`Unexpected extension length: ${extensionLength} (expected 2)`);
-      shello.expectUint16(772, "TLS version 1.3");
-    } else if (extensionType === 51) {
-      shello.expectUint16(23, "secp256r1 (NIST P-256) key share");
-      shello.expectUint16(65);
-      const serverPublicKey = shello.slice(65);
-      shello.comment("key");
-    } else {
-      throw new Error(`Unexpected extension 0x${extensionType.toString(16).padStart(4, "0")}, length ${extensionLength}`);
-    }
-  }
-  if (shello.remainingBytes() !== 0)
-    throw new Error(`Unexpected additional data at end of server hello`);
-  console.log(...highlightCommented_default(shellodata.header.commentedString() + shello.commentedString(), serverColour));
+  const clientHello = makeClientHello(host, rawPublicKey);
+  console.log(...highlightCommented_default(clientHello.commentedString(), clientColour));
+  const clientHelloData = clientHello.array();
+  ws.send(clientHelloData);
+  const serverHelloRecord = await readTlsRecord(reader, 22 /* Handshake */);
+  const serverHello = new Bytes(serverHelloRecord.content);
+  const serverRawPublicKey = parseServerHello(serverHello);
+  console.log(...highlightCommented_default(serverHelloRecord.header.commentedString() + serverHello.commentedString(), serverColour));
   const changeCipherRecord = await readTlsRecord(reader, 20 /* ChangeCipherSpec */);
   const ccipher = new Bytes(changeCipherRecord.content);
   ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
   if (ccipher.remainingBytes() !== 0)
     throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
   console.log(...highlightCommented_default(changeCipherRecord.header.commentedString() + ccipher.commentedString(), serverColour));
+  const serverPublicKey = await crypto.subtle.importKey("raw", serverRawPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: "ECDH", public: serverPublicKey }, keys.privateKey, 256);
+  const sharedSecret = new Uint8Array(sharedSecretBuffer);
+  console.log("shared secret", sharedSecret);
+  const clientHelloContent = clientHelloData.subarray(5);
+  const serverHelloContent = serverHelloRecord.content;
+  const combinedContent = new Uint8Array(clientHelloContent.length + serverHelloContent.length);
+  combinedContent.set(clientHelloContent);
+  combinedContent.set(serverHelloContent, clientHelloContent.length);
+  const hellosHashBuffer = await crypto.subtle.digest("SHA-384", combinedContent);
+  const hellosHash = new Uint8Array(hellosHashBuffer);
+  console.log("hash", hellosHash);
   const record = await readTlsRecord(reader, 23 /* Application */);
   console.log(RecordTypeNames[record.type], record);
 }

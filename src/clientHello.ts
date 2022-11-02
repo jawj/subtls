@@ -1,13 +1,13 @@
 import Bytes from './util/bytes';
 
-export default function clientHello(host: string, publicKey: ArrayBuffer) {
+export default function makeClientHello(host: string, publicKey: ArrayBuffer) {
   const hello = new Bytes(1024);
 
   hello.writeUint8(0x16);
   hello.comment('record type: handshake');
   hello.writeUint16(0x0301);
   hello.comment('TLS protocol version 1.0');
-  const endRecordHeader = hello.lengthUint16();
+  const endRecordHeader = hello.lengthUint16();  // 5 bytes
 
   hello.writeUint8(0x01);
   hello.comment('handshake type: client hello');
