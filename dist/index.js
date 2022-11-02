@@ -1,4 +1,4 @@
-// src/highlightCommented.ts
+// src/util/highlightCommented.ts
 function highlightCommented_default(s, colour) {
   const css = [];
   s = s.replace(/  .+$/gm, (m) => {
@@ -8,7 +8,7 @@ function highlightCommented_default(s, colour) {
   return [s, ...css];
 }
 
-// src/bytewriter.ts
+// src/util/bytewriter.ts
 var ByteWriter = class {
   offset;
   arrayBuffer;
@@ -35,7 +35,7 @@ var ByteWriter = class {
     this.offset += bytes.length;
     return this;
   }
-  writeString(s) {
+  writeUTF8String(s) {
     const bytes = this.textEncoder.encode(s);
     this.writeBytes(bytes);
     this.comment('"' + s + '"');
@@ -55,33 +55,31 @@ var ByteWriter = class {
     }
     return this;
   }
-  lengthUint8(comment) {
-    const { offset } = this;
-    this.offset += 1;
+  _lengthGeneric(lengthBytes, comment) {
+    const startOffset = this.offset;
+    this.offset += lengthBytes;
+    const endOffset = this.offset;
     return () => {
-      const length = this.offset - offset - 1;
-      this.dataView.setUint8(offset, length);
-      this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`, offset + 1);
+      const length = this.offset - endOffset;
+      if (lengthBytes === 1)
+        this.dataView.setUint8(startOffset, length);
+      else if (lengthBytes === 2)
+        this.dataView.setUint16(startOffset, length);
+      else if (lengthBytes === 3) {
+        this.dataView.setUint8(startOffset, (length & 16711680) >> 16);
+        this.dataView.setUint16(startOffset + 1, length & 65535);
+      }
+      this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`, endOffset);
     };
+  }
+  lengthUint8(comment) {
+    return this._lengthGeneric(1, comment);
   }
   lengthUint16(comment) {
-    const { offset } = this;
-    this.offset += 2;
-    return () => {
-      const length = this.offset - offset - 2;
-      this.dataView.setUint16(offset, length);
-      this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`, offset + 2);
-    };
+    return this._lengthGeneric(2, comment);
   }
   lengthUint24(comment) {
-    const { offset } = this;
-    this.offset += 3;
-    return () => {
-      const length = this.offset - offset - 3;
-      this.dataView.setUint8(offset, (length & 16711680) >> 16);
-      this.dataView.setUint16(offset + 1, length & 65535);
-      this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`, offset + 3);
-    };
+    return this._lengthGeneric(3, comment);
   }
   array() {
     return this.uint8Array.subarray(0, this.offset);
@@ -133,7 +131,7 @@ function clientHello(host, publicKey) {
   hello.writeUint8(0);
   hello.comment("list entry type: DNS hostname");
   const endHostname = hello.lengthUint16("hostname");
-  hello.writeString(host);
+  hello.writeUTF8String(host);
   endHostname();
   endSNI();
   endSNIExt();

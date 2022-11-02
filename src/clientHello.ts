@@ -45,7 +45,7 @@ export default function clientHello(host: string, publicKey: ArrayBuffer) {
   hello.writeUint8(0x00);
   hello.comment('list entry type: DNS hostname');
   const endHostname = hello.lengthUint16('hostname');
-  hello.writeString(host);
+  hello.writeUTF8String(host);
   endHostname();
   endSNI();
   endSNIExt();

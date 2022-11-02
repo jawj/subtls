@@ -20,8 +20,11 @@ export default class ByteWriter {
   }
 
   subarray(length: number) {
+    // this advances the offset and returns a subarray for external writing (e.g. with crypto.getRandomValues())
     return this.uint8Array.subarray(this.offset, this.offset += length);
   }
+
+  // writing
 
   writeBytes(bytes: number[] | Uint8Array) {
     this.uint8Array.set(bytes, this.offset);
@@ -29,7 +32,7 @@ export default class ByteWriter {
     return this;
   }
 
-  writeString(s: string) {
+  writeUTF8String(s: string) {
     const bytes = this.textEncoder.encode(s);
     this.writeBytes(bytes);
     this.comment('"' + s + '"');
@@ -52,36 +55,37 @@ export default class ByteWriter {
     return this;
   }
 
-  lengthUint8(comment?: string): (() => void) {
-    const { offset } = this;
-    this.offset += 1;
+  // forward-looking lengths
+
+  _lengthGeneric(lengthBytes: 1 | 2 | 3, comment?: string) {
+    const startOffset = this.offset;
+    this.offset += lengthBytes;
+    const endOffset = this.offset;
     return () => {
-      const length = this.offset - offset - 1;
-      this.dataView.setUint8(offset, length);
-      this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, offset + 1);
+      const length = this.offset - endOffset;
+      if (lengthBytes === 1) this.dataView.setUint8(startOffset, length);
+      else if (lengthBytes === 2) this.dataView.setUint16(startOffset, length);
+      else if (lengthBytes === 3) {
+        this.dataView.setUint8(startOffset, (length & 0xff0000) >> 16);
+        this.dataView.setUint16(startOffset + 1, length & 0xffff);
+      }
+      this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, endOffset);
     };
   }
 
-  lengthUint16(comment?: string): (() => void) {
-    const { offset } = this;
-    this.offset += 2;
-    return () => {
-      const length = this.offset - offset - 2;
-      this.dataView.setUint16(offset, length);
-      this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, offset + 2);
-    };
+  lengthUint8(comment?: string) {
+    return this._lengthGeneric(1, comment);
   }
 
-  lengthUint24(comment?: string): (() => void) {
-    const { offset } = this;
-    this.offset += 3;
-    return () => {
-      const length = this.offset - offset - 3;
-      this.dataView.setUint8(offset, (length & 0xff0000) >> 16);
-      this.dataView.setUint16(offset + 1, length & 0xffff);
-      this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, offset + 3);
-    };
+  lengthUint16(comment?: string) {
+    return this._lengthGeneric(2, comment);
   }
+
+  lengthUint24(comment?: string) {
+    return this._lengthGeneric(3, comment);
+  }
+
+  // output
 
   array() {
     return this.uint8Array.subarray(0, this.offset);
