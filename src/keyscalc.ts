@@ -1,14 +1,6 @@
-
-function u8FromHex(hex: string) {
-  return new Uint8Array(Array.from(hex.matchAll(/../g)).map(hex => parseInt(hex[0], 16)));
-}
-
-function hexFromU8(u8: Uint8Array) {
-  return [...u8].map(n => n.toString(16).padStart(2, '0')).join('');
-}
+import { hexFromU8, u8FromHex } from './util/hex';
 
 const txtEnc = new TextEncoder();
-const tls13_Bytes = txtEnc.encode('tls13 ');
 
 async function hkdfExtract(salt: Uint8Array, keyMaterial: Uint8Array, hashBits: 256 | 384) {
   /* 
@@ -102,6 +94,8 @@ async function hkdfExpand(key: Uint8Array, info: Uint8Array, length: number, has
   return okm.subarray(0, length);
 }
 
+const tls13_Bytes = txtEnc.encode('tls13 ');
+
 async function hkdfExpandLabel(key: Uint8Array, label: Uint8Array, context: Uint8Array, length: number, hashBits: 256 | 384) {
   /*
   from https://www.rfc-editor.org/rfc/rfc8446#section-7.1:
@@ -127,7 +121,7 @@ async function hkdfExpandLabel(key: Uint8Array, label: Uint8Array, context: Uint
   hkdfLabel[0] = (length & 0xff00) >> 8;
   hkdfLabel[1] = length & 0xff;
 
-  // label length, including "tls13 " prefix
+  // label length (including "tls13 " prefix)
   hkdfLabel[2] = labelLength + 6;
   // label, including "tls13 " prefix
   hkdfLabel.set(tls13_Bytes, 2 + 1);
@@ -141,16 +135,16 @@ async function hkdfExpandLabel(key: Uint8Array, label: Uint8Array, context: Uint
   return hkdfExpand(key, hkdfLabel, length, hashBits);
 }
 
-export async function calculateKeysTest() {
+export async function getHandshakeKeysTest() {
   // https://tls13.xargs.org/#server-handshake-keys-calc
   // $ hello_hash = e05f64fcd082bdb0dce473adf669c2769f257a1c75a51b7887468b5e0e7a7de4f4d34555112077f16e079019d5a845bd
   // $ shared_secret = df4a291baa1eb7cfa6934b29b474baad2697e29f1f920dcc77c8a0a088447624
-  const helloHash = u8FromHex('e05f64fcd082bdb0dce473adf669c2769f257a1c75a51b7887468b5e0e7a7de4f4d34555112077f16e079019d5a845bd');
+  const hellosHash = u8FromHex('e05f64fcd082bdb0dce473adf669c2769f257a1c75a51b7887468b5e0e7a7de4f4d34555112077f16e079019d5a845bd');
   const sharedSecret = u8FromHex('df4a291baa1eb7cfa6934b29b474baad2697e29f1f920dcc77c8a0a088447624');
-  return calculateKeys(sharedSecret, helloHash, 384);
+  return getHandshakeKeys(sharedSecret, hellosHash, 384);
 }
 
-export async function calculateKeys(sharedSecret: Uint8Array, helloHash: Uint8Array, hashBits: 256 | 384) {
+export async function getHandshakeKeys(sharedSecret: Uint8Array, hellosHash: Uint8Array, hashBits: 256 | 384) {
   const hashBytes = hashBits >> 3;
 
   // $ zero_key = 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -174,11 +168,11 @@ export async function calculateKeys(sharedSecret: Uint8Array, helloHash: Uint8Ar
   console.log('handshake secret', hexFromU8(handshakeSecret));
 
   // $ csecret = $(./hkdf-384 expandlabel $handshake_secret "c hs traffic" $hello_hash 48)
-  const clientSecret = await hkdfExpandLabel(handshakeSecret, txtEnc.encode('c hs traffic'), helloHash, hashBytes, hashBits);
+  const clientSecret = await hkdfExpandLabel(handshakeSecret, txtEnc.encode('c hs traffic'), hellosHash, hashBytes, hashBits);
   console.log('client secret', hexFromU8(clientSecret));
 
   // $ ssecret = $(./hkdf-384 expandlabel $handshake_secret "s hs traffic" $hello_hash 48)
-  const serverSecret = await hkdfExpandLabel(handshakeSecret, txtEnc.encode('s hs traffic'), helloHash, hashBytes, hashBits);
+  const serverSecret = await hkdfExpandLabel(handshakeSecret, txtEnc.encode('s hs traffic'), hellosHash, hashBytes, hashBits);
   console.log('server secret', hexFromU8(serverSecret));
 
   // $ client_handshake_key = $(./hkdf-384 expandlabel $csecret "key" "" 32)

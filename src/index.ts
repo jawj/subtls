@@ -5,15 +5,16 @@ import { ReadQueue } from './util/readqueue';
 import { readTlsRecord, RecordTypeNames, RecordTypes } from './util/tlsrecord';
 import Bytes from './util/bytes';
 import parseServerHello from './parseServerHello';
-import { calculateKeysTest } from './keyscalc';
+import { getHandshakeKeys, getHandshakeKeysTest } from './keyscalc';
+import { hexFromU8 } from './util/hex';
 
 const clientColour = '#aca';
 const serverColour = '#aac';
 
 async function startTls(host: string, port: number) {
   // TODO: parallel waiting
-  const keys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true /* extractable */, ['deriveKey', 'deriveBits']);
-  const rawPublicKey = await crypto.subtle.exportKey('raw', keys.publicKey);
+  const ecdhKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true /* extractable */, ['deriveKey', 'deriveBits']);
+  const rawPublicKey = await crypto.subtle.exportKey('raw', ecdhKeys.publicKey);
 
   const ws = await new Promise<WebSocket>(resolve => {
     const ws = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
@@ -42,11 +43,11 @@ async function startTls(host: string, port: number) {
   if (ccipher.remainingBytes() !== 0) throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
   console.log(...highlightCommented(changeCipherRecord.header.commentedString() + ccipher.commentedString(), serverColour));
 
-  // keys calculation
+  // shared secret
   const serverPublicKey = await crypto.subtle.importKey('raw', serverRawPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false /* extractable */, []);
-  const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: 'ECDH', public: serverPublicKey }, keys.privateKey, 256);
+  const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: 'ECDH', public: serverPublicKey }, ecdhKeys.privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
-  console.log('shared secret', sharedSecret);
+  console.log('shared secret', hexFromU8(sharedSecret));
 
   // SHA384 of client + server hellos
   const clientHelloContent = clientHelloData.subarray(5);  // cut off the 5-byte record header
@@ -56,12 +57,20 @@ async function startTls(host: string, port: number) {
   combinedContent.set(serverHelloContent, clientHelloContent.length);
   const hellosHashBuffer = await crypto.subtle.digest('SHA-384', combinedContent);
   const hellosHash = new Uint8Array(hellosHashBuffer);
-  console.log('hash', hellosHash);
+  console.log('hellos hash', hexFromU8(hellosHash));
+
+  // keys
+  const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256);
 
   // encrypted portion ...
-  const record = await readTlsRecord(reader, RecordTypes.Application);
-  console.log(RecordTypeNames[record.type], record);
+  const encryptedExtensions = await readTlsRecord(reader, RecordTypes.Application);
+  console.log(...highlightCommented(encryptedExtensions.header.commentedString(), serverColour));
+
+  const recdata = encryptedExtensions.header.uint8Array;
+  const encdata = encryptedExtensions.content.subarray(0, -16);
+  const authtag = encryptedExtensions.content.subarray(-16);
+
 }
 
-// startTls('cloudflare.com', 443);
-calculateKeysTest();
+startTls('google.com', 443);
+// calculateKeysTest();
