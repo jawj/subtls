@@ -1,16 +1,17 @@
+
+const textEncoder = new TextEncoder();
+
 export default class Bytes {
   offset: number;
   dataView: DataView;
   uint8Array: Uint8Array;
   comments: Record<number, string>;
-  textEncoder: TextEncoder;
 
   constructor(arrayOrMaxBytes: number | Uint8Array) {
     this.offset = 0;
     this.uint8Array = typeof arrayOrMaxBytes === 'number' ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
     this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
     this.comments = {};
-    this.textEncoder = new TextEncoder();
   }
 
   remainingBytes() {
@@ -80,7 +81,7 @@ export default class Bytes {
   }
 
   writeUTF8String(s: string) {
-    const bytes = this.textEncoder.encode(s);
+    const bytes = textEncoder.encode(s);
     this.writeBytes(bytes);
     this.comment('"' + s + '"');
     return this;
