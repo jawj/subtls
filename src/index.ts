@@ -5,6 +5,7 @@ import { ReadQueue } from './util/readqueue';
 import { readTlsRecord, RecordTypeNames, RecordTypes } from './util/tlsrecord';
 import Bytes from './util/bytes';
 import parseServerHello from './parseServerHello';
+import { calculateKeysTest } from './keyscalc';
 
 const clientColour = '#aca';
 const serverColour = '#aac';
@@ -62,4 +63,5 @@ async function startTls(host: string, port: number) {
   console.log(RecordTypeNames[record.type], record);
 }
 
-startTls('cloudflare.com', 443);
+// startTls('cloudflare.com', 443);
+calculateKeysTest();
