@@ -1,5 +1,5 @@
 
-const textEncoder = new TextEncoder();
+const txtEnc = new TextEncoder();
 
 export default class Bytes {
   offset: number;
@@ -81,7 +81,7 @@ export default class Bytes {
   }
 
   writeUTF8String(s: string) {
-    const bytes = textEncoder.encode(s);
+    const bytes = txtEnc.encode(s);
     this.writeBytes(bytes);
     this.comment('"' + s + '"');
     return this;

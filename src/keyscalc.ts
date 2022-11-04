@@ -141,10 +141,10 @@ export async function getHandshakeKeysTest() {
   // $ shared_secret = df4a291baa1eb7cfa6934b29b474baad2697e29f1f920dcc77c8a0a088447624
   const hellosHash = u8FromHex('e05f64fcd082bdb0dce473adf669c2769f257a1c75a51b7887468b5e0e7a7de4f4d34555112077f16e079019d5a845bd');
   const sharedSecret = u8FromHex('df4a291baa1eb7cfa6934b29b474baad2697e29f1f920dcc77c8a0a088447624');
-  return getHandshakeKeys(sharedSecret, hellosHash, 384);
+  return getHandshakeKeys(sharedSecret, hellosHash, 384, 32);
 }
 
-export async function getHandshakeKeys(sharedSecret: Uint8Array, hellosHash: Uint8Array, hashBits: 256 | 384) {
+export async function getHandshakeKeys(sharedSecret: Uint8Array, hellosHash: Uint8Array, hashBits: 256 | 384, keyLength: 16 | 32) {  // keyLength: 16 for ASE128, 32 for AES256
   const hashBytes = hashBits >> 3;
 
   // $ zero_key = 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -176,11 +176,11 @@ export async function getHandshakeKeys(sharedSecret: Uint8Array, hellosHash: Uin
   console.log('server secret', hexFromU8(serverSecret));
 
   // $ client_handshake_key = $(./hkdf-384 expandlabel $csecret "key" "" 32)
-  const clientHandshakeKey = await hkdfExpandLabel(clientSecret, txtEnc.encode('key'), new Uint8Array(0), 32, hashBits);
+  const clientHandshakeKey = await hkdfExpandLabel(clientSecret, txtEnc.encode('key'), new Uint8Array(0), keyLength, hashBits);
   console.log('client handshake key', hexFromU8(clientHandshakeKey));
 
   // $ server_handshake_key = $(./hkdf-384 expandlabel $ssecret "key" "" 32)
-  const serverHandshakeKey = await hkdfExpandLabel(serverSecret, txtEnc.encode('key'), new Uint8Array(0), 32, hashBits);
+  const serverHandshakeKey = await hkdfExpandLabel(serverSecret, txtEnc.encode('key'), new Uint8Array(0), keyLength, hashBits);
   console.log('server handshake key', hexFromU8(serverHandshakeKey));
 
   // $ client_handshake_iv = $(./hkdf-384 expandlabel $csecret "iv" "" 12)

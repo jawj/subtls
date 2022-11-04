@@ -35,5 +35,5 @@ export async function readTlsRecord(reader: ReadQueue, expectedType?: RecordType
   if (length > maxRecordLength) throw new Error(`Record too long: ${length} bytes`)
 
   const content = await reader.read(length);
-  return { header, type, version, length, content };
+  return { headerData, header, type, version, length, content };
 }

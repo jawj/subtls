@@ -9,7 +9,7 @@ function highlightCommented_default(s, colour) {
 }
 
 // src/util/bytes.ts
-var textEncoder = new TextEncoder();
+var txtEnc = new TextEncoder();
 var Bytes = class {
   offset;
   dataView;
@@ -79,7 +79,7 @@ var Bytes = class {
     return this;
   }
   writeUTF8String(s) {
-    const bytes = textEncoder.encode(s);
+    const bytes = txtEnc.encode(s);
     this.writeBytes(bytes);
     this.comment('"' + s + '"');
     return this;
@@ -317,7 +317,7 @@ async function readTlsRecord(reader, expectedType) {
   if (length > maxRecordLength)
     throw new Error(`Record too long: ${length} bytes`);
   const content = await reader.read(length);
-  return { header, type, version, length, content };
+  return { headerData, header, type, version, length, content };
 }
 
 // src/parseServerHello.ts
@@ -363,7 +363,7 @@ function hexFromU8(u8) {
 }
 
 // src/keyscalc.ts
-var txtEnc = new TextEncoder();
+var txtEnc2 = new TextEncoder();
 async function hkdfExtract(salt, keyMaterial, hashBits) {
   const hmacKey = await crypto.subtle.importKey("raw", salt, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
   var prk = new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey, keyMaterial));
@@ -389,7 +389,7 @@ async function hkdfExpand(key, info, length, hashBits) {
   }
   return okm.subarray(0, length);
 }
-var tls13_Bytes = txtEnc.encode("tls13 ");
+var tls13_Bytes = txtEnc2.encode("tls13 ");
 async function hkdfExpandLabel(key, label, context, length, hashBits) {
   const labelLength = label.length;
   const contextLength = context.length;
@@ -403,7 +403,7 @@ async function hkdfExpandLabel(key, label, context, length, hashBits) {
   hkdfLabel.set(context, 2 + 1 + 6 + labelLength + 1);
   return hkdfExpand(key, hkdfLabel, length, hashBits);
 }
-async function getHandshakeKeys(sharedSecret, hellosHash, hashBits) {
+async function getHandshakeKeys(sharedSecret, hellosHash, hashBits, keyLength) {
   const hashBytes = hashBits >> 3;
   const zeroKey = new Uint8Array(hashBytes);
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
@@ -411,28 +411,54 @@ async function getHandshakeKeys(sharedSecret, hellosHash, hashBits) {
   const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
   console.log("empty hash", hexFromU8(emptyHash));
-  const derivedSecret = await hkdfExpandLabel(earlySecret, txtEnc.encode("derived"), emptyHash, hashBytes, hashBits);
+  const derivedSecret = await hkdfExpandLabel(earlySecret, txtEnc2.encode("derived"), emptyHash, hashBytes, hashBits);
   console.log("derived secret", hexFromU8(derivedSecret));
   const handshakeSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
   console.log("handshake secret", hexFromU8(handshakeSecret));
-  const clientSecret = await hkdfExpandLabel(handshakeSecret, txtEnc.encode("c hs traffic"), hellosHash, hashBytes, hashBits);
+  const clientSecret = await hkdfExpandLabel(handshakeSecret, txtEnc2.encode("c hs traffic"), hellosHash, hashBytes, hashBits);
   console.log("client secret", hexFromU8(clientSecret));
-  const serverSecret = await hkdfExpandLabel(handshakeSecret, txtEnc.encode("s hs traffic"), hellosHash, hashBytes, hashBits);
+  const serverSecret = await hkdfExpandLabel(handshakeSecret, txtEnc2.encode("s hs traffic"), hellosHash, hashBytes, hashBits);
   console.log("server secret", hexFromU8(serverSecret));
-  const clientHandshakeKey = await hkdfExpandLabel(clientSecret, txtEnc.encode("key"), new Uint8Array(0), 32, hashBits);
+  const clientHandshakeKey = await hkdfExpandLabel(clientSecret, txtEnc2.encode("key"), new Uint8Array(0), keyLength, hashBits);
   console.log("client handshake key", hexFromU8(clientHandshakeKey));
-  const serverHandshakeKey = await hkdfExpandLabel(serverSecret, txtEnc.encode("key"), new Uint8Array(0), 32, hashBits);
+  const serverHandshakeKey = await hkdfExpandLabel(serverSecret, txtEnc2.encode("key"), new Uint8Array(0), keyLength, hashBits);
   console.log("server handshake key", hexFromU8(serverHandshakeKey));
-  const clientHandshakeIV = await hkdfExpandLabel(clientSecret, txtEnc.encode("iv"), new Uint8Array(0), 12, hashBits);
+  const clientHandshakeIV = await hkdfExpandLabel(clientSecret, txtEnc2.encode("iv"), new Uint8Array(0), 12, hashBits);
   console.log("client handshake iv", hexFromU8(clientHandshakeIV));
-  const serverHandshakeIV = await hkdfExpandLabel(serverSecret, txtEnc.encode("iv"), new Uint8Array(0), 12, hashBits);
+  const serverHandshakeIV = await hkdfExpandLabel(serverSecret, txtEnc2.encode("iv"), new Uint8Array(0), 12, hashBits);
   console.log("server handshake iv", hexFromU8(serverHandshakeIV));
   return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV };
 }
 
+// src/aesgcm.ts
+var Decrypter = class {
+  key;
+  iv;
+  ivDataView;
+  recordsDecrypted = 0;
+  constructor(key, initialIv) {
+    this.key = key;
+    this.iv = initialIv;
+    this.ivDataView = new DataView(this.iv.buffer, this.iv.byteOffset, this.iv.byteLength);
+  }
+  async decrypt(cipherTextPlusAuthTag, authTagLength, additionalData) {
+    const ivLength = this.iv.length;
+    const authTagBits = authTagLength << 3;
+    let ivLast32 = this.ivDataView.getUint32(ivLength - 4);
+    ivLast32 ^= this.recordsDecrypted;
+    this.ivDataView.setUint32(ivLength - 4, ivLast32);
+    this.recordsDecrypted += 1;
+    const algorithm = { name: "AES-GCM", iv: this.iv, tagLength: authTagBits, additionalData };
+    const plainTextBuffer = await crypto.subtle.decrypt(algorithm, this.key, cipherTextPlusAuthTag);
+    const plainText = new Uint8Array(plainTextBuffer);
+    return plainText;
+  }
+};
+
 // src/index.ts
-var clientColour = "#aca";
-var serverColour = "#aac";
+var clientColour = "#8c8";
+var serverColour = "#88c";
+var headerColor = "#c88";
 async function startTls(host, port) {
   const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
@@ -456,6 +482,7 @@ async function startTls(host, port) {
   if (ccipher.remainingBytes() !== 0)
     throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
   console.log(...highlightCommented_default(changeCipherRecord.header.commentedString() + ccipher.commentedString(), serverColour));
+  console.log("%c%s", `color: ${headerColor}`, "handshake key computations");
   const serverPublicKey = await crypto.subtle.importKey("raw", serverRawPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
   const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: "ECDH", public: serverPublicKey }, ecdhKeys.privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
@@ -465,11 +492,16 @@ async function startTls(host, port) {
   const combinedContent = new Uint8Array(clientHelloContent.length + serverHelloContent.length);
   combinedContent.set(clientHelloContent);
   combinedContent.set(serverHelloContent, clientHelloContent.length);
-  const hellosHashBuffer = await crypto.subtle.digest("SHA-384", combinedContent);
+  const hellosHashBuffer = await crypto.subtle.digest("SHA-256", combinedContent);
   const hellosHash = new Uint8Array(hellosHashBuffer);
   console.log("hellos hash", hexFromU8(hellosHash));
-  const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256);
-  const encryptedExtensions = await readTlsRecord(reader, 23 /* Application */);
-  console.log(...highlightCommented_default(encryptedExtensions.header.commentedString(), serverColour));
+  const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256, 16);
+  const serverHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.serverHandshakeKey, { name: "AES-GCM" }, false, ["decrypt"]);
+  const handshakeDecrypter = new Decrypter(serverHandshakeKey, handshakeKeys.serverHandshakeIV);
+  const encrypted = await readTlsRecord(reader, 23 /* Application */);
+  console.log(...highlightCommented_default(encrypted.header.commentedString(), serverColour));
+  console.log("%s%c  %s", hexFromU8(encrypted.content), `color: ${serverColour}`, "encrypted payload + auth tag");
+  const decrypted = await handshakeDecrypter.decrypt(encrypted.content, 16, encrypted.headerData);
+  console.log("%s%c  %s", hexFromU8(decrypted), `color: ${serverColour}`, "decrypted payload");
 }
 startTls("google.com", 443);

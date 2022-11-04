@@ -7,9 +7,11 @@ import Bytes from './util/bytes';
 import parseServerHello from './parseServerHello';
 import { getHandshakeKeys, getHandshakeKeysTest } from './keyscalc';
 import { hexFromU8 } from './util/hex';
+import { Decrypter } from './aesgcm';
 
-const clientColour = '#aca';
-const serverColour = '#aac';
+const clientColour = '#8c8';
+const serverColour = '#88c';
+const headerColor = '#c88';
 
 async function startTls(host: string, port: number) {
   // TODO: parallel waiting
@@ -43,32 +45,38 @@ async function startTls(host: string, port: number) {
   if (ccipher.remainingBytes() !== 0) throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
   console.log(...highlightCommented(changeCipherRecord.header.commentedString() + ccipher.commentedString(), serverColour));
 
+  console.log('%c%s', `color: ${headerColor}`, 'handshake key computations');
+
   // shared secret
   const serverPublicKey = await crypto.subtle.importKey('raw', serverRawPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false /* extractable */, []);
   const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: 'ECDH', public: serverPublicKey }, ecdhKeys.privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
   console.log('shared secret', hexFromU8(sharedSecret));
 
-  // SHA384 of client + server hellos
+  // hash of client + server hellos (SHA-384 for AES256_SHA384, SHA256 for AES128_SHA256)
   const clientHelloContent = clientHelloData.subarray(5);  // cut off the 5-byte record header
   const serverHelloContent = serverHelloRecord.content;  // 5-byte record header is already excluded
   const combinedContent = new Uint8Array(clientHelloContent.length + serverHelloContent.length);
   combinedContent.set(clientHelloContent);
   combinedContent.set(serverHelloContent, clientHelloContent.length);
-  const hellosHashBuffer = await crypto.subtle.digest('SHA-384', combinedContent);
+  const hellosHashBuffer = await crypto.subtle.digest('SHA-256', combinedContent);
   const hellosHash = new Uint8Array(hellosHashBuffer);
   console.log('hellos hash', hexFromU8(hellosHash));
 
   // keys
-  const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256);
+  const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256, 16);
+
+  const serverHandshakeKey = await crypto.subtle.importKey('raw', handshakeKeys.serverHandshakeKey, { name: 'AES-GCM' }, false, ['decrypt']);
+  const handshakeDecrypter = new Decrypter(serverHandshakeKey, handshakeKeys.serverHandshakeIV);
 
   // encrypted portion ...
-  const encryptedExtensions = await readTlsRecord(reader, RecordTypes.Application);
-  console.log(...highlightCommented(encryptedExtensions.header.commentedString(), serverColour));
+  const encrypted = await readTlsRecord(reader, RecordTypes.Application);
+  console.log(...highlightCommented(encrypted.header.commentedString(), serverColour));
+  console.log('%s%c  %s', hexFromU8(encrypted.content), `color: ${serverColour}`, 'encrypted payload + auth tag');
 
-  const recdata = encryptedExtensions.header.uint8Array;
-  const encdata = encryptedExtensions.content.subarray(0, -16);
-  const authtag = encryptedExtensions.content.subarray(-16);
+  const decrypted = await handshakeDecrypter.decrypt(encrypted.content, 16, encrypted.headerData);
+  console.log('%s%c  %s', hexFromU8(decrypted), `color: ${serverColour}`, 'decrypted payload');
+
 
 }
 
