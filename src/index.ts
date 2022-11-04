@@ -64,8 +64,7 @@ async function startTls(host: string, port: number) {
   console.log('hellos hash', hexFromU8(hellosHash));
 
   // keys
-  const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256, 16);
-
+  const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256, 16);  // would be 384, 32 for AES256_SHA384
   const serverHandshakeKey = await crypto.subtle.importKey('raw', handshakeKeys.serverHandshakeKey, { name: 'AES-GCM' }, false, ['decrypt']);
   const handshakeDecrypter = new Decrypter(serverHandshakeKey, handshakeKeys.serverHandshakeIV);
 
@@ -77,7 +76,7 @@ async function startTls(host: string, port: number) {
   const decrypted = await handshakeDecrypter.decrypt(encrypted.content, 16, encrypted.headerData);
   console.log('%s%c  %s', hexFromU8(decrypted), `color: ${serverColour}`, 'decrypted payload');
 
-
+  // next: parse decrypted records
 }
 
 startTls('google.com', 443);
