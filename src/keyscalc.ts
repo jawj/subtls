@@ -1,4 +1,5 @@
 import { hexFromU8, u8FromHex } from './util/hex';
+import { concat } from './util/typedarrayconcat';
 
 const txtEnc = new TextEncoder();
 
@@ -73,21 +74,13 @@ async function hkdfExpand(key: Uint8Array, info: Uint8Array, length: number, has
 
   const okm = new Uint8Array(n * hashBytes);
   const hmacKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: { name: `SHA-${hashBits}` } }, false, ['sign']);
-  const infoLength = info.length;
 
   let tPrev = new Uint8Array(0);
   for (let i = 0; i < n; i++) {
-    const tPrevLength = tPrev.length;
-
-    const hmacData = new Uint8Array(tPrevLength + infoLength + 1);
-    hmacData.set(tPrev);
-    hmacData.set(info, tPrevLength);
-    hmacData[tPrevLength + infoLength] = i + 1; // starts at 1
-
+    const hmacData = concat(tPrev, info, [i + 1]);
     const tiBuffer = await crypto.subtle.sign('HMAC', hmacKey, hmacData);
     const ti = new Uint8Array(tiBuffer);
     okm.set(ti, hashBytes * i);
-
     tPrev = ti;
   }
 
@@ -111,27 +104,11 @@ async function hkdfExpandLabel(key: Uint8Array, label: Uint8Array, context: Uint
           opaque context<0..255> = Context;
       } HkdfLabel;
   */
-
-  const labelLength = label.length;
-  const contextLength = context.length;
-
-  const hkdfLabel = new Uint8Array(2 + 1 + 6 + labelLength + 1 + contextLength);
-
-  // desired length, split into high and low bytes
-  hkdfLabel[0] = (length & 0xff00) >> 8;
-  hkdfLabel[1] = length & 0xff;
-
-  // label length (including "tls13 " prefix)
-  hkdfLabel[2] = labelLength + 6;
-  // label, including "tls13 " prefix
-  hkdfLabel.set(tls13_Bytes, 2 + 1);
-  hkdfLabel.set(label, 2 + 1 + 6);
-
-  // context length
-  hkdfLabel[2 + 1 + 6 + labelLength] = contextLength;
-  // context
-  hkdfLabel.set(context, 2 + 1 + 6 + labelLength + 1);
-
+  const hkdfLabel = concat(
+    [(length & 0xff00) >> 8, length & 0xff],  // desired length, split into high + low bytes
+    [tls13_Bytes.length + label.length], tls13_Bytes, label,
+    [context.length], context,
+  );
   return hkdfExpand(key, hkdfLabel, length, hashBits);
 }
 

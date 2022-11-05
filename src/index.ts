@@ -8,13 +8,13 @@ import parseServerHello from './parseServerHello';
 import { getHandshakeKeys, getHandshakeKeysTest } from './keyscalc';
 import { hexFromU8 } from './util/hex';
 import { Decrypter } from './aesgcm';
+import { concat } from './util/typedarrayconcat';
 
 const clientColour = '#8c8';
 const serverColour = '#88c';
 const headerColor = '#c88';
 
 async function startTls(host: string, port: number) {
-  // TODO: parallel waiting
   const ecdhKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true /* extractable */, ['deriveKey', 'deriveBits']);
   const rawPublicKey = await crypto.subtle.exportKey('raw', ecdhKeys.publicKey);
 
@@ -56,10 +56,8 @@ async function startTls(host: string, port: number) {
   // hash of client + server hellos (SHA-384 for AES256_SHA384, SHA256 for AES128_SHA256)
   const clientHelloContent = clientHelloData.subarray(5);  // cut off the 5-byte record header
   const serverHelloContent = serverHelloRecord.content;  // 5-byte record header is already excluded
-  const combinedContent = new Uint8Array(clientHelloContent.length + serverHelloContent.length);
-  combinedContent.set(clientHelloContent);
-  combinedContent.set(serverHelloContent, clientHelloContent.length);
-  const hellosHashBuffer = await crypto.subtle.digest('SHA-256', combinedContent);
+  const hellos = concat(clientHelloContent, serverHelloContent);
+  const hellosHashBuffer = await crypto.subtle.digest('SHA-256', hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
   console.log('hellos hash', hexFromU8(hellosHash));
 
@@ -68,7 +66,7 @@ async function startTls(host: string, port: number) {
   const serverHandshakeKey = await crypto.subtle.importKey('raw', handshakeKeys.serverHandshakeKey, { name: 'AES-GCM' }, false, ['decrypt']);
   const handshakeDecrypter = new Decrypter(serverHandshakeKey, handshakeKeys.serverHandshakeIV);
 
-  // encrypted portion ...
+  // encrypted handshake part
   const encrypted = await readTlsRecord(reader, RecordTypes.Application);
   console.log(...highlightCommented(encrypted.header.commentedString(), serverColour));
   console.log('%s%c  %s', hexFromU8(encrypted.content), `color: ${serverColour}`, 'encrypted payload + auth tag');
@@ -76,8 +74,28 @@ async function startTls(host: string, port: number) {
   const decrypted = await handshakeDecrypter.decrypt(encrypted.content, 16, encrypted.headerData);
   console.log('%s%c  %s', hexFromU8(decrypted), `color: ${serverColour}`, 'decrypted payload');
 
-  // next: parse decrypted records
+  // parse encrypted handshake part
+  const hs = new Bytes(decrypted);
+  while (hs.remainingBytes() > 1) {
+    const hsHeader = hs.readUint8();
+    const hsMessageLength = hs.readUint24('% bytes of handshake data follows');
+
+    if (hsHeader === 0x08) {
+      hs.comment('handshake record type: encrypted extensions', hs.offset - 3);
+      hs.expectUint16(0, 'no excrypted extensions data follows');
+
+    } else {
+      hs.comment('ignored handshake record type', hs.offset - 3);
+      hs.skip(hsMessageLength, 'handshake record');
+    }
+
+  }
+  hs.expectUint8(0x16, 'handshake record');
+  if (hs.remainingBytes() !== 0) throw new Error('Unexpected post-handshake data');
+
+  console.log(...highlightCommented(hs.commentedString(), serverColour));
+
 }
 
-startTls('google.com', 443);
+startTls('cloudflare.com', 443);
 // calculateKeysTest();

@@ -5,6 +5,7 @@ TLS 1.3
 https://tls13.xargs.org
 https://jvns.ca/blog/2022/03/23/a-toy-version-of-tls/ + https://github.com/jvns/tiny-tls
 https://datatracker.ietf.org/doc/html/rfc8446
+https://en.wikipedia.org/wiki/Transport_Layer_Security#Protocol_details
 
 HKDF
 

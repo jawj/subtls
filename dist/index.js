@@ -24,14 +24,14 @@ var Bytes = class {
   remainingBytes() {
     return this.uint8Array.length - this.offset;
   }
-  subarray(length) {
-    return this.uint8Array.subarray(this.offset, this.offset += length);
+  subarray(length2) {
+    return this.uint8Array.subarray(this.offset, this.offset += length2);
   }
-  slice(length) {
-    return this.uint8Array.slice(this.offset, this.offset += length);
+  slice(length2) {
+    return this.uint8Array.slice(this.offset, this.offset += length2);
   }
-  skip(length, comment) {
-    this.offset += length;
+  skip(length2, comment) {
+    this.offset += length2;
     if (comment !== void 0)
       this.comment(comment);
     return this;
@@ -44,20 +44,23 @@ var Bytes = class {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
     if (comment !== void 0)
-      this.comment(comment);
+      this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
   readUint16(comment) {
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
     if (comment !== void 0)
-      this.comment(comment);
+      this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
   readUint24(comment) {
     const msb = this.readUint8();
-    const lsbs = this.readUint16(comment);
-    return (msb << 16) + lsbs;
+    const lsbs = this.readUint16();
+    const result = (msb << 16) + lsbs;
+    if (comment !== void 0)
+      this.comment(comment.replace(/%/g, String(result)));
+    return result;
   }
   expectUint8(expectedValue, comment) {
     const actualValue = this.readUint8();
@@ -68,6 +71,13 @@ var Bytes = class {
   }
   expectUint16(expectedValue, comment) {
     const actualValue = this.readUint16();
+    if (comment !== void 0)
+      this.comment(comment);
+    if (actualValue !== expectedValue)
+      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
+  expectUint24(expectedValue, comment) {
+    const actualValue = this.readUint24();
     if (comment !== void 0)
       this.comment(comment);
     if (actualValue !== expectedValue)
@@ -103,17 +113,17 @@ var Bytes = class {
     this.offset += lengthBytes;
     const endOffset = this.offset;
     return () => {
-      const length = this.offset - endOffset;
+      const length2 = this.offset - endOffset;
       if (lengthBytes === 1)
-        this.dataView.setUint8(startOffset, length);
+        this.dataView.setUint8(startOffset, length2);
       else if (lengthBytes === 2)
-        this.dataView.setUint16(startOffset, length);
+        this.dataView.setUint16(startOffset, length2);
       else if (lengthBytes === 3) {
-        this.dataView.setUint8(startOffset, (length & 16711680) >> 16);
-        this.dataView.setUint16(startOffset + 1, length & 65535);
+        this.dataView.setUint8(startOffset, (length2 & 16711680) >> 16);
+        this.dataView.setUint16(startOffset + 1, length2 & 65535);
       } else
         throw new Error(`Invalid length for length field: ${lengthBytes}`);
-      this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`, endOffset);
+      this.comment(`${length2} bytes${comment ? ` of ${comment}` : ""} follow`, endOffset);
     };
   }
   lengthUint8(comment) {
@@ -313,11 +323,11 @@ async function readTlsRecord(reader, expectedType) {
   const version = header.readUint16("TLS version");
   if ([769, 770, 771].indexOf(version) < 0)
     throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
-  const length = header.readUint16("record length");
-  if (length > maxRecordLength)
-    throw new Error(`Record too long: ${length} bytes`);
-  const content = await reader.read(length);
-  return { headerData, header, type, version, length, content };
+  const length2 = header.readUint16("record length");
+  if (length2 > maxRecordLength)
+    throw new Error(`Record too long: ${length2} bytes`);
+  const content = await reader.read(length2);
+  return { headerData, header, type, version, length: length2, content };
 }
 
 // src/parseServerHello.ts
@@ -362,6 +372,18 @@ function hexFromU8(u8) {
   return [...u8].map((n) => n.toString(16).padStart(2, "0")).join("");
 }
 
+// src/util/typedarrayconcat.ts
+function concat(...arrs) {
+  length = arrs.reduce((memo, arr) => memo + arr.length, 0);
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const arr of arrs) {
+    result.set(arr, offset);
+    offset += arr.length;
+  }
+  return result;
+}
+
 // src/keyscalc.ts
 var txtEnc2 = new TextEncoder();
 async function hkdfExtract(salt, keyMaterial, hashBits) {
@@ -369,39 +391,32 @@ async function hkdfExtract(salt, keyMaterial, hashBits) {
   var prk = new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey, keyMaterial));
   return prk;
 }
-async function hkdfExpand(key, info, length, hashBits) {
+async function hkdfExpand(key, info, length2, hashBits) {
   const hashBytes = hashBits >> 3;
-  const n = Math.ceil(length / hashBytes);
+  const n = Math.ceil(length2 / hashBytes);
   const okm = new Uint8Array(n * hashBytes);
   const hmacKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
-  const infoLength = info.length;
   let tPrev = new Uint8Array(0);
   for (let i = 0; i < n; i++) {
-    const tPrevLength = tPrev.length;
-    const hmacData = new Uint8Array(tPrevLength + infoLength + 1);
-    hmacData.set(tPrev);
-    hmacData.set(info, tPrevLength);
-    hmacData[tPrevLength + infoLength] = i + 1;
+    const hmacData = concat(tPrev, info, [i + 1]);
     const tiBuffer = await crypto.subtle.sign("HMAC", hmacKey, hmacData);
     const ti = new Uint8Array(tiBuffer);
     okm.set(ti, hashBytes * i);
     tPrev = ti;
   }
-  return okm.subarray(0, length);
+  return okm.subarray(0, length2);
 }
 var tls13_Bytes = txtEnc2.encode("tls13 ");
-async function hkdfExpandLabel(key, label, context, length, hashBits) {
-  const labelLength = label.length;
-  const contextLength = context.length;
-  const hkdfLabel = new Uint8Array(2 + 1 + 6 + labelLength + 1 + contextLength);
-  hkdfLabel[0] = (length & 65280) >> 8;
-  hkdfLabel[1] = length & 255;
-  hkdfLabel[2] = labelLength + 6;
-  hkdfLabel.set(tls13_Bytes, 2 + 1);
-  hkdfLabel.set(label, 2 + 1 + 6);
-  hkdfLabel[2 + 1 + 6 + labelLength] = contextLength;
-  hkdfLabel.set(context, 2 + 1 + 6 + labelLength + 1);
-  return hkdfExpand(key, hkdfLabel, length, hashBits);
+async function hkdfExpandLabel(key, label, context, length2, hashBits) {
+  const hkdfLabel = concat(
+    [(length2 & 65280) >> 8, length2 & 255],
+    [tls13_Bytes.length + label.length],
+    tls13_Bytes,
+    label,
+    [context.length],
+    context
+  );
+  return hkdfExpand(key, hkdfLabel, length2, hashBits);
 }
 async function getHandshakeKeys(sharedSecret, hellosHash, hashBits, keyLength) {
   const hashBytes = hashBits >> 3;
@@ -489,10 +504,8 @@ async function startTls(host, port) {
   console.log("shared secret", hexFromU8(sharedSecret));
   const clientHelloContent = clientHelloData.subarray(5);
   const serverHelloContent = serverHelloRecord.content;
-  const combinedContent = new Uint8Array(clientHelloContent.length + serverHelloContent.length);
-  combinedContent.set(clientHelloContent);
-  combinedContent.set(serverHelloContent, clientHelloContent.length);
-  const hellosHashBuffer = await crypto.subtle.digest("SHA-256", combinedContent);
+  const hellos = concat(clientHelloContent, serverHelloContent);
+  const hellosHashBuffer = await crypto.subtle.digest("SHA-256", hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
   console.log("hellos hash", hexFromU8(hellosHash));
   const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256, 16);
@@ -503,5 +516,21 @@ async function startTls(host, port) {
   console.log("%s%c  %s", hexFromU8(encrypted.content), `color: ${serverColour}`, "encrypted payload + auth tag");
   const decrypted = await handshakeDecrypter.decrypt(encrypted.content, 16, encrypted.headerData);
   console.log("%s%c  %s", hexFromU8(decrypted), `color: ${serverColour}`, "decrypted payload");
+  const hs = new Bytes(decrypted);
+  while (hs.remainingBytes() > 1) {
+    const hsHeader = hs.readUint8();
+    const hsMessageLength = hs.readUint24("% bytes of handshake data follows");
+    if (hsHeader === 8) {
+      hs.comment("handshake record type: encrypted extensions", hs.offset - 3);
+      hs.expectUint16(0, "no excrypted extensions data follows");
+    } else {
+      hs.comment("ignored handshake record type", hs.offset - 3);
+      hs.skip(hsMessageLength, "handshake record");
+    }
+  }
+  hs.expectUint8(22, "handshake record");
+  if (hs.remainingBytes() !== 0)
+    throw new Error("Unexpected post-handshake data");
+  console.log(...highlightCommented_default(hs.commentedString(), serverColour));
 }
-startTls("google.com", 443);
+startTls("cloudflare.com", 443);

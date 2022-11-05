@@ -43,21 +43,23 @@ export default class Bytes {
   readUint8(comment?: string) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
-    if (comment !== undefined) this.comment(comment);
+    if (comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
 
   readUint16(comment?: string) {
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
-    if (comment !== undefined) this.comment(comment);
+    if (comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
 
   readUint24(comment?: string) {
     const msb = this.readUint8();
-    const lsbs = this.readUint16(comment);
-    return (msb << 16) + lsbs;
+    const lsbs = this.readUint16();
+    const result = (msb << 16) + lsbs;
+    if (comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
+    return result;
   }
 
   expectUint8(expectedValue: number, comment?: string) {
@@ -68,6 +70,12 @@ export default class Bytes {
 
   expectUint16(expectedValue: number, comment?: string) {
     const actualValue = this.readUint16();
+    if (comment !== undefined) this.comment(comment);
+    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
+
+  expectUint24(expectedValue: number, comment?: string) {
+    const actualValue = this.readUint24();
     if (comment !== undefined) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
