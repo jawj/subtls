@@ -8,6 +8,27 @@ function highlightCommented_default(s, colour) {
   return [s, ...css];
 }
 
+// src/util/array.ts
+function concat(...arrs) {
+  length = arrs.reduce((memo, arr) => memo + arr.length, 0);
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const arr of arrs) {
+    result.set(arr, offset);
+    offset += arr.length;
+  }
+  return result;
+}
+function equal(a, b) {
+  const aLength = a.length;
+  if (aLength !== b.length)
+    return false;
+  for (let i = 0; i < aLength; i++)
+    if (a[i] !== b[i])
+      return false;
+  return true;
+}
+
 // src/util/bytes.ts
 var txtEnc = new TextEncoder();
 var Bytes = class {
@@ -27,9 +48,6 @@ var Bytes = class {
   subarray(length2) {
     return this.uint8Array.subarray(this.offset, this.offset += length2);
   }
-  slice(length2) {
-    return this.uint8Array.slice(this.offset, this.offset += length2);
-  }
   skip(length2, comment) {
     this.offset += length2;
     if (comment !== void 0)
@@ -39,6 +57,9 @@ var Bytes = class {
   comment(s, offset = this.offset) {
     this.comments[offset] = s;
     return this;
+  }
+  readBytes(length2) {
+    return this.uint8Array.slice(this.offset, this.offset += length2);
   }
   readUint8(comment) {
     const result = this.dataView.getUint8(this.offset);
@@ -61,6 +82,13 @@ var Bytes = class {
     if (comment !== void 0)
       this.comment(comment.replace(/%/g, String(result)));
     return result;
+  }
+  expectBytes(expected, comment) {
+    const actual = this.readBytes(expected.length);
+    if (comment !== void 0)
+      this.comment(comment);
+    if (!equal(actual, expected))
+      throw new Error(`Unexpected bytes`);
   }
   expectUint8(expectedValue, comment) {
     const actualValue = this.readUint8();
@@ -152,91 +180,92 @@ var Bytes = class {
 
 // src/clientHello.ts
 function makeClientHello(host, publicKey) {
-  const hello = new Bytes(1024);
-  hello.writeUint8(22);
-  hello.comment("record type: handshake");
-  hello.writeUint16(769);
-  hello.comment("TLS protocol version 1.0");
-  const endRecordHeader = hello.lengthUint16();
-  hello.writeUint8(1);
-  hello.comment("handshake type: client hello");
-  const endHandshakeHeader = hello.lengthUint24();
-  hello.writeUint16(771);
-  hello.comment("TLS version 1.2 (middlebox compatibility)");
-  crypto.getRandomValues(hello.subarray(32));
-  hello.comment("client random");
-  const endSessionId = hello.lengthUint8("session ID");
-  crypto.getRandomValues(hello.subarray(32));
-  hello.comment("session ID (middlebox compatibility)");
+  const h = new Bytes(1024);
+  h.writeUint8(22);
+  h.comment("record type: handshake");
+  h.writeUint16(769);
+  h.comment("TLS protocol version 1.0");
+  const endRecordHeader = h.lengthUint16();
+  h.writeUint8(1);
+  h.comment("handshake type: client hello");
+  const endHandshakeHeader = h.lengthUint24();
+  h.writeUint16(771);
+  h.comment("TLS version 1.2 (middlebox compatibility)");
+  crypto.getRandomValues(h.subarray(32));
+  h.comment("client random");
+  const endSessionId = h.lengthUint8("session ID");
+  const sessionId = h.subarray(32);
+  crypto.getRandomValues(sessionId);
+  h.comment("session ID (middlebox compatibility)");
   endSessionId();
-  const endCiphers = hello.lengthUint16("ciphers");
-  hello.writeUint16(4865);
-  hello.comment("cipher: TLS_AES_128_GCM_SHA256");
+  const endCiphers = h.lengthUint16("ciphers");
+  h.writeUint16(4865);
+  h.comment("cipher: TLS_AES_128_GCM_SHA256");
   endCiphers();
-  const endCompressionMethods = hello.lengthUint8("compression methods");
-  hello.writeUint8(0);
-  hello.comment("compression method: none");
+  const endCompressionMethods = h.lengthUint8("compression methods");
+  h.writeUint8(0);
+  h.comment("compression method: none");
   endCompressionMethods();
-  const endExtensions = hello.lengthUint16("extensions");
-  hello.writeUint16(0);
-  hello.comment("extension type: SNI");
-  const endSNIExt = hello.lengthUint16("SNI data");
-  const endSNI = hello.lengthUint16("SNI records");
-  hello.writeUint8(0);
-  hello.comment("list entry type: DNS hostname");
-  const endHostname = hello.lengthUint16("hostname");
-  hello.writeUTF8String(host);
+  const endExtensions = h.lengthUint16("extensions");
+  h.writeUint16(0);
+  h.comment("extension type: SNI");
+  const endSNIExt = h.lengthUint16("SNI data");
+  const endSNI = h.lengthUint16("SNI records");
+  h.writeUint8(0);
+  h.comment("list entry type: DNS hostname");
+  const endHostname = h.lengthUint16("hostname");
+  h.writeUTF8String(host);
   endHostname();
   endSNI();
   endSNIExt();
-  hello.writeUint16(11);
-  hello.comment("extension type: EC point formats");
-  const endFormatTypesExt = hello.lengthUint16("formats data");
-  const endFormatTypes = hello.lengthUint8("formats");
-  hello.writeUint8(0);
-  hello.comment("format: uncompressed");
+  h.writeUint16(11);
+  h.comment("extension type: EC point formats");
+  const endFormatTypesExt = h.lengthUint16("formats data");
+  const endFormatTypes = h.lengthUint8("formats");
+  h.writeUint8(0);
+  h.comment("format: uncompressed");
   endFormatTypes();
   endFormatTypesExt();
-  hello.writeUint16(10);
-  hello.comment("extension type: supported groups (curves)");
-  const endGroupsExt = hello.lengthUint16("groups data");
-  const endGroups = hello.lengthUint16("groups");
-  hello.writeUint16(23);
-  hello.comment("curve secp256r1 (NIST P-256)");
+  h.writeUint16(10);
+  h.comment("extension type: supported groups (curves)");
+  const endGroupsExt = h.lengthUint16("groups data");
+  const endGroups = h.lengthUint16("groups");
+  h.writeUint16(23);
+  h.comment("curve secp256r1 (NIST P-256)");
   endGroups();
   endGroupsExt();
-  hello.writeUint16(13);
-  hello.comment("extension type: signature algorithms");
-  const endSigsExt = hello.lengthUint16("signature algorithms data");
-  const endSigs = hello.lengthUint16("signature algorithms");
-  hello.writeUint16(1027);
-  hello.comment("ECDSA-SECP256r1-SHA256");
+  h.writeUint16(13);
+  h.comment("extension type: signature algorithms");
+  const endSigsExt = h.lengthUint16("signature algorithms data");
+  const endSigs = h.lengthUint16("signature algorithms");
+  h.writeUint16(1027);
+  h.comment("ECDSA-SECP256r1-SHA256");
   endSigs();
   endSigsExt();
-  hello.writeUint16(43);
-  hello.comment("extension type: supported TLS versions");
-  const endVersionsExt = hello.lengthUint16("TLS versions data");
-  const endVersions = hello.lengthUint8("TLS versions");
-  hello.writeUint16(772);
-  hello.comment("TLS version 1.3");
+  h.writeUint16(43);
+  h.comment("extension type: supported TLS versions");
+  const endVersionsExt = h.lengthUint16("TLS versions data");
+  const endVersions = h.lengthUint8("TLS versions");
+  h.writeUint16(772);
+  h.comment("TLS version 1.3");
   endVersions();
   endVersionsExt();
-  hello.writeUint16(51);
-  hello.comment("extension type: key share");
-  const endKeyShareExt = hello.lengthUint16("key share data");
-  const endKeyShares = hello.lengthUint16("key shares");
-  hello.writeUint16(23);
-  hello.comment("secp256r1 (NIST P-256) key share");
-  const endKeyShare = hello.lengthUint16("key share");
-  hello.writeBytes(new Uint8Array(publicKey));
-  hello.comment("key");
+  h.writeUint16(51);
+  h.comment("extension type: key share");
+  const endKeyShareExt = h.lengthUint16("key share data");
+  const endKeyShares = h.lengthUint16("key shares");
+  h.writeUint16(23);
+  h.comment("secp256r1 (NIST P-256) key share");
+  const endKeyShare = h.lengthUint16("key share");
+  h.writeBytes(new Uint8Array(publicKey));
+  h.comment("key");
   endKeyShare();
   endKeyShares();
   endKeyShareExt();
   endExtensions();
   endHandshakeHeader();
   endRecordHeader();
-  return hello;
+  return { clientHello: h, sessionId };
 }
 
 // src/util/readqueue.ts
@@ -331,15 +360,51 @@ async function readTlsRecord(reader, expectedType) {
 }
 
 // src/parseServerHello.ts
-function parseServerHello(hello) {
+function parseServerHello(hello, sessionId) {
   let serverPublicKey;
   let tlsVersionSpecified;
   hello.expectUint8(2, "handshake type: server hello");
   const helloLength = hello.readUint24("server hello length");
   hello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
-  hello.skip(32, "server random");
+  const serverRandom = hello.readBytes(32);
+  if (equal(serverRandom, [
+    207,
+    33,
+    173,
+    116,
+    229,
+    154,
+    97,
+    17,
+    190,
+    29,
+    140,
+    2,
+    30,
+    101,
+    184,
+    145,
+    194,
+    162,
+    17,
+    22,
+    122,
+    187,
+    140,
+    94,
+    7,
+    158,
+    9,
+    226,
+    200,
+    168,
+    51,
+    156
+  ]))
+    throw new Error("Unexpected HelloRetryRequest");
+  hello.comment('server random, not SHA256("HelloRetryRequest")');
   hello.expectUint8(32, "session ID length");
-  hello.skip(32, "session ID (should match client hello)");
+  hello.expectBytes(sessionId, "session ID");
   hello.expectUint16(4865, "cipher (matches client hello)");
   hello.expectUint8(0, "no compression");
   const extensionsLength = hello.readUint16("extensions length");
@@ -354,7 +419,7 @@ function parseServerHello(hello) {
     } else if (extensionType === 51) {
       hello.expectUint16(23, "secp256r1 (NIST P-256) key share");
       hello.expectUint16(65);
-      serverPublicKey = hello.slice(65);
+      serverPublicKey = hello.readBytes(65);
       hello.comment("key");
     } else {
       throw new Error(`Unexpected extension 0x${extensionType.toString(16).padStart(4, "0")}, length ${extensionLength}`);
@@ -370,18 +435,6 @@ function parseServerHello(hello) {
 // src/util/hex.ts
 function hexFromU8(u8) {
   return [...u8].map((n) => n.toString(16).padStart(2, "0")).join("");
-}
-
-// src/util/typedarrayconcat.ts
-function concat(...arrs) {
-  length = arrs.reduce((memo, arr) => memo + arr.length, 0);
-  const result = new Uint8Array(length);
-  let offset = 0;
-  for (const arr of arrs) {
-    result.set(arr, offset);
-    offset += arr.length;
-  }
-  return result;
 }
 
 // src/keyscalc.ts
@@ -483,13 +536,13 @@ async function startTls(host, port) {
     ws2.addEventListener("open", () => resolve(ws2));
   });
   const reader = new ReadQueue(ws);
-  const clientHello = makeClientHello(host, rawPublicKey);
+  const { clientHello, sessionId } = makeClientHello(host, rawPublicKey);
   console.log(...highlightCommented_default(clientHello.commentedString(), clientColour));
   const clientHelloData = clientHello.array();
   ws.send(clientHelloData);
   const serverHelloRecord = await readTlsRecord(reader, 22 /* Handshake */);
   const serverHello = new Bytes(serverHelloRecord.content);
-  const serverRawPublicKey = parseServerHello(serverHello);
+  const serverRawPublicKey = parseServerHello(serverHello, sessionId);
   console.log(...highlightCommented_default(serverHelloRecord.header.commentedString() + serverHello.commentedString(), serverColour));
   const changeCipherRecord = await readTlsRecord(reader, 20 /* ChangeCipherSpec */);
   const ccipher = new Bytes(changeCipherRecord.content);
@@ -517,20 +570,23 @@ async function startTls(host, port) {
   const decrypted = await handshakeDecrypter.decrypt(encrypted.content, 16, encrypted.headerData);
   console.log("%s%c  %s", hexFromU8(decrypted), `color: ${serverColour}`, "decrypted payload");
   const hs = new Bytes(decrypted);
-  while (hs.remainingBytes() > 1) {
-    const hsHeader = hs.readUint8();
-    const hsMessageLength = hs.readUint24("% bytes of handshake data follows");
-    if (hsHeader === 8) {
-      hs.comment("handshake record type: encrypted extensions", hs.offset - 3);
-      hs.expectUint16(0, "no excrypted extensions data follows");
-    } else {
-      hs.comment("ignored handshake record type", hs.offset - 3);
-      hs.skip(hsMessageLength, "handshake record");
-    }
+  hs.expectUint8(8, "handshake record type: encrypted extensions");
+  const eeMessageLength = hs.readUint24("% bytes of handshake data follows");
+  const extLength = hs.readUint16("% bytes of extensions data follow");
+  if (extLength > 0) {
+    if (extLength !== 4)
+      throw new Error("Unexpected extensions");
+    hs.expectUint16(0, "extension type: SNI");
+    hs.expectUint16(0, "no extension data");
   }
-  hs.expectUint8(22, "handshake record");
-  if (hs.remainingBytes() !== 0)
-    throw new Error("Unexpected post-handshake data");
+  hs.expectUint8(11, "handshake record type: server certificate");
+  const certPayloadLength = hs.readUint24("% bytes of certificate payload follow");
+  hs.expectUint8(0, "0 bytes of request content follow");
+  const certsLength = hs.readUint24("% bytes of certificates follow");
+  const cert1Length = hs.readUint24("% bytes of first certificate follow");
+  const cert1 = hs.readBytes(cert1Length);
+  hs.comment("server certificate");
+  const cert1ExtLength = hs.readUint16("% bytes of certificate extensions follow");
   console.log(...highlightCommented_default(hs.commentedString(), serverColour));
 }
-startTls("cloudflare.com", 443);
+startTls("google.com", 443);

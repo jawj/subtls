@@ -8,7 +8,7 @@ import parseServerHello from './parseServerHello';
 import { getHandshakeKeys, getHandshakeKeysTest } from './keyscalc';
 import { hexFromU8 } from './util/hex';
 import { Decrypter } from './aesgcm';
-import { concat } from './util/typedarrayconcat';
+import { concat } from './util/array';
 
 const clientColour = '#8c8';
 const serverColour = '#88c';
@@ -27,7 +27,7 @@ async function startTls(host: string, port: number) {
   const reader = new ReadQueue(ws);
 
   // client hello
-  const clientHello = makeClientHello(host, rawPublicKey);
+  const { clientHello, sessionId } = makeClientHello(host, rawPublicKey);
   console.log(...highlightCommented(clientHello.commentedString(), clientColour));
   const clientHelloData = clientHello.array();
   ws.send(clientHelloData);
@@ -35,7 +35,7 @@ async function startTls(host: string, port: number) {
   // server hello
   const serverHelloRecord = await readTlsRecord(reader, RecordTypes.Handshake);
   const serverHello = new Bytes(serverHelloRecord.content);
-  const serverRawPublicKey = parseServerHello(serverHello);
+  const serverRawPublicKey = parseServerHello(serverHello, sessionId);
   console.log(...highlightCommented(serverHelloRecord.header.commentedString() + serverHello.commentedString(), serverColour));
 
   // dummy cipher change
@@ -76,26 +76,38 @@ async function startTls(host: string, port: number) {
 
   // parse encrypted handshake part
   const hs = new Bytes(decrypted);
-  while (hs.remainingBytes() > 1) {
-    const hsHeader = hs.readUint8();
-    const hsMessageLength = hs.readUint24('% bytes of handshake data follows');
 
-    if (hsHeader === 0x08) {
-      hs.comment('handshake record type: encrypted extensions', hs.offset - 3);
-      hs.expectUint16(0, 'no excrypted extensions data follows');
-
-    } else {
-      hs.comment('ignored handshake record type', hs.offset - 3);
-      hs.skip(hsMessageLength, 'handshake record');
-    }
-
+  hs.expectUint8(0x08, 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
+  const eeMessageLength = hs.readUint24('% bytes of handshake data follows');
+  const extLength = hs.readUint16('% bytes of extensions data follow');
+  /* 
+   "A server that receives a client hello containing the "server_name"
+   extension MAY use the information contained in the extension to guide
+   its selection of an appropriate certificate to return to the client,
+   and / or other aspects of security policy.In this event, the server
+   SHALL include an extension of type "server_name" in the(extended)
+   server hello.The "extension_data" field of this extension SHALL be
+   empty.
+   - https://datatracker.ietf.org/doc/html/rfc6066#section-3
+  */
+  if (extLength > 0) {
+    if (extLength !== 4) throw new Error('Unexpected extensions');
+    hs.expectUint16(0x00, 'extension type: SNI');
+    hs.expectUint16(0x00, 'no extension data');
   }
-  hs.expectUint8(0x16, 'handshake record');
-  if (hs.remainingBytes() !== 0) throw new Error('Unexpected post-handshake data');
+
+  hs.expectUint8(0x0b, 'handshake record type: server certificate');
+  const certPayloadLength = hs.readUint24('% bytes of certificate payload follow');
+  hs.expectUint8(0x00, '0 bytes of request content follow');
+  const certsLength = hs.readUint24('% bytes of certificates follow');
+
+  const cert1Length = hs.readUint24('% bytes of first certificate follow');
+  const cert1 = hs.readBytes(cert1Length);
+  hs.comment('server certificate');
+  const cert1ExtLength = hs.readUint16('% bytes of certificate extensions follow');
 
   console.log(...highlightCommented(hs.commentedString(), serverColour));
-
 }
 
-startTls('cloudflare.com', 443);
+startTls('google.com', 443);
 // calculateKeysTest();

@@ -1,3 +1,4 @@
+import { equal } from './array';
 
 const txtEnc = new TextEncoder();
 
@@ -23,10 +24,6 @@ export default class Bytes {
     return this.uint8Array.subarray(this.offset, this.offset += length);
   }
 
-  slice(length: number) {
-    return this.uint8Array.slice(this.offset, this.offset += length);
-  }
-
   skip(length: number, comment?: string) {
     this.offset += length;
     if (comment !== undefined) this.comment(comment);
@@ -39,6 +36,10 @@ export default class Bytes {
   }
 
   // reading
+
+  readBytes(length: number) {
+    return this.uint8Array.slice(this.offset, this.offset += length);
+  }
 
   readUint8(comment?: string) {
     const result = this.dataView.getUint8(this.offset);
@@ -60,6 +61,12 @@ export default class Bytes {
     const result = (msb << 16) + lsbs;
     if (comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
     return result;
+  }
+
+  expectBytes(expected: Uint8Array | number[], comment?: string) {
+    const actual = this.readBytes(expected.length);
+    if (comment !== undefined) this.comment(comment);
+    if (!equal(actual, expected)) throw new Error(`Unexpected bytes`);
   }
 
   expectUint8(expectedValue: number, comment?: string) {

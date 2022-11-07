@@ -1,70 +1,71 @@
 import Bytes from './util/bytes';
 
 export default function makeClientHello(host: string, publicKey: ArrayBuffer) {
-  const hello = new Bytes(1024);
+  const h = new Bytes(1024);
 
-  hello.writeUint8(0x16);
-  hello.comment('record type: handshake');
-  hello.writeUint16(0x0301);
-  hello.comment('TLS protocol version 1.0');
-  const endRecordHeader = hello.lengthUint16();  // 5 bytes
+  h.writeUint8(0x16);
+  h.comment('record type: handshake');
+  h.writeUint16(0x0301);
+  h.comment('TLS protocol version 1.0');
+  const endRecordHeader = h.lengthUint16();  // 5 bytes
 
-  hello.writeUint8(0x01);
-  hello.comment('handshake type: client hello');
-  const endHandshakeHeader = hello.lengthUint24();
+  h.writeUint8(0x01);
+  h.comment('handshake type: client hello');
+  const endHandshakeHeader = h.lengthUint24();
 
-  hello.writeUint16(0x0303);
-  hello.comment('TLS version 1.2 (middlebox compatibility)');
+  h.writeUint16(0x0303);
+  h.comment('TLS version 1.2 (middlebox compatibility)');
 
-  crypto.getRandomValues(hello.subarray(32));
-  hello.comment('client random');
+  crypto.getRandomValues(h.subarray(32));
+  h.comment('client random');
 
-  const endSessionId = hello.lengthUint8('session ID');
-  crypto.getRandomValues(hello.subarray(32));
-  hello.comment('session ID (middlebox compatibility)');
+  const endSessionId = h.lengthUint8('session ID');
+  const sessionId = h.subarray(32);
+  crypto.getRandomValues(sessionId);
+  h.comment('session ID (middlebox compatibility)');
   endSessionId();
 
-  const endCiphers = hello.lengthUint16('ciphers');
-  hello.writeUint16(0x1301);
-  hello.comment('cipher: TLS_AES_128_GCM_SHA256');
+  const endCiphers = h.lengthUint16('ciphers');
+  h.writeUint16(0x1301);
+  h.comment('cipher: TLS_AES_128_GCM_SHA256');
   // hello.writeUint16(0x00ff);
   // hello.comment('cipher: TLS_EMPTY_RENEGOTIATION_INFO_SCSV');
   endCiphers();
 
-  const endCompressionMethods = hello.lengthUint8('compression methods');
-  hello.writeUint8(0x00);
-  hello.comment('compression method: none');
+  const endCompressionMethods = h.lengthUint8('compression methods');
+  h.writeUint8(0x00);
+  h.comment('compression method: none');
   endCompressionMethods();
 
-  const endExtensions = hello.lengthUint16('extensions');
+  const endExtensions = h.lengthUint16('extensions');
 
-  hello.writeUint16(0x0000);
-  hello.comment('extension type: SNI');
-  const endSNIExt = hello.lengthUint16('SNI data');
-  const endSNI = hello.lengthUint16('SNI records');
-  hello.writeUint8(0x00);
-  hello.comment('list entry type: DNS hostname');
-  const endHostname = hello.lengthUint16('hostname');
-  hello.writeUTF8String(host);
+  h.writeUint16(0x0000);
+  h.comment('extension type: SNI');
+  const endSNIExt = h.lengthUint16('SNI data');
+  const endSNI = h.lengthUint16('SNI records');
+  h.writeUint8(0x00);
+  h.comment('list entry type: DNS hostname');
+  const endHostname = h.lengthUint16('hostname');
+  h.writeUTF8String(host);
   endHostname();
   endSNI();
   endSNIExt();
 
-  hello.writeUint16(0x000b);
-  hello.comment('extension type: EC point formats');
-  const endFormatTypesExt = hello.lengthUint16('formats data');
-  const endFormatTypes = hello.lengthUint8('formats');
-  hello.writeUint8(0x00);
-  hello.comment('format: uncompressed');
+  h.writeUint16(0x000b);
+  h.comment('extension type: EC point formats');
+  const endFormatTypesExt = h.lengthUint16('formats data');
+  const endFormatTypes = h.lengthUint8('formats');
+  h.writeUint8(0x00);
+  h.comment('format: uncompressed');
   endFormatTypes();
   endFormatTypesExt()
 
-  hello.writeUint16(0x000a);
-  hello.comment('extension type: supported groups (curves)');
-  const endGroupsExt = hello.lengthUint16('groups data');
-  const endGroups = hello.lengthUint16('groups');
-  hello.writeUint16(0x0017);
-  hello.comment('curve secp256r1 (NIST P-256)');
+  h.writeUint16(0x000a);
+  h.comment('extension type: supported groups (curves)');
+  const endGroupsExt = h.lengthUint16('groups data');
+  const endGroups = h.lengthUint16('groups');
+  h.writeUint16(0x0017);  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7
+  h.comment('curve secp256r1 (NIST P-256)');
   endGroups();
   endGroupsExt();
 
@@ -83,21 +84,21 @@ export default function makeClientHello(host: string, publicKey: ArrayBuffer) {
   // const endEMSExt = hello.lengthUint16();
   // endEMSExt();
 
-  hello.writeUint16(0x000d);
-  hello.comment('extension type: signature algorithms');
-  const endSigsExt = hello.lengthUint16('signature algorithms data');
-  const endSigs = hello.lengthUint16('signature algorithms');
-  hello.writeUint16(0x0403);
-  hello.comment('ECDSA-SECP256r1-SHA256');
+  h.writeUint16(0x000d);
+  h.comment('extension type: signature algorithms');
+  const endSigsExt = h.lengthUint16('signature algorithms data');
+  const endSigs = h.lengthUint16('signature algorithms');
+  h.writeUint16(0x0403);  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3
+  h.comment('ECDSA-SECP256r1-SHA256');
   endSigs();
   endSigsExt();
 
-  hello.writeUint16(0x002b);
-  hello.comment('extension type: supported TLS versions');
-  const endVersionsExt = hello.lengthUint16('TLS versions data');
-  const endVersions = hello.lengthUint8('TLS versions');
-  hello.writeUint16(0x0304);
-  hello.comment('TLS version 1.3');
+  h.writeUint16(0x002b);
+  h.comment('extension type: supported TLS versions');
+  const endVersionsExt = h.lengthUint16('TLS versions data');
+  const endVersions = h.lengthUint8('TLS versions');
+  h.writeUint16(0x0304);  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.1
+  h.comment('TLS version 1.3');
   endVersions();
   endVersionsExt();
 
@@ -110,15 +111,15 @@ export default function makeClientHello(host: string, publicKey: ArrayBuffer) {
   // endPSKModes();
   // endPSKModesExt();
 
-  hello.writeUint16(0x0033);
-  hello.comment('extension type: key share');
-  const endKeyShareExt = hello.lengthUint16('key share data');
-  const endKeyShares = hello.lengthUint16('key shares');
-  hello.writeUint16(0x0017);
-  hello.comment('secp256r1 (NIST P-256) key share');
-  const endKeyShare = hello.lengthUint16('key share');
-  hello.writeBytes(new Uint8Array(publicKey));
-  hello.comment('key');
+  h.writeUint16(0x0033);
+  h.comment('extension type: key share');
+  const endKeyShareExt = h.lengthUint16('key share data');
+  const endKeyShares = h.lengthUint16('key shares');
+  h.writeUint16(0x0017);
+  h.comment('secp256r1 (NIST P-256) key share');
+  const endKeyShare = h.lengthUint16('key share');
+  h.writeBytes(new Uint8Array(publicKey));
+  h.comment('key');
   endKeyShare();
   endKeyShares();
   endKeyShareExt();
@@ -128,5 +129,5 @@ export default function makeClientHello(host: string, publicKey: ArrayBuffer) {
   endHandshakeHeader();
   endRecordHeader();
 
-  return hello;
+  return { clientHello: h, sessionId };
 }
