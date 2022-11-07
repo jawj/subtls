@@ -155,8 +155,10 @@ export default class Bytes {
     return this.uint8Array.subarray(0, this.offset);
   }
 
-  commentedString(s = '') {
-    for (let i = 0; i < this.offset; i++) {
+  commentedString(all = false) {
+    let s = '';
+    const len = all ? this.uint8Array.length : this.offset;
+    for (let i = 0; i < len; i++) {
       s += this.uint8Array[i].toString(16).padStart(2, '0') + ' ';
       const comment = this.comments[i + 1];
       if (comment !== undefined) s += ` ${comment}\n`;

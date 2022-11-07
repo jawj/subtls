@@ -98,7 +98,7 @@ async function startTls(host: string, port: number) {
 
   hs.expectUint8(0x0b, 'handshake record type: server certificate');
   const certPayloadLength = hs.readUint24('% bytes of certificate payload follow');
-  hs.expectUint8(0x00, '0 bytes of request content follow');
+  hs.expectUint8(0x00, '0 bytes of request context follow');
   const certsLength = hs.readUint24('% bytes of certificates follow');
 
   const cert1Length = hs.readUint24('% bytes of first certificate follow');
@@ -106,7 +106,7 @@ async function startTls(host: string, port: number) {
   hs.comment('server certificate');
   const cert1ExtLength = hs.readUint16('% bytes of certificate extensions follow');
 
-  console.log(...highlightCommented(hs.commentedString(), serverColour));
+  console.log(...highlightCommented(hs.commentedString(true), serverColour));
 }
 
 startTls('google.com', 443);

@@ -166,8 +166,10 @@ var Bytes = class {
   array() {
     return this.uint8Array.subarray(0, this.offset);
   }
-  commentedString(s = "") {
-    for (let i = 0; i < this.offset; i++) {
+  commentedString(all = false) {
+    let s = "";
+    const len = all ? this.uint8Array.length : this.offset;
+    for (let i = 0; i < len; i++) {
       s += this.uint8Array[i].toString(16).padStart(2, "0") + " ";
       const comment = this.comments[i + 1];
       if (comment !== void 0)
@@ -404,7 +406,7 @@ function parseServerHello(hello, sessionId) {
     throw new Error("Unexpected HelloRetryRequest");
   hello.comment('server random, not SHA256("HelloRetryRequest")');
   hello.expectUint8(32, "session ID length");
-  hello.expectBytes(sessionId, "session ID");
+  hello.expectBytes(sessionId, "session ID (matches client session ID)");
   hello.expectUint16(4865, "cipher (matches client hello)");
   hello.expectUint8(0, "no compression");
   const extensionsLength = hello.readUint16("extensions length");
@@ -581,12 +583,12 @@ async function startTls(host, port) {
   }
   hs.expectUint8(11, "handshake record type: server certificate");
   const certPayloadLength = hs.readUint24("% bytes of certificate payload follow");
-  hs.expectUint8(0, "0 bytes of request content follow");
+  hs.expectUint8(0, "0 bytes of request context follow");
   const certsLength = hs.readUint24("% bytes of certificates follow");
   const cert1Length = hs.readUint24("% bytes of first certificate follow");
   const cert1 = hs.readBytes(cert1Length);
   hs.comment("server certificate");
   const cert1ExtLength = hs.readUint16("% bytes of certificate extensions follow");
-  console.log(...highlightCommented_default(hs.commentedString(), serverColour));
+  console.log(...highlightCommented_default(hs.commentedString(true), serverColour));
 }
 startTls("google.com", 443);

@@ -21,7 +21,7 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
   hello.comment('server random, not SHA256("HelloRetryRequest")');
 
   hello.expectUint8(0x20, 'session ID length');
-  hello.expectBytes(sessionId, 'session ID');
+  hello.expectBytes(sessionId, 'session ID (matches client session ID)');
 
   hello.expectUint16(0x1301, 'cipher (matches client hello)');
   hello.expectUint8(0x00, 'no compression');
