@@ -1,14 +1,27 @@
+import * as pkijs from 'pkijs';
+import * as pvtsutils from 'pvtsutils';
 
 import highlightCommented from './util/highlightCommented';
 import makeClientHello from './clientHello';
 import { ReadQueue } from './util/readqueue';
-import { readTlsRecord, RecordTypeNames, RecordTypes } from './util/tlsrecord';
+import { readTlsRecord, RecordTypes } from './util/tlsrecord';
 import Bytes from './util/bytes';
 import parseServerHello from './parseServerHello';
-import { getHandshakeKeys, getHandshakeKeysTest } from './keyscalc';
+import { getHandshakeKeys } from './keyscalc';
 import { hexFromU8 } from './util/hex';
 import { Decrypter } from './aesgcm';
 import { concat } from './util/array';
+import { describeCert } from './util/cert';
+
+// @ts-ignore
+import isrgrootx1 from './roots/isrg-root-x1.pem';
+// @ts-ignore
+import isrgrootx2 from './roots/isrg-root-x2.pem';
+// @ts-ignore
+import isrgrootx2xs from './roots/isrg-root-x1-cross-signed.pem';
+// @ts-ignore
+import trustidx3root from './roots/trustid-x3-root.pem';
+
 
 const clientColour = '#8c8';
 const serverColour = '#88c';
@@ -99,15 +112,88 @@ async function startTls(host: string, port: number) {
   hs.expectUint8(0x0b, 'handshake record type: server certificate');
   const certPayloadLength = hs.readUint24('% bytes of certificate payload follow');
   hs.expectUint8(0x00, '0 bytes of request context follow');
-  const certsLength = hs.readUint24('% bytes of certificates follow');
+  let remainingCertsLength = hs.readUint24('% bytes of certificates follow');
+  const certEntries = [];
+  while (remainingCertsLength > 0) {
+    const certLength = hs.readUint24('% bytes of certificate follow');
+    remainingCertsLength -= 3;
 
-  const cert1Length = hs.readUint24('% bytes of first certificate follow');
-  const cert1 = hs.readBytes(cert1Length);
-  hs.comment('server certificate');
-  const cert1ExtLength = hs.readUint16('% bytes of certificate extensions follow');
+    const certData = hs.readBytes(certLength);
+    hs.comment('server certificate');
+    remainingCertsLength -= certLength;
+
+    const certExtLength = hs.readUint16('% bytes of certificate extensions follow');
+    remainingCertsLength -= 2;
+
+    const certExtData = hs.readBytes(certExtLength);
+    remainingCertsLength -= certExtLength;
+
+    const cert = pkijs.Certificate.fromBER(certData);
+    certEntries.push({ certData, certExtData, cert });
+  }
 
   console.log(...highlightCommented(hs.commentedString(true), serverColour));
+
+  console.log('%c%s', `color: ${headerColor}`, 'certificates');
+  for (const entry of certEntries) console.log(describeCert(entry.cert));
+
+  const userCert = certEntries[0].cert;
+  const subjectAltNameID = '2.5.29.17';
+  const subectAltNameTypeDNSName = 2;
+  const sanExtension = (userCert.extensions ?? []).find(ext => ext.extnID === subjectAltNameID);
+  if (sanExtension === undefined) throw new Error('User certificate includes no subjectAltName extension');
+  const altNames = (sanExtension.parsedValue as pkijs.AltName).altNames
+    .filter(altName => altName.type === subectAltNameTypeDNSName)
+    .map(altName => altName.value as string);
+
+  console.log('subjectAltNames', altNames.join(' '));
+  const namesMatch = altNames.some(alt => {
+    let altName = alt;
+    let hostName = host;
+    // wildcards: https://en.wikipedia.org/wiki/Wildcard_certificate
+    if (/[.][^.]+[.][^.]+/.test(altName) && altName.startsWith('*.')) {
+      altName = alt.slice(1);
+      hostName = hostName.slice(hostName.indexOf('.'));
+    }
+    // test
+    if (altName === hostName) {
+      console.log(`matched subjectAltName "${alt}"`);  // NOT altName!
+      return true;
+    }
+  });
+  if (!namesMatch) throw new Error(`No matching subjectAltName for ${host}`);
+
+  function decodePEM(pem: string, tag = "[A-Z0-9 ]+") {
+    const pattern = new RegExp(`-{5}BEGIN ${tag}-{5}([a-zA-Z0-9=+\\/\\n\\r]+)-{5}END ${tag}-{5}`, 'g');
+    const res = [];
+    let matches = null;
+    while (matches = pattern.exec(pem)) {
+      const base64 = matches[1].replace(/[\r\n]/g, '');
+      res.push(pvtsutils.Convert.FromBase64(base64));
+    }
+    return res;
+  }
+
+  const trustedRootCerts = decodePEM(isrgrootx1 + isrgrootx2 + trustidx3root).map(ber => pkijs.Certificate.fromBER(ber));
+
+  console.log('%c%s', `color: ${headerColor}`, 'trusted root certificates');
+  for (const cert of trustedRootCerts) console.log(describeCert(cert));
+
+  const chainEngine = new pkijs.CertificateChainValidationEngine({
+    certs: certEntries.map(entry => entry.cert).reverse(),  // end-user cert should be last
+    checkDate: new Date(),
+    trustedCerts: trustedRootCerts,
+  });
+
+  const chain = await chainEngine.verify();
+  console.log('cert verify result', chain);
+  if (chain.result !== true) throw new Error(chain.resultMessage);
+
+
+  // for validation, see https://pkijs.org/docs/classes/CertificateChainValidationEngine.html
+
+
 }
 
-startTls('google.com', 443);
+startTls('neon-cf-pg-test.jawj.workers.dev', 443);
 // calculateKeysTest();
