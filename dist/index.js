@@ -490,7 +490,7 @@ var Bytes = class {
   writeUTF8String(s) {
     const bytes = txtEnc.encode(s);
     this.writeBytes(bytes);
-    this.comment('"' + s + '"');
+    this.comment('"' + s.replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"');
     return this;
   }
   writeUint8(value, comment) {
@@ -705,7 +705,7 @@ var ReadQueue = class {
 };
 
 // src/util/tlsrecord.ts
-var RecordTypeNames = {
+var RecordTypeName = {
   20: "ChangeCipherSpec",
   21: "Alert",
   22: "Handshake",
@@ -721,11 +721,11 @@ async function readTlsRecord(reader, expectedType) {
     throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   if (expectedType !== void 0 && type !== expectedType)
     throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
-  header.comment(`record type: ${RecordTypeNames[type]}`);
+  header.comment(`record type: ${RecordTypeName[type]}`);
   const version = header.readUint16("TLS version");
   if ([769, 770, 771].indexOf(version) < 0)
     throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
-  const length2 = header.readUint16("record length");
+  const length2 = header.readUint16("% bytes follow");
   if (length2 > maxRecordLength)
     throw new Error(`Record too long: ${length2} bytes`);
   const content = await reader.read(length2);
@@ -738,6 +738,19 @@ function unwrapDecryptedTlsRecord(wrappedRecord, expectedType) {
   if (expectedType !== void 0 && type !== expectedType)
     throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   return { type, record };
+}
+async function readEncryptedTlsRecord(reader, decrypter, expectedType) {
+  const encryptedRecord = await readTlsRecord(reader, 23 /* Application */);
+  const encryptedBytes = new Bytes(encryptedRecord.content);
+  encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
+  encryptedBytes.skip(16, "auth tag");
+  if (encryptedBytes.remainingBytes() !== 0)
+    throw new Error("Unexpected extra bytes at end of encrypted record");
+  console.log(...highlightCommented_default(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
+  const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
+  const unwrappedRecord = unwrapDecryptedTlsRecord(decryptedRecord, expectedType);
+  console.log(`... decrypted payload (see below) ... %s%c %s`, unwrappedRecord.type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `record type: ${RecordTypeName[unwrappedRecord.type]}`);
+  return unwrappedRecord.record;
 }
 
 // src/parseServerHello.ts
@@ -853,9 +866,16 @@ async function hkdfExpandLabel(key, label, context, length2, hashBits) {
   );
   return hkdfExpand(key, hkdfLabel, length2, hashBits);
 }
-async function getHandshakeKeys(sharedSecret, hellosHash, hashBits, keyLength) {
+async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, keyLength) {
   const hashBytes = hashBits >> 3;
   const zeroKey = new Uint8Array(hashBytes);
+  const publicKey = await crypto.subtle.importKey("raw", serverPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: "ECDH", public: publicKey }, privateKey, 256);
+  const sharedSecret = new Uint8Array(sharedSecretBuffer);
+  console.log("shared secret", hexFromU8(sharedSecret));
+  const hellosHashBuffer = await crypto.subtle.digest("SHA-256", hellos);
+  const hellosHash = new Uint8Array(hellosHashBuffer);
+  console.log("hellos hash", hexFromU8(hellosHash));
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
   console.log("early secret", hexFromU8(new Uint8Array(earlySecret)));
   const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
@@ -24083,7 +24103,7 @@ async function startTls(host, port) {
   ws.send(clientHelloData);
   const serverHelloRecord = await readTlsRecord(reader, 22 /* Handshake */);
   const serverHello = new Bytes(serverHelloRecord.content);
-  const serverRawPublicKey = parseServerHello(serverHello, sessionId);
+  const serverPublicKey = parseServerHello(serverHello, sessionId);
   console.log(...highlightCommented_default(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
   const changeCipherRecord = await readTlsRecord(reader, 20 /* ChangeCipherSpec */);
   const ccipher = new Bytes(changeCipherRecord.content);
@@ -24092,29 +24112,16 @@ async function startTls(host, port) {
     throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
   console.log(...highlightCommented_default(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
   console.log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations");
-  const serverPublicKey = await crypto.subtle.importKey("raw", serverRawPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
-  const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: "ECDH", public: serverPublicKey }, ecdhKeys.privateKey, 256);
-  const sharedSecret = new Uint8Array(sharedSecretBuffer);
-  console.log("shared secret", hexFromU8(sharedSecret));
   const clientHelloContent = clientHelloData.subarray(5);
   const serverHelloContent = serverHelloRecord.content;
   const hellos = concat(clientHelloContent, serverHelloContent);
-  const hellosHashBuffer = await crypto.subtle.digest("SHA-256", hellos);
-  const hellosHash = new Uint8Array(hellosHashBuffer);
-  console.log("hellos hash", hexFromU8(hellosHash));
-  const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256, 16);
+  const handshakeKeys = await getHandshakeKeys(serverPublicKey, ecdhKeys.privateKey, hellos, 256, 16);
   const serverHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.serverHandshakeKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const handshakeDecrypter = new Crypter("decrypt", serverHandshakeKey, handshakeKeys.serverHandshakeIV);
   const clientHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
-  const encHandshake = await readTlsRecord(reader, 23 /* Application */);
-  console.log(...highlightCommented_default(encHandshake.header.commentedString(), "#88c" /* server */));
-  console.log("%s%c  %s", hexFromU8(encHandshake.content), `color: ${"#88c" /* server */}`, "encrypted payload + auth tag");
-  const decHandshake = await handshakeDecrypter.process(encHandshake.content, 16, encHandshake.headerData);
-  console.log("%s%c  %s", hexFromU8(decHandshake), `color: ${"#88c" /* server */}`, "decrypted payload");
-  const unwrappedHandshake = unwrapDecryptedTlsRecord(decHandshake, 22 /* Handshake */);
-  await parseEncryptedHandshake(host, unwrappedHandshake.record);
-  console.log("%s%c  %s", unwrappedHandshake.type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, "record type: handshake");
+  const serverHandshake = await readEncryptedTlsRecord(reader, handshakeDecrypter, 22 /* Handshake */);
+  await parseEncryptedHandshake(host, serverHandshake);
   const clientCipherChange = new Bytes(6);
   clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
   clientCipherChange.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
@@ -24123,7 +24130,7 @@ async function startTls(host, port) {
   console.log(...highlightCommented_default(clientCipherChange.commentedString(), "#8c8" /* client */));
   const clientCipherChangeData = clientCipherChange.array();
   ws.send(clientCipherChangeData);
-  const wholeHandshake = concat(hellos, unwrappedHandshake.record);
+  const wholeHandshake = concat(hellos, serverHandshake);
   const wholeHandshakeHashBuffer = await crypto.subtle.digest("SHA-256", wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
   console.log("whole handshake hash", hexFromU8(wholeHandshakeHash));
@@ -24175,9 +24182,8 @@ Connection: close\r
   encryptedReqRecord.comment("encrypted data");
   console.log(...highlightCommented_default(encryptedReqRecord.commentedString(), "#8c8" /* client */));
   ws.send(encryptedReqRecord.array());
-  const encryptedResponse = await readTlsRecord(reader, 23 /* Application */);
-  const decryptedResponse = await applicationDecrypter.process(encryptedResponse.content, 16, encryptedResponse.header.array());
-  console.log(new TextDecoder().decode(decryptedResponse));
+  const serverResponse = await readEncryptedTlsRecord(reader, applicationDecrypter, 23 /* Application */);
+  console.log(new TextDecoder().decode(serverResponse));
 }
 startTls("neon-cf-pg-test.jawj.workers.dev", 443);
 /*!

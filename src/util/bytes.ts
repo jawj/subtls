@@ -98,7 +98,7 @@ export default class Bytes {
   writeUTF8String(s: string) {
     const bytes = txtEnc.encode(s);
     this.writeBytes(bytes);
-    this.comment('"' + s + '"');
+    this.comment('"' + s.replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"');
     return this;
   }
 

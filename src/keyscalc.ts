@@ -1,4 +1,4 @@
-import { hexFromU8, u8FromHex } from './util/hex';
+import { hexFromU8 } from './util/hex';
 import { concat } from './util/array';
 
 const txtEnc = new TextEncoder();
@@ -113,18 +113,18 @@ export async function hkdfExpandLabel(key: Uint8Array, label: string, context: U
   return hkdfExpand(key, hkdfLabel, length, hashBits);
 }
 
-export async function getHandshakeKeysTest() {
-  // https://tls13.xargs.org/#server-handshake-keys-calc
-  // $ hello_hash = e05f64fcd082bdb0dce473adf669c2769f257a1c75a51b7887468b5e0e7a7de4f4d34555112077f16e079019d5a845bd
-  // $ shared_secret = df4a291baa1eb7cfa6934b29b474baad2697e29f1f920dcc77c8a0a088447624
-  const hellosHash = u8FromHex('e05f64fcd082bdb0dce473adf669c2769f257a1c75a51b7887468b5e0e7a7de4f4d34555112077f16e079019d5a845bd');
-  const sharedSecret = u8FromHex('df4a291baa1eb7cfa6934b29b474baad2697e29f1f920dcc77c8a0a088447624');
-  return getHandshakeKeys(sharedSecret, hellosHash, 384, 32);
-}
-
-export async function getHandshakeKeys(sharedSecret: Uint8Array, hellosHash: Uint8Array, hashBits: 256 | 384, keyLength: 16 | 32) {  // keyLength: 16 for ASE128, 32 for AES256
+export async function getHandshakeKeys(serverPublicKey: Uint8Array, privateKey: CryptoKey, hellos: Uint8Array, hashBits: 256 | 384, keyLength: 16 | 32) {  // keyLength: 16 for ASE128, 32 for AES256
   const hashBytes = hashBits >> 3;
   const zeroKey = new Uint8Array(hashBytes);
+
+  const publicKey = await crypto.subtle.importKey('raw', serverPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false /* extractable */, []);
+  const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: 'ECDH', public: publicKey }, privateKey, 256);
+  const sharedSecret = new Uint8Array(sharedSecretBuffer);
+  console.log('shared secret', hexFromU8(sharedSecret));
+
+  const hellosHashBuffer = await crypto.subtle.digest('SHA-256', hellos);
+  const hellosHash = new Uint8Array(hellosHashBuffer);
+  console.log('hellos hash', hexFromU8(hellosHash));
 
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
   console.log('early secret', hexFromU8(new Uint8Array(earlySecret)));
