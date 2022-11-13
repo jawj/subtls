@@ -369,6 +369,568 @@ var require_build = __commonJS({
   }
 });
 
+// src/util/highlightCommented.ts
+function highlightCommented_default(s, colour) {
+  const css = [];
+  s = s.replace(/  .+$/gm, (m) => {
+    css.push(`color: ${colour}`, "color: inherit");
+    return `%c${m}%c`;
+  });
+  return [s, ...css];
+}
+
+// src/util/array.ts
+function concat(...arrs) {
+  length = arrs.reduce((memo, arr) => memo + arr.length, 0);
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const arr of arrs) {
+    result.set(arr, offset);
+    offset += arr.length;
+  }
+  return result;
+}
+function equal(a, b) {
+  const aLength = a.length;
+  if (aLength !== b.length)
+    return false;
+  for (let i = 0; i < aLength; i++)
+    if (a[i] !== b[i])
+      return false;
+  return true;
+}
+
+// src/util/bytes.ts
+var txtEnc = new TextEncoder();
+var Bytes = class {
+  offset;
+  dataView;
+  uint8Array;
+  comments;
+  constructor(arrayOrMaxBytes) {
+    this.offset = 0;
+    this.uint8Array = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
+    this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
+    this.comments = {};
+  }
+  remainingBytes() {
+    return this.uint8Array.length - this.offset;
+  }
+  subarray(length2) {
+    return this.uint8Array.subarray(this.offset, this.offset += length2);
+  }
+  skip(length2, comment) {
+    this.offset += length2;
+    if (comment !== void 0)
+      this.comment(comment);
+    return this;
+  }
+  comment(s, offset = this.offset) {
+    this.comments[offset] = s;
+    return this;
+  }
+  readBytes(length2) {
+    return this.uint8Array.slice(this.offset, this.offset += length2);
+  }
+  readUint8(comment) {
+    const result = this.dataView.getUint8(this.offset);
+    this.offset += 1;
+    if (comment !== void 0)
+      this.comment(comment.replace(/%/g, String(result)));
+    return result;
+  }
+  readUint16(comment) {
+    const result = this.dataView.getUint16(this.offset);
+    this.offset += 2;
+    if (comment !== void 0)
+      this.comment(comment.replace(/%/g, String(result)));
+    return result;
+  }
+  readUint24(comment) {
+    const msb = this.readUint8();
+    const lsbs = this.readUint16();
+    const result = (msb << 16) + lsbs;
+    if (comment !== void 0)
+      this.comment(comment.replace(/%/g, String(result)));
+    return result;
+  }
+  expectBytes(expected, comment) {
+    const actual = this.readBytes(expected.length);
+    if (comment !== void 0)
+      this.comment(comment);
+    if (!equal(actual, expected))
+      throw new Error(`Unexpected bytes`);
+  }
+  expectUint8(expectedValue, comment) {
+    const actualValue = this.readUint8();
+    if (comment !== void 0)
+      this.comment(comment);
+    if (actualValue !== expectedValue)
+      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
+  expectUint16(expectedValue, comment) {
+    const actualValue = this.readUint16();
+    if (comment !== void 0)
+      this.comment(comment);
+    if (actualValue !== expectedValue)
+      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
+  expectUint24(expectedValue, comment) {
+    const actualValue = this.readUint24();
+    if (comment !== void 0)
+      this.comment(comment);
+    if (actualValue !== expectedValue)
+      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
+  writeBytes(bytes) {
+    this.uint8Array.set(bytes, this.offset);
+    this.offset += bytes.length;
+    return this;
+  }
+  writeUTF8String(s) {
+    const bytes = txtEnc.encode(s);
+    this.writeBytes(bytes);
+    this.comment('"' + s + '"');
+    return this;
+  }
+  writeUint8(value, comment) {
+    this.dataView.setUint8(this.offset, value);
+    this.offset += 1;
+    if (comment !== void 0)
+      this.comment(comment);
+    return this;
+  }
+  writeUint16(value, comment) {
+    this.dataView.setUint16(this.offset, value);
+    this.offset += 2;
+    if (comment !== void 0)
+      this.comment(comment);
+    return this;
+  }
+  _lengthGeneric(lengthBytes, comment) {
+    const startOffset = this.offset;
+    this.offset += lengthBytes;
+    const endOffset = this.offset;
+    return () => {
+      const length2 = this.offset - endOffset;
+      if (lengthBytes === 1)
+        this.dataView.setUint8(startOffset, length2);
+      else if (lengthBytes === 2)
+        this.dataView.setUint16(startOffset, length2);
+      else if (lengthBytes === 3) {
+        this.dataView.setUint8(startOffset, (length2 & 16711680) >> 16);
+        this.dataView.setUint16(startOffset + 1, length2 & 65535);
+      } else
+        throw new Error(`Invalid length for length field: ${lengthBytes}`);
+      this.comment(`${length2} bytes${comment ? ` of ${comment}` : ""} follow`, endOffset);
+    };
+  }
+  lengthUint8(comment) {
+    return this._lengthGeneric(1, comment);
+  }
+  lengthUint16(comment) {
+    return this._lengthGeneric(2, comment);
+  }
+  lengthUint24(comment) {
+    return this._lengthGeneric(3, comment);
+  }
+  array() {
+    return this.uint8Array.subarray(0, this.offset);
+  }
+  commentedString(all = false) {
+    let s = "";
+    const len = all ? this.uint8Array.length : this.offset;
+    for (let i = 0; i < len; i++) {
+      s += this.uint8Array[i].toString(16).padStart(2, "0") + " ";
+      const comment = this.comments[i + 1];
+      if (comment !== void 0)
+        s += ` ${comment}
+`;
+    }
+    return s;
+  }
+};
+
+// src/clientHello.ts
+function makeClientHello(host, publicKey) {
+  const h = new Bytes(1024);
+  h.writeUint8(22);
+  h.comment("record type: handshake");
+  h.writeUint16(769);
+  h.comment("TLS protocol version 1.0");
+  const endRecordHeader = h.lengthUint16();
+  h.writeUint8(1);
+  h.comment("handshake type: client hello");
+  const endHandshakeHeader = h.lengthUint24();
+  h.writeUint16(771);
+  h.comment("TLS version 1.2 (middlebox compatibility)");
+  crypto.getRandomValues(h.subarray(32));
+  h.comment("client random");
+  const endSessionId = h.lengthUint8("session ID");
+  const sessionId = h.subarray(32);
+  crypto.getRandomValues(sessionId);
+  h.comment("session ID (middlebox compatibility)");
+  endSessionId();
+  const endCiphers = h.lengthUint16("ciphers");
+  h.writeUint16(4865);
+  h.comment("cipher: TLS_AES_128_GCM_SHA256");
+  endCiphers();
+  const endCompressionMethods = h.lengthUint8("compression methods");
+  h.writeUint8(0);
+  h.comment("compression method: none");
+  endCompressionMethods();
+  const endExtensions = h.lengthUint16("extensions");
+  h.writeUint16(0);
+  h.comment("extension type: SNI");
+  const endSNIExt = h.lengthUint16("SNI data");
+  const endSNI = h.lengthUint16("SNI records");
+  h.writeUint8(0);
+  h.comment("list entry type: DNS hostname");
+  const endHostname = h.lengthUint16("hostname");
+  h.writeUTF8String(host);
+  endHostname();
+  endSNI();
+  endSNIExt();
+  h.writeUint16(11);
+  h.comment("extension type: EC point formats");
+  const endFormatTypesExt = h.lengthUint16("formats data");
+  const endFormatTypes = h.lengthUint8("formats");
+  h.writeUint8(0);
+  h.comment("format: uncompressed");
+  endFormatTypes();
+  endFormatTypesExt();
+  h.writeUint16(10);
+  h.comment("extension type: supported groups (curves)");
+  const endGroupsExt = h.lengthUint16("groups data");
+  const endGroups = h.lengthUint16("groups");
+  h.writeUint16(23);
+  h.comment("curve secp256r1 (NIST P-256)");
+  endGroups();
+  endGroupsExt();
+  h.writeUint16(13);
+  h.comment("extension type: signature algorithms");
+  const endSigsExt = h.lengthUint16("signature algorithms data");
+  const endSigs = h.lengthUint16("signature algorithms");
+  h.writeUint16(1027);
+  h.comment("ECDSA-SECP256r1-SHA256");
+  endSigs();
+  endSigsExt();
+  h.writeUint16(43);
+  h.comment("extension type: supported TLS versions");
+  const endVersionsExt = h.lengthUint16("TLS versions data");
+  const endVersions = h.lengthUint8("TLS versions");
+  h.writeUint16(772);
+  h.comment("TLS version 1.3");
+  endVersions();
+  endVersionsExt();
+  h.writeUint16(51);
+  h.comment("extension type: key share");
+  const endKeyShareExt = h.lengthUint16("key share data");
+  const endKeyShares = h.lengthUint16("key shares");
+  h.writeUint16(23);
+  h.comment("secp256r1 (NIST P-256) key share");
+  const endKeyShare = h.lengthUint16("key share");
+  h.writeBytes(new Uint8Array(publicKey));
+  h.comment("key");
+  endKeyShare();
+  endKeyShares();
+  endKeyShareExt();
+  endExtensions();
+  endHandshakeHeader();
+  endRecordHeader();
+  return { clientHello: h, sessionId };
+}
+
+// src/util/readqueue.ts
+var ReadQueue = class {
+  queue;
+  outstandingRequest;
+  constructor(ws) {
+    this.queue = [];
+    ws.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+  }
+  enqueue(data) {
+    this.queue.push(data);
+    this.dequeue();
+  }
+  dequeue() {
+    if (this.outstandingRequest === void 0)
+      return;
+    const { resolve, bytes } = this.outstandingRequest;
+    const bytesInQueue = this.bytesInQueue();
+    if (bytesInQueue < bytes)
+      return;
+    this.outstandingRequest = void 0;
+    const firstItem = this.queue[0];
+    const firstItemLength = firstItem.length;
+    if (firstItemLength === bytes) {
+      this.queue.shift();
+      return resolve(firstItem);
+    } else if (firstItemLength > bytes) {
+      this.queue[0] = firstItem.subarray(bytes);
+      return resolve(firstItem.subarray(0, bytes));
+    } else {
+      const result = new Uint8Array(bytes);
+      let outstandingBytes = bytes;
+      let offset = 0;
+      while (outstandingBytes > 0) {
+        const nextItem = this.queue[0];
+        const nextItemLength = nextItem.length;
+        if (nextItemLength <= outstandingBytes) {
+          this.queue.shift();
+          result.set(nextItem, offset);
+          offset += nextItemLength;
+          outstandingBytes -= nextItemLength;
+        } else {
+          this.queue[0] = nextItem.subarray(outstandingBytes);
+          result.set(nextItem.subarray(0, outstandingBytes), offset);
+          outstandingBytes -= outstandingBytes;
+          offset += outstandingBytes;
+        }
+      }
+      return resolve(result);
+    }
+  }
+  bytesInQueue() {
+    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
+  }
+  async read(bytes) {
+    if (this.outstandingRequest !== void 0)
+      throw new Error("Can\u2019t read while already awaiting read");
+    return new Promise((resolve) => {
+      this.outstandingRequest = { resolve, bytes };
+      this.dequeue();
+    });
+  }
+};
+
+// src/util/tlsrecord.ts
+var RecordTypeNames = {
+  20: "ChangeCipherSpec",
+  21: "Alert",
+  22: "Handshake",
+  23: "Application",
+  24: "Heartbeat"
+};
+var maxRecordLength = 1 << 14;
+async function readTlsRecord(reader, expectedType) {
+  const headerData = await reader.read(5);
+  const header = new Bytes(headerData);
+  const type = header.readUint8();
+  if (type < 20 || type > 24)
+    throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
+  if (expectedType !== void 0 && type !== expectedType)
+    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
+  header.comment(`record type: ${RecordTypeNames[type]}`);
+  const version = header.readUint16("TLS version");
+  if ([769, 770, 771].indexOf(version) < 0)
+    throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
+  const length2 = header.readUint16("record length");
+  if (length2 > maxRecordLength)
+    throw new Error(`Record too long: ${length2} bytes`);
+  const content = await reader.read(length2);
+  return { headerData, header, type, version, length: length2, content };
+}
+function unwrapDecryptedTlsRecord(wrappedRecord, expectedType) {
+  const lastByteIndex = wrappedRecord.length - 1;
+  const record = wrappedRecord.subarray(0, lastByteIndex);
+  const type = wrappedRecord[lastByteIndex];
+  if (expectedType !== void 0 && type !== expectedType)
+    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
+  return { type, record };
+}
+
+// src/parseServerHello.ts
+function parseServerHello(hello, sessionId) {
+  let serverPublicKey;
+  let tlsVersionSpecified;
+  hello.expectUint8(2, "handshake type: server hello");
+  const helloLength = hello.readUint24("server hello length");
+  hello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  const serverRandom = hello.readBytes(32);
+  if (equal(serverRandom, [
+    207,
+    33,
+    173,
+    116,
+    229,
+    154,
+    97,
+    17,
+    190,
+    29,
+    140,
+    2,
+    30,
+    101,
+    184,
+    145,
+    194,
+    162,
+    17,
+    22,
+    122,
+    187,
+    140,
+    94,
+    7,
+    158,
+    9,
+    226,
+    200,
+    168,
+    51,
+    156
+  ]))
+    throw new Error("Unexpected HelloRetryRequest");
+  hello.comment('server random, not SHA256("HelloRetryRequest")');
+  hello.expectUint8(32, "session ID length");
+  hello.expectBytes(sessionId, "session ID (matches client session ID)");
+  hello.expectUint16(4865, "cipher (matches client hello)");
+  hello.expectUint8(0, "no compression");
+  const extensionsLength = hello.readUint16("extensions length");
+  while (hello.remainingBytes() > 0) {
+    const extensionType = hello.readUint16("extension type");
+    const extensionLength = hello.readUint16("extension length");
+    if (extensionType === 43) {
+      if (extensionLength !== 2)
+        throw new Error(`Unexpected extension length: ${extensionLength} (expected 2)`);
+      hello.expectUint16(772, "TLS version 1.3");
+      tlsVersionSpecified = true;
+    } else if (extensionType === 51) {
+      hello.expectUint16(23, "secp256r1 (NIST P-256) key share");
+      hello.expectUint16(65);
+      serverPublicKey = hello.readBytes(65);
+      hello.comment("key");
+    } else {
+      throw new Error(`Unexpected extension 0x${extensionType.toString(16).padStart(4, "0")}, length ${extensionLength}`);
+    }
+  }
+  if (hello.remainingBytes() !== 0)
+    throw new Error(`Unexpected additional data at end of server hello`);
+  if (tlsVersionSpecified !== true || serverPublicKey === void 0)
+    throw new Error(`Incomplete server hello`);
+  return serverPublicKey;
+}
+
+// src/util/hex.ts
+function hexFromU8(u8) {
+  return [...u8].map((n) => n.toString(16).padStart(2, "0")).join("");
+}
+
+// src/keyscalc.ts
+var txtEnc2 = new TextEncoder();
+async function hkdfExtract(salt, keyMaterial, hashBits) {
+  const hmacKey = await crypto.subtle.importKey("raw", salt, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
+  var prk = new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey, keyMaterial));
+  return prk;
+}
+async function hkdfExpand(key, info, length2, hashBits) {
+  const hashBytes = hashBits >> 3;
+  const n = Math.ceil(length2 / hashBytes);
+  const okm = new Uint8Array(n * hashBytes);
+  const hmacKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
+  let tPrev = new Uint8Array(0);
+  for (let i = 0; i < n; i++) {
+    const hmacData = concat(tPrev, info, [i + 1]);
+    const tiBuffer = await crypto.subtle.sign("HMAC", hmacKey, hmacData);
+    const ti = new Uint8Array(tiBuffer);
+    okm.set(ti, hashBytes * i);
+    tPrev = ti;
+  }
+  return okm.subarray(0, length2);
+}
+var tls13_Bytes = txtEnc2.encode("tls13 ");
+async function hkdfExpandLabel(key, label, context, length2, hashBits) {
+  const labelData = txtEnc2.encode(label);
+  const hkdfLabel = concat(
+    [(length2 & 65280) >> 8, length2 & 255],
+    [tls13_Bytes.length + labelData.length],
+    tls13_Bytes,
+    labelData,
+    [context.length],
+    context
+  );
+  return hkdfExpand(key, hkdfLabel, length2, hashBits);
+}
+async function getHandshakeKeys(sharedSecret, hellosHash, hashBits, keyLength) {
+  const hashBytes = hashBits >> 3;
+  const zeroKey = new Uint8Array(hashBytes);
+  const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
+  console.log("early secret", hexFromU8(new Uint8Array(earlySecret)));
+  const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
+  const emptyHash = new Uint8Array(emptyHashBuffer);
+  console.log("empty hash", hexFromU8(emptyHash));
+  const derivedSecret = await hkdfExpandLabel(earlySecret, "derived", emptyHash, hashBytes, hashBits);
+  console.log("derived secret", hexFromU8(derivedSecret));
+  const handshakeSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
+  console.log("handshake secret", hexFromU8(handshakeSecret));
+  const clientSecret = await hkdfExpandLabel(handshakeSecret, "c hs traffic", hellosHash, hashBytes, hashBits);
+  console.log("client secret", hexFromU8(clientSecret));
+  const serverSecret = await hkdfExpandLabel(handshakeSecret, "s hs traffic", hellosHash, hashBytes, hashBits);
+  console.log("server secret", hexFromU8(serverSecret));
+  const clientHandshakeKey = await hkdfExpandLabel(clientSecret, "key", new Uint8Array(0), keyLength, hashBits);
+  console.log("client handshake key", hexFromU8(clientHandshakeKey));
+  const serverHandshakeKey = await hkdfExpandLabel(serverSecret, "key", new Uint8Array(0), keyLength, hashBits);
+  console.log("server handshake key", hexFromU8(serverHandshakeKey));
+  const clientHandshakeIV = await hkdfExpandLabel(clientSecret, "iv", new Uint8Array(0), 12, hashBits);
+  console.log("client handshake iv", hexFromU8(clientHandshakeIV));
+  const serverHandshakeIV = await hkdfExpandLabel(serverSecret, "iv", new Uint8Array(0), 12, hashBits);
+  console.log("server handshake iv", hexFromU8(serverHandshakeIV));
+  return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV, handshakeSecret, clientSecret, serverSecret };
+}
+async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyLength) {
+  const hashBytes = hashBits >> 3;
+  const zeroKey = new Uint8Array(hashBytes);
+  const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
+  const emptyHash = new Uint8Array(emptyHashBuffer);
+  console.log("empty hash", hexFromU8(emptyHash));
+  const derivedSecret = await hkdfExpandLabel(handshakeSecret, "derived", emptyHash, hashBytes, hashBits);
+  console.log("derived secret", hexFromU8(derivedSecret));
+  const masterSecret = await hkdfExtract(derivedSecret, zeroKey, hashBits);
+  console.log("master secret", hexFromU8(masterSecret));
+  const clientSecret = await hkdfExpandLabel(masterSecret, "c ap traffic", handshakeHash, hashBytes, hashBits);
+  console.log("client secret", hexFromU8(clientSecret));
+  const serverSecret = await hkdfExpandLabel(masterSecret, "s ap traffic", handshakeHash, hashBytes, hashBits);
+  console.log("server secret", hexFromU8(serverSecret));
+  const clientApplicationKey = await hkdfExpandLabel(clientSecret, "key", new Uint8Array(0), keyLength, hashBits);
+  console.log("client application key", hexFromU8(clientApplicationKey));
+  const serverApplicationKey = await hkdfExpandLabel(serverSecret, "key", new Uint8Array(0), keyLength, hashBits);
+  console.log("server application key", hexFromU8(serverApplicationKey));
+  const clientApplicationIV = await hkdfExpandLabel(clientSecret, "iv", new Uint8Array(0), 12, hashBits);
+  console.log("client application iv", hexFromU8(clientApplicationIV));
+  const serverApplicationIV = await hkdfExpandLabel(serverSecret, "iv", new Uint8Array(0), 12, hashBits);
+  console.log("server application iv", hexFromU8(serverApplicationIV));
+  return { serverApplicationKey, serverApplicationIV, clientApplicationKey, clientApplicationIV };
+}
+
+// src/aesgcm.ts
+var Crypter = class {
+  mode;
+  key;
+  iv;
+  ivDataView;
+  recordsDecrypted = 0;
+  constructor(mode, key, initialIv) {
+    this.mode = mode;
+    this.key = key;
+    this.iv = initialIv;
+    this.ivDataView = new DataView(this.iv.buffer, this.iv.byteOffset, this.iv.byteLength);
+  }
+  async process(data, authTagLength, additionalData) {
+    const ivLength = this.iv.length;
+    const authTagBits = authTagLength << 3;
+    let ivLast32 = this.ivDataView.getUint32(ivLength - 4);
+    ivLast32 ^= this.recordsDecrypted;
+    this.ivDataView.setUint32(ivLength - 4, ivLast32);
+    this.recordsDecrypted += 1;
+    const algorithm = { name: "AES-GCM", iv: this.iv, tagLength: authTagBits, additionalData };
+    const resultBuffer = await crypto.subtle[this.mode](algorithm, this.key, data);
+    const result = new Uint8Array(resultBuffer);
+    return result;
+  }
+};
+
 // node_modules/asn1js/build/index.es.js
 var pvtsutils = __toESM(require_build());
 
@@ -681,7 +1243,7 @@ function assertBigInt() {
     throw new Error("BigInt is not defined. Your environment doesn't implement BigInt.");
   }
 }
-function concat(buffers) {
+function concat2(buffers) {
   let outputLength = 0;
   let prevLength = 0;
   for (let i = 0; i < buffers.length; i++) {
@@ -727,7 +1289,7 @@ var ViewWriter = class {
     this.items.push(buf);
   }
   final() {
-    return concat(this.items);
+    return concat2(this.items);
   }
 };
 var powers2 = [new Uint8Array([1])];
@@ -2381,7 +2943,7 @@ var LocalObjectIdentifierValueBlock = class extends ValueBlock {
       }
       retBuffers.push(valueBuf);
     }
-    return concat(retBuffers);
+    return concat2(retBuffers);
   }
   fromString(string) {
     this.value = [];
@@ -2610,7 +3172,7 @@ var LocalRelativeObjectIdentifierValueBlock = class extends ValueBlock {
       }
       retBuffers.push(valueBuf);
     }
-    return concat(retBuffers);
+    return concat2(retBuffers);
   }
   fromString(string) {
     this.value = [];
@@ -23334,537 +23896,58 @@ function initCryptoEngine() {
 }
 initCryptoEngine();
 
-// src/index.ts
+// src/util/cert.ts
 var pvtsutils3 = __toESM(require_build());
 
-// src/util/highlightCommented.ts
-function highlightCommented_default(s, colour) {
-  const css = [];
-  s = s.replace(/  .+$/gm, (m) => {
-    css.push(`color: ${colour}`, "color: inherit");
-    return `%c${m}%c`;
-  });
-  return [s, ...css];
-}
+// src/roots/isrg-root-x1.pem
+var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\nTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\ncmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\nWhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\nZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\nMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\nh77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\nA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\nT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\nB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\nB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\nKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\nOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\njh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\nqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\nrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\nHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\nhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\nubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\nNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\nORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\nTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\njNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\noyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\nmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\nemyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n";
 
-// src/util/array.ts
-function concat2(...arrs) {
-  length = arrs.reduce((memo, arr) => memo + arr.length, 0);
-  const result = new Uint8Array(length);
-  let offset = 0;
-  for (const arr of arrs) {
-    result.set(arr, offset);
-    offset += arr.length;
-  }
-  return result;
-}
-function equal(a, b) {
-  const aLength = a.length;
-  if (aLength !== b.length)
-    return false;
-  for (let i = 0; i < aLength; i++)
-    if (a[i] !== b[i])
-      return false;
-  return true;
-}
+// src/roots/isrg-root-x2.pem
+var isrg_root_x2_default = "-----BEGIN CERTIFICATE-----\nMIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\nCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\nR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\nMDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\nZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\nEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\nItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\nAQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\nzj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\ntL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n/q4AaOeMSQ+2b1tbFfLn\n-----END CERTIFICATE-----\n";
 
-// src/util/bytes.ts
-var txtEnc = new TextEncoder();
-var Bytes = class {
-  offset;
-  dataView;
-  uint8Array;
-  comments;
-  constructor(arrayOrMaxBytes) {
-    this.offset = 0;
-    this.uint8Array = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
-    this.comments = {};
-  }
-  remainingBytes() {
-    return this.uint8Array.length - this.offset;
-  }
-  subarray(length2) {
-    return this.uint8Array.subarray(this.offset, this.offset += length2);
-  }
-  skip(length2, comment) {
-    this.offset += length2;
-    if (comment !== void 0)
-      this.comment(comment);
-    return this;
-  }
-  comment(s, offset = this.offset) {
-    this.comments[offset] = s;
-    return this;
-  }
-  readBytes(length2) {
-    return this.uint8Array.slice(this.offset, this.offset += length2);
-  }
-  readUint8(comment) {
-    const result = this.dataView.getUint8(this.offset);
-    this.offset += 1;
-    if (comment !== void 0)
-      this.comment(comment.replace(/%/g, String(result)));
-    return result;
-  }
-  readUint16(comment) {
-    const result = this.dataView.getUint16(this.offset);
-    this.offset += 2;
-    if (comment !== void 0)
-      this.comment(comment.replace(/%/g, String(result)));
-    return result;
-  }
-  readUint24(comment) {
-    const msb = this.readUint8();
-    const lsbs = this.readUint16();
-    const result = (msb << 16) + lsbs;
-    if (comment !== void 0)
-      this.comment(comment.replace(/%/g, String(result)));
-    return result;
-  }
-  expectBytes(expected, comment) {
-    const actual = this.readBytes(expected.length);
-    if (comment !== void 0)
-      this.comment(comment);
-    if (!equal(actual, expected))
-      throw new Error(`Unexpected bytes`);
-  }
-  expectUint8(expectedValue, comment) {
-    const actualValue = this.readUint8();
-    if (comment !== void 0)
-      this.comment(comment);
-    if (actualValue !== expectedValue)
-      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
-  }
-  expectUint16(expectedValue, comment) {
-    const actualValue = this.readUint16();
-    if (comment !== void 0)
-      this.comment(comment);
-    if (actualValue !== expectedValue)
-      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
-  }
-  expectUint24(expectedValue, comment) {
-    const actualValue = this.readUint24();
-    if (comment !== void 0)
-      this.comment(comment);
-    if (actualValue !== expectedValue)
-      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
-  }
-  writeBytes(bytes) {
-    this.uint8Array.set(bytes, this.offset);
-    this.offset += bytes.length;
-    return this;
-  }
-  writeUTF8String(s) {
-    const bytes = txtEnc.encode(s);
-    this.writeBytes(bytes);
-    this.comment('"' + s + '"');
-    return this;
-  }
-  writeUint8(...args) {
-    for (const arg of args) {
-      this.dataView.setUint8(this.offset, arg);
-      this.offset += 1;
-    }
-    return this;
-  }
-  writeUint16(...args) {
-    for (const arg of args) {
-      this.dataView.setUint16(this.offset, arg);
-      this.offset += 2;
-    }
-    return this;
-  }
-  _lengthGeneric(lengthBytes, comment) {
-    const startOffset = this.offset;
-    this.offset += lengthBytes;
-    const endOffset = this.offset;
-    return () => {
-      const length2 = this.offset - endOffset;
-      if (lengthBytes === 1)
-        this.dataView.setUint8(startOffset, length2);
-      else if (lengthBytes === 2)
-        this.dataView.setUint16(startOffset, length2);
-      else if (lengthBytes === 3) {
-        this.dataView.setUint8(startOffset, (length2 & 16711680) >> 16);
-        this.dataView.setUint16(startOffset + 1, length2 & 65535);
-      } else
-        throw new Error(`Invalid length for length field: ${lengthBytes}`);
-      this.comment(`${length2} bytes${comment ? ` of ${comment}` : ""} follow`, endOffset);
-    };
-  }
-  lengthUint8(comment) {
-    return this._lengthGeneric(1, comment);
-  }
-  lengthUint16(comment) {
-    return this._lengthGeneric(2, comment);
-  }
-  lengthUint24(comment) {
-    return this._lengthGeneric(3, comment);
-  }
-  array() {
-    return this.uint8Array.subarray(0, this.offset);
-  }
-  commentedString(all = false) {
-    let s = "";
-    const len = all ? this.uint8Array.length : this.offset;
-    for (let i = 0; i < len; i++) {
-      s += this.uint8Array[i].toString(16).padStart(2, "0") + " ";
-      const comment = this.comments[i + 1];
-      if (comment !== void 0)
-        s += ` ${comment}
-`;
-    }
-    return s;
-  }
-};
+// src/roots/trustid-x3-root.pem
+var trustid_x3_root_default = "-----BEGIN CERTIFICATE-----\nMIIDSjCCAjKgAwIBAgIQRK+wgNajJ7qJMDmGLvhAazANBgkqhkiG9w0BAQUFADA/\nMSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT\nDkRTVCBSb290IENBIFgzMB4XDTAwMDkzMDIxMTIxOVoXDTIxMDkzMDE0MDExNVow\nPzEkMCIGA1UEChMbRGlnaXRhbCBTaWduYXR1cmUgVHJ1c3QgQ28uMRcwFQYDVQQD\nEw5EU1QgUm9vdCBDQSBYMzCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB\nAN+v6ZdQCINXtMxiZfaQguzH0yxrMMpb7NnDfcdAwRgUi+DoM3ZJKuM/IUmTrE4O\nrz5Iy2Xu/NMhD2XSKtkyj4zl93ewEnu1lcCJo6m67XMuegwGMoOifooUMM0RoOEq\nOLl5CjH9UL2AZd+3UWODyOKIYepLYYHsUmu5ouJLGiifSKOeDNoJjj4XLh7dIN9b\nxiqKqy69cK3FCxolkHRyxXtqqzTWMIn/5WgTe1QLyNau7Fqckh49ZLOMxt+/yUFw\n7BZy1SbsOFU5Q9D8/RhcQPGX69Wam40dutolucbY38EVAjqr2m7xPi71XAicPNaD\naeQQmxkqtilX4+U9m5/wAl0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNV\nHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFMSnsaR7LHH62+FLkHX/xBVghYkQMA0GCSqG\nSIb3DQEBBQUAA4IBAQCjGiybFwBcqR7uKGY3Or+Dxz9LwwmglSBd49lZRNI+DT69\nikugdB/OEIKcdBodfpga3csTS7MgROSR6cz8faXbauX+5v3gTt23ADq1cEmv8uXr\nAvHRAosZy5Q6XkjEGB5YGV8eAlrwDPGxrancWYaLbumR9YbK+rlmM6pZW87ipxZz\nR8srzJmwN0jP41ZL9c8PDHIyh8bwRLtTcm1D9SZImlJnt1ir/md2cXjbDaJWFBM5\nJDGFoqgCWjBH4d1QB7wCCZAA62RjYJsWvIjJEubSfZGL+T0yjWW06XyxV3bqxbYo\nOb8VZRzI9neWagqNdwvYkQsEjgfbKbYK7p2CNTUQ\n-----END CERTIFICATE-----\n";
 
-// src/clientHello.ts
-function makeClientHello(host, publicKey) {
-  const h = new Bytes(1024);
-  h.writeUint8(22);
-  h.comment("record type: handshake");
-  h.writeUint16(769);
-  h.comment("TLS protocol version 1.0");
-  const endRecordHeader = h.lengthUint16();
-  h.writeUint8(1);
-  h.comment("handshake type: client hello");
-  const endHandshakeHeader = h.lengthUint24();
-  h.writeUint16(771);
-  h.comment("TLS version 1.2 (middlebox compatibility)");
-  crypto.getRandomValues(h.subarray(32));
-  h.comment("client random");
-  const endSessionId = h.lengthUint8("session ID");
-  const sessionId = h.subarray(32);
-  crypto.getRandomValues(sessionId);
-  h.comment("session ID (middlebox compatibility)");
-  endSessionId();
-  const endCiphers = h.lengthUint16("ciphers");
-  h.writeUint16(4865);
-  h.comment("cipher: TLS_AES_128_GCM_SHA256");
-  endCiphers();
-  const endCompressionMethods = h.lengthUint8("compression methods");
-  h.writeUint8(0);
-  h.comment("compression method: none");
-  endCompressionMethods();
-  const endExtensions = h.lengthUint16("extensions");
-  h.writeUint16(0);
-  h.comment("extension type: SNI");
-  const endSNIExt = h.lengthUint16("SNI data");
-  const endSNI = h.lengthUint16("SNI records");
-  h.writeUint8(0);
-  h.comment("list entry type: DNS hostname");
-  const endHostname = h.lengthUint16("hostname");
-  h.writeUTF8String(host);
-  endHostname();
-  endSNI();
-  endSNIExt();
-  h.writeUint16(11);
-  h.comment("extension type: EC point formats");
-  const endFormatTypesExt = h.lengthUint16("formats data");
-  const endFormatTypes = h.lengthUint8("formats");
-  h.writeUint8(0);
-  h.comment("format: uncompressed");
-  endFormatTypes();
-  endFormatTypesExt();
-  h.writeUint16(10);
-  h.comment("extension type: supported groups (curves)");
-  const endGroupsExt = h.lengthUint16("groups data");
-  const endGroups = h.lengthUint16("groups");
-  h.writeUint16(23);
-  h.comment("curve secp256r1 (NIST P-256)");
-  endGroups();
-  endGroupsExt();
-  h.writeUint16(13);
-  h.comment("extension type: signature algorithms");
-  const endSigsExt = h.lengthUint16("signature algorithms data");
-  const endSigs = h.lengthUint16("signature algorithms");
-  h.writeUint16(1027);
-  h.comment("ECDSA-SECP256r1-SHA256");
-  endSigs();
-  endSigsExt();
-  h.writeUint16(43);
-  h.comment("extension type: supported TLS versions");
-  const endVersionsExt = h.lengthUint16("TLS versions data");
-  const endVersions = h.lengthUint8("TLS versions");
-  h.writeUint16(772);
-  h.comment("TLS version 1.3");
-  endVersions();
-  endVersionsExt();
-  h.writeUint16(51);
-  h.comment("extension type: key share");
-  const endKeyShareExt = h.lengthUint16("key share data");
-  const endKeyShares = h.lengthUint16("key shares");
-  h.writeUint16(23);
-  h.comment("secp256r1 (NIST P-256) key share");
-  const endKeyShare = h.lengthUint16("key share");
-  h.writeBytes(new Uint8Array(publicKey));
-  h.comment("key");
-  endKeyShare();
-  endKeyShares();
-  endKeyShareExt();
-  endExtensions();
-  endHandshakeHeader();
-  endRecordHeader();
-  return { clientHello: h, sessionId };
-}
-
-// src/util/readqueue.ts
-var ReadQueue = class {
-  queue;
-  outstandingRequest;
-  constructor(ws) {
-    this.queue = [];
-    ws.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
-  }
-  enqueue(data) {
-    this.queue.push(data);
-    this.dequeue();
-  }
-  dequeue() {
-    if (this.outstandingRequest === void 0)
-      return;
-    const { resolve, bytes } = this.outstandingRequest;
-    const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes)
-      return;
-    this.outstandingRequest = void 0;
-    const firstItem = this.queue[0];
-    const firstItemLength = firstItem.length;
-    if (firstItemLength === bytes) {
-      this.queue.shift();
-      return resolve(firstItem);
-    } else if (firstItemLength > bytes) {
-      this.queue[0] = firstItem.subarray(bytes);
-      return resolve(firstItem.subarray(0, bytes));
-    } else {
-      const result = new Uint8Array(bytes);
-      let outstandingBytes = bytes;
-      let offset = 0;
-      while (outstandingBytes > 0) {
-        const nextItem = this.queue[0];
-        const nextItemLength = nextItem.length;
-        if (nextItemLength <= outstandingBytes) {
-          this.queue.shift();
-          result.set(nextItem, offset);
-          offset += nextItemLength;
-          outstandingBytes -= nextItemLength;
-        } else {
-          this.queue[0] = nextItem.subarray(outstandingBytes);
-          result.set(nextItem.subarray(0, outstandingBytes), offset);
-          outstandingBytes -= outstandingBytes;
-          offset += outstandingBytes;
-        }
-      }
-      return resolve(result);
-    }
-  }
-  bytesInQueue() {
-    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
-  }
-  async read(bytes) {
-    if (this.outstandingRequest !== void 0)
-      throw new Error("Can\u2019t read while already awaiting read");
-    return new Promise((resolve) => {
-      this.outstandingRequest = { resolve, bytes };
-      this.dequeue();
-    });
-  }
-};
-
-// src/util/tlsrecord.ts
-var RecordTypeNames = {
-  20: "ChangeCipherSpec",
-  21: "Alert",
-  22: "Handshake",
-  23: "Application",
-  24: "Heartbeat"
-};
-var maxRecordLength = 1 << 14;
-async function readTlsRecord(reader, expectedType) {
-  const headerData = await reader.read(5);
-  const header = new Bytes(headerData);
-  const type = header.readUint8();
-  if (type < 20 || type > 24)
-    throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
-  if (expectedType !== void 0 && type !== expectedType)
-    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected ${expectedType.toString(16).padStart(2, "0")})`);
-  header.comment(`record type: ${RecordTypeNames[type]}`);
-  const version = header.readUint16("TLS version");
-  if ([769, 770, 771].indexOf(version) < 0)
-    throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
-  const length2 = header.readUint16("record length");
-  if (length2 > maxRecordLength)
-    throw new Error(`Record too long: ${length2} bytes`);
-  const content = await reader.read(length2);
-  return { headerData, header, type, version, length: length2, content };
-}
-
-// src/parseServerHello.ts
-function parseServerHello(hello, sessionId) {
-  let serverPublicKey;
-  let tlsVersionSpecified;
-  hello.expectUint8(2, "handshake type: server hello");
-  const helloLength = hello.readUint24("server hello length");
-  hello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
-  const serverRandom = hello.readBytes(32);
-  if (equal(serverRandom, [
-    207,
-    33,
-    173,
-    116,
-    229,
-    154,
-    97,
-    17,
-    190,
-    29,
-    140,
-    2,
-    30,
-    101,
-    184,
-    145,
-    194,
-    162,
-    17,
-    22,
-    122,
-    187,
-    140,
-    94,
-    7,
-    158,
-    9,
-    226,
-    200,
-    168,
-    51,
-    156
-  ]))
-    throw new Error("Unexpected HelloRetryRequest");
-  hello.comment('server random, not SHA256("HelloRetryRequest")');
-  hello.expectUint8(32, "session ID length");
-  hello.expectBytes(sessionId, "session ID (matches client session ID)");
-  hello.expectUint16(4865, "cipher (matches client hello)");
-  hello.expectUint8(0, "no compression");
-  const extensionsLength = hello.readUint16("extensions length");
-  while (hello.remainingBytes() > 0) {
-    const extensionType = hello.readUint16("extension type");
-    const extensionLength = hello.readUint16("extension length");
-    if (extensionType === 43) {
-      if (extensionLength !== 2)
-        throw new Error(`Unexpected extension length: ${extensionLength} (expected 2)`);
-      hello.expectUint16(772, "TLS version 1.3");
-      tlsVersionSpecified = true;
-    } else if (extensionType === 51) {
-      hello.expectUint16(23, "secp256r1 (NIST P-256) key share");
-      hello.expectUint16(65);
-      serverPublicKey = hello.readBytes(65);
-      hello.comment("key");
-    } else {
-      throw new Error(`Unexpected extension 0x${extensionType.toString(16).padStart(4, "0")}, length ${extensionLength}`);
-    }
-  }
-  if (hello.remainingBytes() !== 0)
-    throw new Error(`Unexpected additional data at end of server hello`);
-  if (tlsVersionSpecified !== true || serverPublicKey === void 0)
-    throw new Error(`Incomplete server hello`);
-  return serverPublicKey;
-}
-
-// src/util/hex.ts
-function hexFromU8(u8) {
-  return [...u8].map((n) => n.toString(16).padStart(2, "0")).join("");
-}
-
-// src/keyscalc.ts
-var txtEnc2 = new TextEncoder();
-async function hkdfExtract(salt, keyMaterial, hashBits) {
-  const hmacKey = await crypto.subtle.importKey("raw", salt, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
-  var prk = new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey, keyMaterial));
-  return prk;
-}
-async function hkdfExpand(key, info, length2, hashBits) {
-  const hashBytes = hashBits >> 3;
-  const n = Math.ceil(length2 / hashBytes);
-  const okm = new Uint8Array(n * hashBytes);
-  const hmacKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
-  let tPrev = new Uint8Array(0);
-  for (let i = 0; i < n; i++) {
-    const hmacData = concat2(tPrev, info, [i + 1]);
-    const tiBuffer = await crypto.subtle.sign("HMAC", hmacKey, hmacData);
-    const ti = new Uint8Array(tiBuffer);
-    okm.set(ti, hashBytes * i);
-    tPrev = ti;
-  }
-  return okm.subarray(0, length2);
-}
-var tls13_Bytes = txtEnc2.encode("tls13 ");
-async function hkdfExpandLabel(key, label, context, length2, hashBits) {
-  const hkdfLabel = concat2(
-    [(length2 & 65280) >> 8, length2 & 255],
-    [tls13_Bytes.length + label.length],
-    tls13_Bytes,
-    label,
-    [context.length],
-    context
-  );
-  return hkdfExpand(key, hkdfLabel, length2, hashBits);
-}
-async function getHandshakeKeys(sharedSecret, hellosHash, hashBits, keyLength) {
-  const hashBytes = hashBits >> 3;
-  const zeroKey = new Uint8Array(hashBytes);
-  const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
-  console.log("early secret", hexFromU8(new Uint8Array(earlySecret)));
-  const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
-  const emptyHash = new Uint8Array(emptyHashBuffer);
-  console.log("empty hash", hexFromU8(emptyHash));
-  const derivedSecret = await hkdfExpandLabel(earlySecret, txtEnc2.encode("derived"), emptyHash, hashBytes, hashBits);
-  console.log("derived secret", hexFromU8(derivedSecret));
-  const handshakeSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
-  console.log("handshake secret", hexFromU8(handshakeSecret));
-  const clientSecret = await hkdfExpandLabel(handshakeSecret, txtEnc2.encode("c hs traffic"), hellosHash, hashBytes, hashBits);
-  console.log("client secret", hexFromU8(clientSecret));
-  const serverSecret = await hkdfExpandLabel(handshakeSecret, txtEnc2.encode("s hs traffic"), hellosHash, hashBytes, hashBits);
-  console.log("server secret", hexFromU8(serverSecret));
-  const clientHandshakeKey = await hkdfExpandLabel(clientSecret, txtEnc2.encode("key"), new Uint8Array(0), keyLength, hashBits);
-  console.log("client handshake key", hexFromU8(clientHandshakeKey));
-  const serverHandshakeKey = await hkdfExpandLabel(serverSecret, txtEnc2.encode("key"), new Uint8Array(0), keyLength, hashBits);
-  console.log("server handshake key", hexFromU8(serverHandshakeKey));
-  const clientHandshakeIV = await hkdfExpandLabel(clientSecret, txtEnc2.encode("iv"), new Uint8Array(0), 12, hashBits);
-  console.log("client handshake iv", hexFromU8(clientHandshakeIV));
-  const serverHandshakeIV = await hkdfExpandLabel(serverSecret, txtEnc2.encode("iv"), new Uint8Array(0), 12, hashBits);
-  console.log("server handshake iv", hexFromU8(serverHandshakeIV));
-  return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV };
-}
-
-// src/aesgcm.ts
-var Decrypter = class {
-  key;
-  iv;
-  ivDataView;
-  recordsDecrypted = 0;
-  constructor(key, initialIv) {
-    this.key = key;
-    this.iv = initialIv;
-    this.ivDataView = new DataView(this.iv.buffer, this.iv.byteOffset, this.iv.byteLength);
-  }
-  async decrypt(cipherTextPlusAuthTag, authTagLength, additionalData) {
-    const ivLength = this.iv.length;
-    const authTagBits = authTagLength << 3;
-    let ivLast32 = this.ivDataView.getUint32(ivLength - 4);
-    ivLast32 ^= this.recordsDecrypted;
-    this.ivDataView.setUint32(ivLength - 4, ivLast32);
-    this.recordsDecrypted += 1;
-    const algorithm = { name: "AES-GCM", iv: this.iv, tagLength: authTagBits, additionalData };
-    const plainTextBuffer = await crypto.subtle.decrypt(algorithm, this.key, cipherTextPlusAuthTag);
-    const plainText = new Uint8Array(plainTextBuffer);
-    return plainText;
-  }
-};
+// src/roots/cloudflare.pem
+var cloudflare_default = "-----BEGIN CERTIFICATE-----\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\n-----END CERTIFICATE-----";
 
 // src/util/cert.ts
+function decodePEM(pem, tag = "[A-Z0-9 ]+") {
+  const pattern = new RegExp(`-{5}BEGIN ${tag}-{5}([a-zA-Z0-9=+\\/\\n\\r]+)-{5}END ${tag}-{5}`, "g");
+  const res = [];
+  let matches = null;
+  while (matches = pattern.exec(pem)) {
+    const base64 = matches[1].replace(/[\r\n]/g, "");
+    res.push(pvtsutils3.Convert.FromBase64(base64));
+  }
+  return res;
+}
+function getRootCerts() {
+  return decodePEM(isrg_root_x1_default + isrg_root_x2_default + trustid_x3_root_default + cloudflare_default).map((ber) => Certificate.fromBER(ber));
+}
+function getSubjectAltNamesDNSNames(cert) {
+  const subjectAltNameID = "2.5.29.17";
+  const subectAltNameTypeDNSName = 2;
+  const sanExtension = cert.extensions?.find((ext) => ext.extnID === subjectAltNameID);
+  if (sanExtension === void 0)
+    return [];
+  const altNames = sanExtension.parsedValue.altNames.filter((altName) => altName.type === subectAltNameTypeDNSName).map((altName) => altName.value);
+  return altNames;
+}
+function certNamesMatch(host, certNames) {
+  return certNames.some((cert) => {
+    let certName = cert;
+    let hostName = host;
+    if (/[.][^.]+[.][^.]+/.test(certName) && certName.startsWith("*.")) {
+      certName = certName.slice(1);
+      hostName = hostName.slice(hostName.indexOf("."));
+    }
+    if (certName === hostName) {
+      console.log(`matched "${host}" to subjectAltName "${cert}"`);
+      return true;
+    }
+  });
+}
 function describeCert(cert) {
   const rdnmap = {
     "2.5.4.6": "C",
@@ -23880,8 +23963,6 @@ function describeCert(cert) {
     "1.2.840.113549.1.9.1": "E-mail"
   };
   const algomap = {
-    "1.2.840.113549.1.1.2": "MD2 with RSA",
-    "1.2.840.113549.1.1.4": "MD5 with RSA",
     "1.2.840.10040.4.3": "SHA1 with DSA",
     "1.2.840.10045.4.1": "SHA1 with ECDSA",
     "1.2.840.10045.4.3.2": "SHA256 with ECDSA",
@@ -23905,71 +23986,23 @@ function describeCert(cert) {
     const subjval = typeAndValue.value.valueBlock.value;
     return `${typeval}=${subjval}`;
   }).join(" ");
+  const altNames = getSubjectAltNamesDNSNames(cert);
+  const altNameField = altNames.length === 0 ? "" : `subjectAltNames: ${altNames.join(", ")}
+`;
   const signatureAlgorithm = algomap[cert.signatureAlgorithm.algorithmId] ?? cert.signatureAlgorithm.algorithmId;
   return `subject: ${subject}
-issuer: ${issuer}
+${altNameField}issuer: ${issuer}
 validity: ${validity}
 signature algorithm: ${signatureAlgorithm}`;
 }
 
-// src/roots/isrg-root-x1.pem
-var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\nTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\ncmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\nWhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\nZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\nMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\nh77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\nA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\nT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\nB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\nB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\nKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\nOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\njh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\nqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\nrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\nHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\nhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\nubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\nNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\nORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\nTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\njNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\noyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\nmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\nemyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n";
-
-// src/roots/isrg-root-x2.pem
-var isrg_root_x2_default = "-----BEGIN CERTIFICATE-----\nMIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\nCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\nR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\nMDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\nZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\nEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\nItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\nAQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\nzj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\ntL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n/q4AaOeMSQ+2b1tbFfLn\n-----END CERTIFICATE-----\n";
-
-// src/roots/trustid-x3-root.pem
-var trustid_x3_root_default = "-----BEGIN CERTIFICATE-----\nMIIDSjCCAjKgAwIBAgIQRK+wgNajJ7qJMDmGLvhAazANBgkqhkiG9w0BAQUFADA/\nMSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT\nDkRTVCBSb290IENBIFgzMB4XDTAwMDkzMDIxMTIxOVoXDTIxMDkzMDE0MDExNVow\nPzEkMCIGA1UEChMbRGlnaXRhbCBTaWduYXR1cmUgVHJ1c3QgQ28uMRcwFQYDVQQD\nEw5EU1QgUm9vdCBDQSBYMzCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB\nAN+v6ZdQCINXtMxiZfaQguzH0yxrMMpb7NnDfcdAwRgUi+DoM3ZJKuM/IUmTrE4O\nrz5Iy2Xu/NMhD2XSKtkyj4zl93ewEnu1lcCJo6m67XMuegwGMoOifooUMM0RoOEq\nOLl5CjH9UL2AZd+3UWODyOKIYepLYYHsUmu5ouJLGiifSKOeDNoJjj4XLh7dIN9b\nxiqKqy69cK3FCxolkHRyxXtqqzTWMIn/5WgTe1QLyNau7Fqckh49ZLOMxt+/yUFw\n7BZy1SbsOFU5Q9D8/RhcQPGX69Wam40dutolucbY38EVAjqr2m7xPi71XAicPNaD\naeQQmxkqtilX4+U9m5/wAl0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNV\nHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFMSnsaR7LHH62+FLkHX/xBVghYkQMA0GCSqG\nSIb3DQEBBQUAA4IBAQCjGiybFwBcqR7uKGY3Or+Dxz9LwwmglSBd49lZRNI+DT69\nikugdB/OEIKcdBodfpga3csTS7MgROSR6cz8faXbauX+5v3gTt23ADq1cEmv8uXr\nAvHRAosZy5Q6XkjEGB5YGV8eAlrwDPGxrancWYaLbumR9YbK+rlmM6pZW87ipxZz\nR8srzJmwN0jP41ZL9c8PDHIyh8bwRLtTcm1D9SZImlJnt1ir/md2cXjbDaJWFBM5\nJDGFoqgCWjBH4d1QB7wCCZAA62RjYJsWvIjJEubSfZGL+T0yjWW06XyxV3bqxbYo\nOb8VZRzI9neWagqNdwvYkQsEjgfbKbYK7p2CNTUQ\n-----END CERTIFICATE-----\n";
-
-// src/index.ts
-var clientColour = "#8c8";
-var serverColour = "#88c";
-var headerColor = "#c88";
-async function startTls(host, port) {
-  const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
-  const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
-  const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
-    ws2.binaryType = "arraybuffer";
-    ws2.addEventListener("open", () => resolve(ws2));
-  });
-  const reader = new ReadQueue(ws);
-  const { clientHello, sessionId } = makeClientHello(host, rawPublicKey);
-  console.log(...highlightCommented_default(clientHello.commentedString(), clientColour));
-  const clientHelloData = clientHello.array();
-  ws.send(clientHelloData);
-  const serverHelloRecord = await readTlsRecord(reader, 22 /* Handshake */);
-  const serverHello = new Bytes(serverHelloRecord.content);
-  const serverRawPublicKey = parseServerHello(serverHello, sessionId);
-  console.log(...highlightCommented_default(serverHelloRecord.header.commentedString() + serverHello.commentedString(), serverColour));
-  const changeCipherRecord = await readTlsRecord(reader, 20 /* ChangeCipherSpec */);
-  const ccipher = new Bytes(changeCipherRecord.content);
-  ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
-  if (ccipher.remainingBytes() !== 0)
-    throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
-  console.log(...highlightCommented_default(changeCipherRecord.header.commentedString() + ccipher.commentedString(), serverColour));
-  console.log("%c%s", `color: ${headerColor}`, "handshake key computations");
-  const serverPublicKey = await crypto.subtle.importKey("raw", serverRawPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
-  const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: "ECDH", public: serverPublicKey }, ecdhKeys.privateKey, 256);
-  const sharedSecret = new Uint8Array(sharedSecretBuffer);
-  console.log("shared secret", hexFromU8(sharedSecret));
-  const clientHelloContent = clientHelloData.subarray(5);
-  const serverHelloContent = serverHelloRecord.content;
-  const hellos = concat2(clientHelloContent, serverHelloContent);
-  const hellosHashBuffer = await crypto.subtle.digest("SHA-256", hellos);
-  const hellosHash = new Uint8Array(hellosHashBuffer);
-  console.log("hellos hash", hexFromU8(hellosHash));
-  const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256, 16);
-  const serverHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.serverHandshakeKey, { name: "AES-GCM" }, false, ["decrypt"]);
-  const handshakeDecrypter = new Decrypter(serverHandshakeKey, handshakeKeys.serverHandshakeIV);
-  const encrypted = await readTlsRecord(reader, 23 /* Application */);
-  console.log(...highlightCommented_default(encrypted.header.commentedString(), serverColour));
-  console.log("%s%c  %s", hexFromU8(encrypted.content), `color: ${serverColour}`, "encrypted payload + auth tag");
-  const decrypted = await handshakeDecrypter.decrypt(encrypted.content, 16, encrypted.headerData);
-  console.log("%s%c  %s", hexFromU8(decrypted), `color: ${serverColour}`, "decrypted payload");
-  const hs = new Bytes(decrypted);
+// src/parseEncryptedHandshake.ts
+async function parseEncryptedHandshake(host, unwrappedRecord) {
+  const hs = new Bytes(unwrappedRecord);
   hs.expectUint8(8, "handshake record type: encrypted extensions");
   const eeMessageLength = hs.readUint24("% bytes of handshake data follows");
+  if (eeMessageLength !== 2 && eeMessageLength !== 6)
+    throw new Error("Unexpected extensions length");
   const extLength = hs.readUint16("% bytes of extensions data follow");
   if (extLength > 0) {
     if (extLength !== 4)
@@ -23977,10 +24010,12 @@ async function startTls(host, port) {
     hs.expectUint16(0, "extension type: SNI");
     hs.expectUint16(0, "no extension data");
   }
-  hs.expectUint8(11, "handshake record type: server certificate");
+  hs.expectUint8(11, "handshake message type: server certificate");
   const certPayloadLength = hs.readUint24("% bytes of certificate payload follow");
   hs.expectUint8(0, "0 bytes of request context follow");
   let remainingCertsLength = hs.readUint24("% bytes of certificates follow");
+  if (remainingCertsLength !== certPayloadLength - 4)
+    throw new Error("Mystery extra certificate payload");
   const certEntries = [];
   while (remainingCertsLength > 0) {
     const certLength = hs.readUint24("% bytes of certificate follow");
@@ -23995,55 +24030,154 @@ async function startTls(host, port) {
     const cert = Certificate.fromBER(certData);
     certEntries.push({ certData, certExtData, cert });
   }
-  console.log(...highlightCommented_default(hs.commentedString(true), serverColour));
-  console.log("%c%s", `color: ${headerColor}`, "certificates");
+  if (certEntries.length === 0)
+    throw new Error("No certificates supplied");
+  console.log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
   for (const entry of certEntries)
     console.log(describeCert(entry.cert));
   const userCert = certEntries[0].cert;
-  const subjectAltNameID = "2.5.29.17";
-  const subectAltNameTypeDNSName = 2;
-  const sanExtension = (userCert.extensions ?? []).find((ext) => ext.extnID === subjectAltNameID);
-  if (sanExtension === void 0)
-    throw new Error("User certificate includes no subjectAltName extension");
-  const altNames = sanExtension.parsedValue.altNames.filter((altName) => altName.type === subectAltNameTypeDNSName).map((altName) => altName.value);
-  console.log("subjectAltNames", altNames.join(" "));
-  const namesMatch = altNames.some((alt) => {
-    let altName = alt;
-    let hostName = host;
-    if (/[.][^.]+[.][^.]+/.test(altName) && altName.startsWith("*.")) {
-      altName = alt.slice(1);
-      hostName = hostName.slice(hostName.indexOf("."));
-    }
-    if (altName === hostName) {
-      console.log(`matched subjectAltName "${alt}"`);
-      return true;
-    }
-  });
+  const altNames = getSubjectAltNamesDNSNames(userCert);
+  const namesMatch = certNamesMatch(host, altNames);
   if (!namesMatch)
     throw new Error(`No matching subjectAltName for ${host}`);
-  function decodePEM(pem, tag = "[A-Z0-9 ]+") {
-    const pattern = new RegExp(`-{5}BEGIN ${tag}-{5}([a-zA-Z0-9=+\\/\\n\\r]+)-{5}END ${tag}-{5}`, "g");
-    const res = [];
-    let matches = null;
-    while (matches = pattern.exec(pem)) {
-      const base64 = matches[1].replace(/[\r\n]/g, "");
-      res.push(pvtsutils3.Convert.FromBase64(base64));
-    }
-    return res;
-  }
-  const trustedRootCerts = decodePEM(isrg_root_x1_default + isrg_root_x2_default + trustid_x3_root_default).map((ber) => Certificate.fromBER(ber));
-  console.log("%c%s", `color: ${headerColor}`, "trusted root certificates");
-  for (const cert of trustedRootCerts)
+  const rootCerts = getRootCerts();
+  console.log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
+  for (const cert of rootCerts)
     console.log(describeCert(cert));
   const chainEngine = new CertificateChainValidationEngine({
     certs: certEntries.map((entry) => entry.cert).reverse(),
-    checkDate: new Date(),
-    trustedCerts: trustedRootCerts
+    trustedCerts: rootCerts
   });
   const chain = await chainEngine.verify();
   console.log("cert verify result", chain);
   if (chain.result !== true)
     throw new Error(chain.resultMessage);
+  hs.expectUint8(15, "handshake message type: certificate verify");
+  const certVerifyPayloadLength = hs.readUint24("% bytes of handshake message data follow");
+  const signatureType = hs.readUint16("signature type");
+  const signatureLength = hs.readUint16("signature length");
+  const signature = hs.readBytes(signatureLength);
+  hs.comment("signature");
+  hs.expectUint8(20, "handshake message type: finished");
+  const hsFinishedPayloadLength = hs.readUint24("% bytes of handshake message data follow");
+  const verifyHash = hs.readBytes(hsFinishedPayloadLength);
+  hs.comment("verify hash");
+  console.log(...highlightCommented_default(hs.commentedString(true), "#88c" /* server */));
+  if (hs.remainingBytes() !== 0)
+    throw new Error("Unexpected extra bytes at end of encrypted handshake");
+}
+
+// src/index.ts
+async function startTls(host, port) {
+  const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
+  const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
+  const ws = await new Promise((resolve) => {
+    const ws2 = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
+    ws2.binaryType = "arraybuffer";
+    ws2.addEventListener("open", () => resolve(ws2));
+  });
+  const reader = new ReadQueue(ws);
+  const { clientHello, sessionId } = makeClientHello(host, rawPublicKey);
+  console.log(...highlightCommented_default(clientHello.commentedString(), "#8c8" /* client */));
+  const clientHelloData = clientHello.array();
+  ws.send(clientHelloData);
+  const serverHelloRecord = await readTlsRecord(reader, 22 /* Handshake */);
+  const serverHello = new Bytes(serverHelloRecord.content);
+  const serverRawPublicKey = parseServerHello(serverHello, sessionId);
+  console.log(...highlightCommented_default(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
+  const changeCipherRecord = await readTlsRecord(reader, 20 /* ChangeCipherSpec */);
+  const ccipher = new Bytes(changeCipherRecord.content);
+  ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
+  if (ccipher.remainingBytes() !== 0)
+    throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
+  console.log(...highlightCommented_default(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
+  console.log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations");
+  const serverPublicKey = await crypto.subtle.importKey("raw", serverRawPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: "ECDH", public: serverPublicKey }, ecdhKeys.privateKey, 256);
+  const sharedSecret = new Uint8Array(sharedSecretBuffer);
+  console.log("shared secret", hexFromU8(sharedSecret));
+  const clientHelloContent = clientHelloData.subarray(5);
+  const serverHelloContent = serverHelloRecord.content;
+  const hellos = concat(clientHelloContent, serverHelloContent);
+  const hellosHashBuffer = await crypto.subtle.digest("SHA-256", hellos);
+  const hellosHash = new Uint8Array(hellosHashBuffer);
+  console.log("hellos hash", hexFromU8(hellosHash));
+  const handshakeKeys = await getHandshakeKeys(sharedSecret, hellosHash, 256, 16);
+  const serverHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.serverHandshakeKey, { name: "AES-GCM" }, false, ["decrypt"]);
+  const handshakeDecrypter = new Crypter("decrypt", serverHandshakeKey, handshakeKeys.serverHandshakeIV);
+  const clientHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
+  const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
+  const encHandshake = await readTlsRecord(reader, 23 /* Application */);
+  console.log(...highlightCommented_default(encHandshake.header.commentedString(), "#88c" /* server */));
+  console.log("%s%c  %s", hexFromU8(encHandshake.content), `color: ${"#88c" /* server */}`, "encrypted payload + auth tag");
+  const decHandshake = await handshakeDecrypter.process(encHandshake.content, 16, encHandshake.headerData);
+  console.log("%s%c  %s", hexFromU8(decHandshake), `color: ${"#88c" /* server */}`, "decrypted payload");
+  const unwrappedHandshake = unwrapDecryptedTlsRecord(decHandshake, 22 /* Handshake */);
+  await parseEncryptedHandshake(host, unwrappedHandshake.record);
+  console.log("%s%c  %s", unwrappedHandshake.type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, "record type: handshake");
+  const clientCipherChange = new Bytes(6);
+  clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
+  clientCipherChange.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  clientCipherChange.writeUint16(1, "payload length: 1 byte");
+  clientCipherChange.writeUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
+  console.log(...highlightCommented_default(clientCipherChange.commentedString(), "#8c8" /* client */));
+  const clientCipherChangeData = clientCipherChange.array();
+  ws.send(clientCipherChangeData);
+  const wholeHandshake = concat(hellos, unwrappedHandshake.record);
+  const wholeHandshakeHashBuffer = await crypto.subtle.digest("SHA-256", wholeHandshake);
+  const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
+  console.log("whole handshake hash", hexFromU8(wholeHandshakeHash));
+  const finishedKey = await hkdfExpandLabel(handshakeKeys.clientSecret, "finished", new Uint8Array(0), 32, 256);
+  const verifyHmacKey = await crypto.subtle.importKey("raw", finishedKey, { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
+  const verifyDataBuffer = await crypto.subtle.sign("HMAC", verifyHmacKey, wholeHandshakeHash);
+  const verifyData = new Uint8Array(verifyDataBuffer);
+  const clientFinishedRecord = new Bytes(37);
+  clientFinishedRecord.writeUint8(20, "handshake message type: finished");
+  const clientFinishedRecordEnd = clientFinishedRecord.lengthUint24("handshake finished data");
+  clientFinishedRecord.writeBytes(verifyData);
+  clientFinishedRecord.comment("verify data");
+  clientFinishedRecordEnd();
+  clientFinishedRecord.writeUint8(22 /* Handshake */, "record type: Handshake");
+  console.log(...highlightCommented_default(clientFinishedRecord.commentedString(), "#8c8" /* client */));
+  const encryptedLength = clientFinishedRecord.offset + 16;
+  const encryptedClientFinishedRecord = new Bytes(5 + encryptedLength);
+  encryptedClientFinishedRecord.writeUint8(23, "record type: Application");
+  encryptedClientFinishedRecord.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  encryptedClientFinishedRecord.writeUint16(encryptedLength, `${encryptedLength} bytes follow`);
+  const encHeader = encryptedClientFinishedRecord.array();
+  const encryptedClientFinishedData = await handshakeEncrypter.process(clientFinishedRecord.array(), 16, encHeader);
+  encryptedClientFinishedRecord.writeBytes(encryptedClientFinishedData);
+  encryptedClientFinishedRecord.comment("encrypted data");
+  console.log(...highlightCommented_default(encryptedClientFinishedRecord.commentedString(), "#8c8" /* client */));
+  ws.send(encryptedClientFinishedRecord.array());
+  console.log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
+  const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
+  const clientApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
+  const applicationEncrypter = new Crypter("encrypt", clientApplicationKey, applicationKeys.clientApplicationIV);
+  const serverApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
+  const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
+  const requestDataRecord = new Bytes(1024);
+  requestDataRecord.writeUTF8String(`GET / HTTP/1.1\r
+Host:${host}\r
+Connection: close\r
+\r
+`);
+  requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
+  console.log(...highlightCommented_default(requestDataRecord.commentedString(), "#8c8" /* client */));
+  const encryptedReqLength = requestDataRecord.offset + 16;
+  const encryptedReqRecord = new Bytes(5 + encryptedReqLength);
+  encryptedReqRecord.writeUint8(23, "record type: Application");
+  encryptedReqRecord.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  encryptedReqRecord.writeUint16(encryptedReqLength, `${encryptedReqLength} bytes follow`);
+  const encReqRecordHeader = encryptedReqRecord.array();
+  const encryptedReqData = await applicationEncrypter.process(requestDataRecord.array(), 16, encReqRecordHeader);
+  encryptedReqRecord.writeBytes(encryptedReqData);
+  encryptedReqRecord.comment("encrypted data");
+  console.log(...highlightCommented_default(encryptedReqRecord.commentedString(), "#8c8" /* client */));
+  ws.send(encryptedReqRecord.array());
+  const encryptedResponse = await readTlsRecord(reader, 23 /* Application */);
+  const decryptedResponse = await applicationDecrypter.process(encryptedResponse.content, 16, encryptedResponse.header.array());
+  console.log(new TextDecoder().decode(decryptedResponse));
 }
 startTls("neon-cf-pg-test.jawj.workers.dev", 443);
 /*!

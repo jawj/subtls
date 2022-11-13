@@ -25,7 +25,7 @@ export async function readTlsRecord(reader: ReadQueue, expectedType?: RecordType
 
   const type = header.readUint8() as keyof typeof RecordTypeNames;
   if (type < 0x14 || type > 0x18) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
-  if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected ${expectedType.toString(16).padStart(2, '0')})`);
+  if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
   header.comment(`record type: ${RecordTypeNames[type]}`);
 
   const version = header.readUint16('TLS version');
@@ -36,4 +36,12 @@ export async function readTlsRecord(reader: ReadQueue, expectedType?: RecordType
 
   const content = await reader.read(length);
   return { headerData, header, type, version, length, content };
+}
+
+export function unwrapDecryptedTlsRecord(wrappedRecord: Uint8Array, expectedType?: RecordTypes) {
+  const lastByteIndex = wrappedRecord.length - 1;
+  const record = wrappedRecord.subarray(0, lastByteIndex /* exclusive */);
+  const type = wrappedRecord[lastByteIndex];
+  if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
+  return { type, record };
 }

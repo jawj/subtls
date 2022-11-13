@@ -1,16 +1,19 @@
-export class Decrypter {
+export class Crypter {
+  mode: 'encrypt' | 'decrypt';
   key: CryptoKey;
   iv: any;
   ivDataView: DataView;
   recordsDecrypted = 0;
 
-  constructor(key: CryptoKey, initialIv: Uint8Array) {
+  constructor(mode: 'encrypt' | 'decrypt', key: CryptoKey, initialIv: Uint8Array) {
+    this.mode = mode;
     this.key = key;
     this.iv = initialIv;
     this.ivDataView = new DataView(this.iv.buffer, this.iv.byteOffset, this.iv.byteLength);
   }
 
-  async decrypt(cipherTextPlusAuthTag: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
+  // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
+  async process(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
     const ivLength = this.iv.length;
     const authTagBits = authTagLength << 3;
 
@@ -21,8 +24,8 @@ export class Decrypter {
 
     const algorithm = { name: 'AES-GCM', iv: this.iv, tagLength: authTagBits, additionalData };
 
-    const plainTextBuffer = await crypto.subtle.decrypt(algorithm, this.key, cipherTextPlusAuthTag);
-    const plainText = new Uint8Array(plainTextBuffer);
-    return plainText;
+    const resultBuffer = await crypto.subtle[this.mode](algorithm, this.key, data);
+    const result = new Uint8Array(resultBuffer);
+    return result;
   }
 }

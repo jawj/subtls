@@ -1,6 +1,64 @@
-import type { Certificate } from 'pkijs';
+import * as pvtsutils from 'pvtsutils';
+import * as pkijs from 'pkijs';
 
-export function describeCert(cert: Certificate) {
+// @ts-ignore
+import isrgrootx1 from '../roots/isrg-root-x1.pem';
+// @ts-ignore
+import isrgrootx2 from '../roots/isrg-root-x2.pem';
+// @ts-ignore
+import trustidx3root from '../roots/trustid-x3-root.pem';
+// @ts-ignore
+import cloudflare from '../roots/cloudflare.pem';
+
+export function decodePEM(pem: string, tag = "[A-Z0-9 ]+") {
+  const pattern = new RegExp(`-{5}BEGIN ${tag}-{5}([a-zA-Z0-9=+\\/\\n\\r]+)-{5}END ${tag}-{5}`, 'g');
+  const res = [];
+  let matches = null;
+  while (matches = pattern.exec(pem)) {
+    const base64 = matches[1].replace(/[\r\n]/g, '');
+    res.push(pvtsutils.Convert.FromBase64(base64));
+  }
+  return res;
+}
+
+export function getRootCerts() {
+  return decodePEM(isrgrootx1 + isrgrootx2 + trustidx3root + cloudflare).map(ber => pkijs.Certificate.fromBER(ber));
+}
+
+export function getSubjectAltNamesDNSNames(cert: pkijs.Certificate) {
+  const subjectAltNameID = '2.5.29.17';
+  const subectAltNameTypeDNSName = 2;
+  const sanExtension = cert.extensions?.find(ext => ext.extnID === subjectAltNameID);
+  if (sanExtension === undefined) return [];
+
+  const altNames = (sanExtension.parsedValue as pkijs.AltName).altNames
+    .filter(altName => altName.type === subectAltNameTypeDNSName)
+    .map(altName => altName.value as string);
+
+  return altNames;
+}
+
+export function certNamesMatch(host: string, certNames: string[]) {
+  return certNames.some(cert => {
+    let certName = cert;
+    let hostName = host;
+
+    // wildcards: https://en.wikipedia.org/wiki/Wildcard_certificate
+    // TODO: what about longer TLDs, such as .co.uk?
+    if (/[.][^.]+[.][^.]+/.test(certName) && certName.startsWith('*.')) {
+      certName = certName.slice(1);
+      hostName = hostName.slice(hostName.indexOf('.'));
+    }
+
+    // test
+    if (certName === hostName) {
+      console.log(`matched "${host}" to subjectAltName "${cert}"`);
+      return true;
+    }
+  });
+}
+
+export function describeCert(cert: pkijs.Certificate) {
   const rdnmap: Record<string, string> = {
     "2.5.4.6": "C",
     "2.5.4.10": "O",
@@ -15,8 +73,6 @@ export function describeCert(cert: Certificate) {
     "1.2.840.113549.1.9.1": "E-mail"
   };
   const algomap: Record<string, string> = {
-    "1.2.840.113549.1.1.2": "MD2 with RSA",
-    "1.2.840.113549.1.1.4": "MD5 with RSA",
     "1.2.840.10040.4.3": "SHA1 with DSA",
     "1.2.840.10045.4.1": "SHA1 with ECDSA",
     "1.2.840.10045.4.3.2": "SHA256 with ECDSA",
@@ -40,6 +96,8 @@ export function describeCert(cert: Certificate) {
     const subjval = typeAndValue.value.valueBlock.value;
     return `${typeval}=${subjval}`;
   }).join(' ');
+  const altNames = getSubjectAltNamesDNSNames(cert);
+  const altNameField = altNames.length === 0 ? '' : `subjectAltNames: ${altNames.join(', ')}\n`;
   const signatureAlgorithm = algomap[cert.signatureAlgorithm.algorithmId] ?? cert.signatureAlgorithm.algorithmId;
-  return `subject: ${subject}\nissuer: ${issuer}\nvalidity: ${validity}\nsignature algorithm: ${signatureAlgorithm}`;
+  return `subject: ${subject}\n${altNameField}issuer: ${issuer}\nvalidity: ${validity}\nsignature algorithm: ${signatureAlgorithm}`;
 }

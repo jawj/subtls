@@ -102,19 +102,17 @@ export default class Bytes {
     return this;
   }
 
-  writeUint8(...args: number[]): Bytes {
-    for (const arg of args) {
-      this.dataView.setUint8(this.offset, arg);
-      this.offset += 1;
-    }
+  writeUint8(value: number, comment?: string): Bytes {
+    this.dataView.setUint8(this.offset, value);
+    this.offset += 1;
+    if (comment !== undefined) this.comment(comment);
     return this;
   }
 
-  writeUint16(...args: number[]): Bytes {
-    for (const arg of args) {
-      this.dataView.setUint16(this.offset, arg);
-      this.offset += 2;
-    }
+  writeUint16(value: number, comment?: string): Bytes {
+    this.dataView.setUint16(this.offset, value);
+    this.offset += 2;
+    if (comment !== undefined) this.comment(comment);
     return this;
   }
 
