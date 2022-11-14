@@ -24143,7 +24143,6 @@ async function startTls(host, port) {
   clientCipherChange.writeUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
   console.log(...highlightCommented_default(clientCipherChange.commentedString(), "#8c8" /* client */));
   const clientCipherChangeData = clientCipherChange.array();
-  ws.send(clientCipherChangeData);
   const wholeHandshake = concat(hellos, serverHandshake);
   const wholeHandshakeHashBuffer = await crypto.subtle.digest("SHA-256", wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
@@ -24161,7 +24160,6 @@ async function startTls(host, port) {
   clientFinishedRecord.writeUint8(22 /* Handshake */, "record type: Handshake");
   console.log(...highlightCommented_default(clientFinishedRecord.commentedString(), "#8c8" /* client */));
   const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);
-  ws.send(encryptedClientFinished);
   console.log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
   const clientApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
@@ -24177,7 +24175,7 @@ Connection: close\r
   requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
   console.log(...highlightCommented_default(requestDataRecord.commentedString(), "#8c8" /* client */));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
-  ws.send(encryptedRequest);
+  ws.send(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
   while (true) {
     const serverResponse = await readEncryptedTlsRecord(reader, applicationDecrypter, 23 /* Application */);
     console.log(new TextDecoder().decode(serverResponse));
