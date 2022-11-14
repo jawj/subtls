@@ -731,14 +731,6 @@ async function readTlsRecord(reader, expectedType) {
   const content = await reader.read(length2);
   return { headerData, header, type, version, length: length2, content };
 }
-function unwrapDecryptedTlsRecord(wrappedRecord, expectedType) {
-  const lastByteIndex = wrappedRecord.length - 1;
-  const record = wrappedRecord.subarray(0, lastByteIndex);
-  const type = wrappedRecord[lastByteIndex];
-  if (expectedType !== void 0 && type !== expectedType)
-    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
-  return { type, record };
-}
 async function readEncryptedTlsRecord(reader, decrypter, expectedType) {
   const encryptedRecord = await readTlsRecord(reader, 23 /* Application */);
   const encryptedBytes = new Bytes(encryptedRecord.content);
@@ -748,9 +740,31 @@ async function readEncryptedTlsRecord(reader, decrypter, expectedType) {
     throw new Error("Unexpected extra bytes at end of encrypted record");
   console.log(...highlightCommented_default(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
-  const unwrappedRecord = unwrapDecryptedTlsRecord(decryptedRecord, expectedType);
-  console.log(`... decrypted payload (see below) ... %s%c %s`, unwrappedRecord.type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `record type: ${RecordTypeName[unwrappedRecord.type]}`);
-  return unwrappedRecord.record;
+  const lastByteIndex = decryptedRecord.length - 1;
+  const record = decryptedRecord.subarray(0, lastByteIndex);
+  const type = decryptedRecord[lastByteIndex];
+  if (expectedType !== void 0 && type !== expectedType)
+    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
+  console.log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
+  return record;
+}
+async function makeEncryptedTlsRecord(data, encrypter) {
+  const headerLength = 5;
+  const dataLength = data.length;
+  const authTagLength = 16;
+  const payloadLength = dataLength + authTagLength;
+  const encryptedRecord = new Bytes(headerLength + payloadLength);
+  encryptedRecord.writeUint8(23, "record type: Application (middlebox compatibility)");
+  encryptedRecord.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
+  const header = encryptedRecord.array();
+  const encryptedData = await encrypter.process(data, 16, header);
+  encryptedRecord.writeBytes(encryptedData.subarray(0, encryptedData.length - 16));
+  encryptedRecord.comment("encrypted data");
+  encryptedRecord.writeBytes(encryptedData.subarray(encryptedData.length - 16));
+  encryptedRecord.comment("auth tag");
+  console.log(...highlightCommented_default(encryptedRecord.commentedString(), "#8c8" /* client */));
+  return encryptedRecord.array();
 }
 
 // src/parseServerHello.ts
@@ -24146,17 +24160,8 @@ async function startTls(host, port) {
   clientFinishedRecordEnd();
   clientFinishedRecord.writeUint8(22 /* Handshake */, "record type: Handshake");
   console.log(...highlightCommented_default(clientFinishedRecord.commentedString(), "#8c8" /* client */));
-  const encryptedLength = clientFinishedRecord.offset + 16;
-  const encryptedClientFinishedRecord = new Bytes(5 + encryptedLength);
-  encryptedClientFinishedRecord.writeUint8(23, "record type: Application");
-  encryptedClientFinishedRecord.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
-  encryptedClientFinishedRecord.writeUint16(encryptedLength, `${encryptedLength} bytes follow`);
-  const encHeader = encryptedClientFinishedRecord.array();
-  const encryptedClientFinishedData = await handshakeEncrypter.process(clientFinishedRecord.array(), 16, encHeader);
-  encryptedClientFinishedRecord.writeBytes(encryptedClientFinishedData);
-  encryptedClientFinishedRecord.comment("encrypted data");
-  console.log(...highlightCommented_default(encryptedClientFinishedRecord.commentedString(), "#8c8" /* client */));
-  ws.send(encryptedClientFinishedRecord.array());
+  const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);
+  ws.send(encryptedClientFinished);
   console.log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
   const clientApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
@@ -24171,19 +24176,12 @@ Connection: close\r
 `);
   requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
   console.log(...highlightCommented_default(requestDataRecord.commentedString(), "#8c8" /* client */));
-  const encryptedReqLength = requestDataRecord.offset + 16;
-  const encryptedReqRecord = new Bytes(5 + encryptedReqLength);
-  encryptedReqRecord.writeUint8(23, "record type: Application");
-  encryptedReqRecord.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
-  encryptedReqRecord.writeUint16(encryptedReqLength, `${encryptedReqLength} bytes follow`);
-  const encReqRecordHeader = encryptedReqRecord.array();
-  const encryptedReqData = await applicationEncrypter.process(requestDataRecord.array(), 16, encReqRecordHeader);
-  encryptedReqRecord.writeBytes(encryptedReqData);
-  encryptedReqRecord.comment("encrypted data");
-  console.log(...highlightCommented_default(encryptedReqRecord.commentedString(), "#8c8" /* client */));
-  ws.send(encryptedReqRecord.array());
-  const serverResponse = await readEncryptedTlsRecord(reader, applicationDecrypter, 23 /* Application */);
-  console.log(new TextDecoder().decode(serverResponse));
+  const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
+  ws.send(encryptedRequest);
+  while (true) {
+    const serverResponse = await readEncryptedTlsRecord(reader, applicationDecrypter, 23 /* Application */);
+    console.log(new TextDecoder().decode(serverResponse));
+  }
 }
 startTls("neon-cf-pg-test.jawj.workers.dev", 443);
 /*!

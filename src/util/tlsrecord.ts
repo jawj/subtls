@@ -1,7 +1,6 @@
 import { Crypter } from '../aesgcm';
 import { Colours } from '../colours';
 import Bytes from './bytes';
-import { hexFromU8 } from './hex';
 import highlightCommented from './highlightCommented';
 import type { ReadQueue } from './readqueue';
 
@@ -42,16 +41,9 @@ export async function readTlsRecord(reader: ReadQueue, expectedType?: RecordType
   return { headerData, header, type, version, length, content };
 }
 
-export function unwrapDecryptedTlsRecord(wrappedRecord: Uint8Array, expectedType?: RecordType) {
-  const lastByteIndex = wrappedRecord.length - 1;
-  const record = wrappedRecord.subarray(0, lastByteIndex /* exclusive */);
-  const type = wrappedRecord[lastByteIndex];
-  if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
-  return { type, record };
-}
-
 export async function readEncryptedTlsRecord(reader: ReadQueue, decrypter: Crypter, expectedType?: RecordType) {
   const encryptedRecord = await readTlsRecord(reader, RecordType.Application);
+
   const encryptedBytes = new Bytes(encryptedRecord.content);
   encryptedBytes.skip(encryptedRecord.length - 16, 'encrypted payload');
   encryptedBytes.skip(16, 'auth tag');
@@ -59,7 +51,34 @@ export async function readEncryptedTlsRecord(reader: ReadQueue, decrypter: Crypt
   console.log(...highlightCommented(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), Colours.server));
 
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
-  const unwrappedRecord = unwrapDecryptedTlsRecord(decryptedRecord, expectedType);
-  console.log(`... decrypted payload (see below) ... %s%c %s`, unwrappedRecord.type.toString(16).padStart(2, '0'), `color: ${Colours.server}`, `record type: ${(RecordTypeName as any)[unwrappedRecord.type]}`);
-  return unwrappedRecord.record;
+
+  const lastByteIndex = decryptedRecord.length - 1;
+  const record = decryptedRecord.subarray(0, lastByteIndex /* exclusive */);
+  const type = decryptedRecord[lastByteIndex];
+  if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
+  console.log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, '0'), `color: ${Colours.server}`, `actual decrypted record type: ${(RecordTypeName as any)[type]}`);
+
+  return record;
+}
+
+export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypter) {
+  const headerLength = 5;
+  const dataLength = data.length;
+  const authTagLength = 16;
+  const payloadLength = dataLength + authTagLength;
+
+  const encryptedRecord = new Bytes(headerLength + payloadLength);
+  encryptedRecord.writeUint8(0x17, 'record type: Application (middlebox compatibility)');
+  encryptedRecord.writeUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
+  encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
+
+  const header = encryptedRecord.array();
+  const encryptedData = await encrypter.process(data, 16, header);
+  encryptedRecord.writeBytes(encryptedData.subarray(0, encryptedData.length - 16));
+  encryptedRecord.comment('encrypted data');
+  encryptedRecord.writeBytes(encryptedData.subarray(encryptedData.length - 16));
+  encryptedRecord.comment('auth tag');
+
+  console.log(...highlightCommented(encryptedRecord.commentedString(), Colours.client));
+  return encryptedRecord.array();
 }

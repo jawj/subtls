@@ -2,7 +2,7 @@
 import highlightCommented from './util/highlightCommented';
 import makeClientHello from './clientHello';
 import { ReadQueue } from './util/readqueue';
-import { readEncryptedTlsRecord, readTlsRecord, RecordType, unwrapDecryptedTlsRecord } from './util/tlsrecord';
+import { makeEncryptedTlsRecord, readEncryptedTlsRecord, readTlsRecord, RecordType } from './util/tlsrecord';
 import Bytes from './util/bytes';
 import parseServerHello from './parseServerHello';
 import { getApplicationKeys, getHandshakeKeys, hkdfExpandLabel } from './keyscalc';
@@ -43,9 +43,8 @@ async function startTls(host: string, port: number) {
   if (ccipher.remainingBytes() !== 0) throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
   console.log(...highlightCommented(changeCipherRecord.header.commentedString() + ccipher.commentedString(), Colours.server));
 
-  console.log('%c%s', `color: ${Colours.header}`, 'handshake key computations');
-
   // keys
+  console.log('%c%s', `color: ${Colours.header}`, 'handshake key computations');
   const clientHelloContent = clientHelloData.subarray(5);  // cut off the 5-byte record header
   const serverHelloContent = serverHelloRecord.content;    // 5-byte record header is already excluded
   const hellos = concat(clientHelloContent, serverHelloContent);  // we could slightly improve efficiency with Cloudflare's DigestStream by avoiding a concat
@@ -91,21 +90,11 @@ async function startTls(host: string, port: number) {
   clientFinishedRecord.writeUint8(RecordType.Handshake, 'record type: Handshake');
   console.log(...highlightCommented(clientFinishedRecord.commentedString(), Colours.client));
 
-  const encryptedLength = clientFinishedRecord.offset + 16 /* for the auth tag */;
-  const encryptedClientFinishedRecord = new Bytes(5 + encryptedLength);
-  encryptedClientFinishedRecord.writeUint8(0x17, 'record type: Application');
-  encryptedClientFinishedRecord.writeUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
-  encryptedClientFinishedRecord.writeUint16(encryptedLength, `${encryptedLength} bytes follow`);
-  const encHeader = encryptedClientFinishedRecord.array();
-  const encryptedClientFinishedData = await handshakeEncrypter.process(clientFinishedRecord.array(), 16, encHeader);
-  encryptedClientFinishedRecord.writeBytes(encryptedClientFinishedData);
-  encryptedClientFinishedRecord.comment('encrypted data');
-  console.log(...highlightCommented(encryptedClientFinishedRecord.commentedString(), Colours.client));
-  ws.send(encryptedClientFinishedRecord.array());
-
-  console.log('%c%s', `color: ${Colours.header}`, 'application key computations');
+  const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);
+  ws.send(encryptedClientFinished);
 
   // application keys
+  console.log('%c%s', `color: ${Colours.header}`, 'application key computations');
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
   const clientApplicationKey = await crypto.subtle.importKey('raw', applicationKeys.clientApplicationKey, { name: 'AES-GCM' }, false, ['encrypt']);
   const applicationEncrypter = new Crypter('encrypt', clientApplicationKey, applicationKeys.clientApplicationIV);
@@ -118,22 +107,14 @@ async function startTls(host: string, port: number) {
   requestDataRecord.writeUint8(RecordType.Application, 'record type: Application');
   console.log(...highlightCommented(requestDataRecord.commentedString(), Colours.client));
 
-  const encryptedReqLength = requestDataRecord.offset + 16 /* auth tag */;
-  const encryptedReqRecord = new Bytes(5 + encryptedReqLength);
-  encryptedReqRecord.writeUint8(0x17, 'record type: Application');
-  encryptedReqRecord.writeUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
-  encryptedReqRecord.writeUint16(encryptedReqLength, `${encryptedReqLength} bytes follow`);
-  const encReqRecordHeader = encryptedReqRecord.array();
-  const encryptedReqData = await applicationEncrypter.process(requestDataRecord.array(), 16, encReqRecordHeader);
-  encryptedReqRecord.writeBytes(encryptedReqData);
-  encryptedReqRecord.comment('encrypted data');
-  console.log(...highlightCommented(encryptedReqRecord.commentedString(), Colours.client));
-  ws.send(encryptedReqRecord.array());
+  const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
+  ws.send(encryptedRequest);
 
   // read
-  const serverResponse = await readEncryptedTlsRecord(reader, applicationDecrypter, RecordType.Application);
-  console.log(new TextDecoder().decode(serverResponse));
+  while (true) {
+    const serverResponse = await readEncryptedTlsRecord(reader, applicationDecrypter, RecordType.Application);
+    console.log(new TextDecoder().decode(serverResponse));
+  }
 }
 
 startTls('neon-cf-pg-test.jawj.workers.dev', 443);
-// calculateKeysTest();

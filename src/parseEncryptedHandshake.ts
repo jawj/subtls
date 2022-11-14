@@ -92,6 +92,8 @@ export async function parseEncryptedHandshake(host: string, unwrappedRecord: Uin
   const verifyHash = hs.readBytes(hsFinishedPayloadLength);
   hs.comment('verify hash');
 
+  // TODO: verify the verify hash!
+
   console.log(...highlightCommented(hs.commentedString(true), Colours.server));
 
   if (hs.remainingBytes() !== 0) throw new Error('Unexpected extra bytes at end of encrypted handshake');
