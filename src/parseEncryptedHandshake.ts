@@ -1,13 +1,15 @@
 import * as pkijs from 'pkijs';
 import { Colours } from './colours';
+import { hkdfExpandLabel } from './keyscalc';
+import { concat, equal } from './util/array';
 
 import Bytes from './util/bytes';
 import { certNamesMatch, getRootCerts, describeCert, getSubjectAltNamesDNSNames } from './util/cert';
 import highlightCommented from './util/highlightCommented';
 
-export async function parseEncryptedHandshake(host: string, unwrappedRecord: Uint8Array) {
+export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
   // parse encrypted handshake part
-  const hs = new Bytes(unwrappedRecord);
+  const hs = new Bytes(record);
 
   hs.expectUint8(0x08, 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
   const eeMessageLength = hs.readUint24('% bytes of handshake data follows');
@@ -87,12 +89,24 @@ export async function parseEncryptedHandshake(host: string, unwrappedRecord: Uin
   const signature = hs.readBytes(signatureLength);
   hs.comment('signature');
 
+  const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
+  const verifyData = concat(hellos, verifyHandshakeData);
+  const finishedKey = await hkdfExpandLabel(serverSecret, 'finished', new Uint8Array(0), 32, 256);
+  const finishedHash = await crypto.subtle.digest('SHA-256', verifyData);
+  const hmacKey = await crypto.subtle.importKey('raw', finishedKey, { name: 'HMAC', hash: { name: `SHA-256` } }, false, ['sign']);
+  const correctVerifyHashBuffer = await crypto.subtle.sign('HMAC', hmacKey, finishedHash);
+  const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
+
   hs.expectUint8(0x14, 'handshake message type: finished');
   const hsFinishedPayloadLength = hs.readUint24('% bytes of handshake message data follow');
   const verifyHash = hs.readBytes(hsFinishedPayloadLength);
   hs.comment('verify hash');
 
-  // TODO: verify the verify hash!
+  if (equal(verifyHash, correctVerifyHash)) {
+    console.log('server verify hash validated');
+  } else {
+    throw new Error('Invalid server verify hash');
+  }
 
   console.log(...highlightCommented(hs.commentedString(true), Colours.server));
 

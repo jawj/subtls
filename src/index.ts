@@ -56,7 +56,7 @@ async function startTls(host: string, port: number) {
 
   // encrypted part of server handshake
   const serverHandshake = await readEncryptedTlsRecord(reader, handshakeDecrypter, RecordType.Handshake);
-  await parseEncryptedHandshake(host, serverHandshake);
+  await parseEncryptedHandshake(host, serverHandshake, handshakeKeys.serverSecret, hellos);
 
   // dummy cipher change
   const clientCipherChange = new Bytes(6);
@@ -66,7 +66,7 @@ async function startTls(host: string, port: number) {
   clientCipherChange.writeUint8(0x01, 'dummy ChangeCipherSpec payload (middlebox compatibility)');
   console.log(...highlightCommented(clientCipherChange.commentedString(), Colours.client));
   const clientCipherChangeData = clientCipherChange.array();
-  // ws.send(clientCipherChangeData);  // no: we batch this up and send below
+  // ws.send(clientCipherChangeData);  // no: we'll batch this up and send below
 
   // hash of whole handshake (cipher change excluded)
   const wholeHandshake = concat(hellos, serverHandshake);
@@ -91,7 +91,7 @@ async function startTls(host: string, port: number) {
   console.log(...highlightCommented(clientFinishedRecord.commentedString(), Colours.client));
 
   const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);
-  // ws.send(encryptedClientFinished);  // no: we batch this up and send below
+  // ws.send(encryptedClientFinished);  // no: we'll batch this up and send below
 
   // application keys
   console.log('%c%s', `color: ${Colours.header}`, 'application key computations');
@@ -108,7 +108,7 @@ async function startTls(host: string, port: number) {
   console.log(...highlightCommented(requestDataRecord.commentedString(), Colours.client));
 
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
-  // ws.send(encryptedRequest);  // no: we batch this up and send below
+  // ws.send(encryptedRequest);  // no: we'll batch this up and send below
 
   // write
   ws.send(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));

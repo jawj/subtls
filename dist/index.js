@@ -24031,8 +24031,8 @@ signature algorithm: ${signatureAlgorithm}`;
 }
 
 // src/parseEncryptedHandshake.ts
-async function parseEncryptedHandshake(host, unwrappedRecord) {
-  const hs = new Bytes(unwrappedRecord);
+async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
+  const hs = new Bytes(record);
   hs.expectUint8(8, "handshake record type: encrypted extensions");
   const eeMessageLength = hs.readUint24("% bytes of handshake data follows");
   if (eeMessageLength !== 2 && eeMessageLength !== 6)
@@ -24092,10 +24092,22 @@ async function parseEncryptedHandshake(host, unwrappedRecord) {
   const signatureLength = hs.readUint16("signature length");
   const signature = hs.readBytes(signatureLength);
   hs.comment("signature");
+  const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
+  const verifyData = concat(hellos, verifyHandshakeData);
+  const finishedKey = await hkdfExpandLabel(serverSecret, "finished", new Uint8Array(0), 32, 256);
+  const finishedHash = await crypto.subtle.digest("SHA-256", verifyData);
+  const hmacKey = await crypto.subtle.importKey("raw", finishedKey, { name: "HMAC", hash: { name: `SHA-256` } }, false, ["sign"]);
+  const correctVerifyHashBuffer = await crypto.subtle.sign("HMAC", hmacKey, finishedHash);
+  const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
   hs.expectUint8(20, "handshake message type: finished");
   const hsFinishedPayloadLength = hs.readUint24("% bytes of handshake message data follow");
   const verifyHash = hs.readBytes(hsFinishedPayloadLength);
   hs.comment("verify hash");
+  if (equal(verifyHash, correctVerifyHash)) {
+    console.log("server verify hash validated");
+  } else {
+    throw new Error("Invalid server verify hash");
+  }
   console.log(...highlightCommented_default(hs.commentedString(true), "#88c" /* server */));
   if (hs.remainingBytes() !== 0)
     throw new Error("Unexpected extra bytes at end of encrypted handshake");
@@ -24135,7 +24147,7 @@ async function startTls(host, port) {
   const clientHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
   const serverHandshake = await readEncryptedTlsRecord(reader, handshakeDecrypter, 22 /* Handshake */);
-  await parseEncryptedHandshake(host, serverHandshake);
+  await parseEncryptedHandshake(host, serverHandshake, handshakeKeys.serverSecret, hellos);
   const clientCipherChange = new Bytes(6);
   clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
   clientCipherChange.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
