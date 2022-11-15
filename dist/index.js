@@ -135,7 +135,7 @@ var require_build = __commonJS({
         return res;
       }
     };
-    var Convert4 = class {
+    var Convert3 = class {
       static isHex(data) {
         return typeof data === "string" && /^[a-z0-9]+$/i.test(data);
       }
@@ -205,7 +205,7 @@ var require_build = __commonJS({
         if (!formatted) {
           return new ArrayBuffer(0);
         }
-        if (!Convert4.isBase64(formatted)) {
+        if (!Convert3.isBase64(formatted)) {
           throw new TypeError("Argument 'base64Text' is not Base64 encoded");
         }
         if (typeof atob !== "undefined") {
@@ -219,7 +219,7 @@ var require_build = __commonJS({
         if (!formatted) {
           return new ArrayBuffer(0);
         }
-        if (!Convert4.isBase64Url(formatted)) {
+        if (!Convert3.isBase64Url(formatted)) {
           throw new TypeError("Argument 'base64url' is not Base64Url encoded");
         }
         return this.FromBase64(this.Base64Padding(formatted.replace(/\-/g, "+").replace(/\_/g, "/")));
@@ -227,7 +227,7 @@ var require_build = __commonJS({
       static ToBase64Url(data) {
         return this.ToBase64(data).replace(/\+/g, "-").replace(/\//g, "_").replace(/\=/g, "");
       }
-      static FromUtf8String(text, encoding = Convert4.DEFAULT_UTF8_ENCODING) {
+      static FromUtf8String(text, encoding = Convert3.DEFAULT_UTF8_ENCODING) {
         switch (encoding) {
           case "ascii":
             return this.FromBinary(text);
@@ -243,7 +243,7 @@ var require_build = __commonJS({
             throw new Error(`Unknown type of encoding '${encoding}'`);
         }
       }
-      static ToUtf8String(buffer, encoding = Convert4.DEFAULT_UTF8_ENCODING) {
+      static ToUtf8String(buffer, encoding = Convert3.DEFAULT_UTF8_ENCODING) {
         switch (encoding) {
           case "ascii":
             return this.ToBinary(buffer);
@@ -291,7 +291,7 @@ var require_build = __commonJS({
         if (!formatted) {
           return new ArrayBuffer(0);
         }
-        if (!Convert4.isHex(formatted)) {
+        if (!Convert3.isHex(formatted)) {
           throw new TypeError("Argument 'hexString' is not HEX encoded");
         }
         if (formatted.length % 2) {
@@ -323,7 +323,7 @@ var require_build = __commonJS({
         return (data === null || data === void 0 ? void 0 : data.replace(/[\n\r\t ]/g, "")) || "";
       }
     };
-    Convert4.DEFAULT_UTF8_ENCODING = "utf8";
+    Convert3.DEFAULT_UTF8_ENCODING = "utf8";
     function assign(target, ...sources) {
       const res = arguments[0];
       for (let i = 1; i < arguments.length; i++) {
@@ -362,7 +362,7 @@ var require_build = __commonJS({
       return true;
     }
     exports.BufferSourceConverter = BufferSourceConverter4;
-    exports.Convert = Convert4;
+    exports.Convert = Convert3;
     exports.assign = assign;
     exports.combine = combine;
     exports.isEqual = isEqual;
@@ -402,6 +402,7 @@ function equal(a, b) {
 
 // src/util/bytes.ts
 var txtEnc = new TextEncoder();
+var txtDec = new TextDecoder();
 var Bytes = class {
   offset;
   dataView;
@@ -432,6 +433,12 @@ var Bytes = class {
   readBytes(length2) {
     return this.uint8Array.slice(this.offset, this.offset += length2);
   }
+  readUTF8String(length2) {
+    const bytes = this.subarray(length2);
+    const s = txtDec.decode(bytes);
+    this.comment('"' + s.replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"');
+    return s;
+  }
   readUint8(comment) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
@@ -450,6 +457,13 @@ var Bytes = class {
     const msb = this.readUint8();
     const lsbs = this.readUint16();
     const result = (msb << 16) + lsbs;
+    if (comment !== void 0)
+      this.comment(comment.replace(/%/g, String(result)));
+    return result;
+  }
+  readUint32(comment) {
+    const result = this.dataView.getUint32(this.offset);
+    this.offset += 4;
     if (comment !== void 0)
       this.comment(comment.replace(/%/g, String(result)));
     return result;
@@ -23930,8 +23944,27 @@ function initCryptoEngine() {
 }
 initCryptoEngine();
 
-// src/util/cert.ts
-var pvtsutils3 = __toESM(require_build());
+// src/util/base64.ts
+function charCodeMap(charCode) {
+  return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode > 47 && charCode < 58 ? charCode + 4 : charCode === 43 ? 62 : charCode === 47 ? 63 : charCode === 61 ? 64 : void 0;
+}
+function base64Decode(input) {
+  const len = input.length;
+  let inputIdx = 0, outputIdx = 0;
+  let enc1 = 64, enc2 = 64, enc3 = 64, enc4 = 64;
+  const output = new Uint8Array(len * 0.75);
+  while (inputIdx < len) {
+    enc1 = charCodeMap(input.charCodeAt(inputIdx++));
+    enc2 = charCodeMap(input.charCodeAt(inputIdx++));
+    enc3 = charCodeMap(input.charCodeAt(inputIdx++));
+    enc4 = charCodeMap(input.charCodeAt(inputIdx++));
+    output[outputIdx++] = enc1 << 2 | enc2 >> 4;
+    output[outputIdx++] = (enc2 & 15) << 4 | enc3 >> 2;
+    output[outputIdx++] = (enc3 & 3) << 6 | enc4;
+  }
+  const excessLength = enc2 === 64 ? 0 : enc3 === 64 ? 2 : enc4 === 64 ? 1 : 0;
+  return output.subarray(0, outputIdx - excessLength);
+}
 
 // src/roots/isrg-root-x1.pem
 var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\nTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\ncmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\nWhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\nZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\nMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\nh77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\nA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\nT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\nB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\nB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\nKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\nOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\njh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\nqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\nrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\nHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\nhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\nubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\nNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\nORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\nTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\njNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\noyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\nmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\nemyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n";
@@ -23946,13 +23979,102 @@ var trustid_x3_root_default = "-----BEGIN CERTIFICATE-----\nMIIDSjCCAjKgAwIBAgIQ
 var cloudflare_default = "-----BEGIN CERTIFICATE-----\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\n-----END CERTIFICATE-----";
 
 // src/util/cert.ts
+function readASN1Length(bytes) {
+  const byte1 = bytes.readUint8();
+  if (byte1 < 128) {
+    bytes.comment(`${byte1} bytes follow (ASN.1)`);
+    return byte1;
+  }
+  const lengthBytes = byte1 & 127;
+  if (lengthBytes === 1)
+    return bytes.readUint8("% bytes follow (ASN.1)");
+  if (lengthBytes === 2)
+    return bytes.readUint16("% bytes follow (ASN.1)");
+  if (lengthBytes === 3)
+    return bytes.readUint24("% bytes follow (ASN.1)");
+  if (lengthBytes === 4)
+    return bytes.readUint32("% bytes follow (ASN.1)");
+  throw new Error(`ASN.1 length fields are only supported up to 4 bytes (this one is ${lengthBytes} bytes)`);
+}
+function readASN1OID(allBytes) {
+  const OIDLength = readASN1Length(allBytes);
+  const bytes = new Bytes(allBytes.subarray(OIDLength));
+  const byte1 = bytes.readUint8();
+  const oid = [Math.floor(byte1 / 40), byte1 % 40];
+  while (bytes.remainingBytes() > 0) {
+    let value = 0;
+    while (true) {
+      const nextByte = bytes.readUint8();
+      value <<= 7;
+      value += nextByte & 127;
+      if (nextByte < 128)
+        break;
+    }
+    oid.push(value);
+  }
+  return oid.join(".");
+}
+var universalTypeInteger = 2;
+var constructedUniversalTypeSequence = 48;
+var constructedUniversalTypeSet = 49;
+var universalTypeOID = 6;
+var universalTypePrintableString = 19;
+var universalTypeNull = 5;
+function parseCert(certData) {
+  const cb = new Bytes(certData);
+  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type sequence (certificate)");
+  const certSeqLength = readASN1Length(cb);
+  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type sequence (certificate info)");
+  const certInfoSeqLength = readASN1Length(cb);
+  cb.expectBytes([160, 3, 2, 1, 2], "certificate version v3");
+  cb.expectUint8(universalTypeInteger, "universal type integer");
+  const serialNumberLength = readASN1Length(cb);
+  const serialNumber = cb.subarray(serialNumberLength);
+  cb.comment("serial number");
+  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type sequence (algorithm)");
+  const algoLength = readASN1Length(cb);
+  cb.expectUint8(universalTypeOID, "universal type OID");
+  const algoOID = readASN1OID(cb);
+  cb.comment(`algorithm OID: ${algoOID}`);
+  const algoParamType = cb.readUint8();
+  if (algoParamType === universalTypeNull) {
+    cb.comment("universal type null");
+    cb.expectUint8(0, "null length of 0 bytes");
+  } else if (algoParamType === constructedUniversalTypeSequence) {
+    cb.comment("constructed universal type sequence");
+    const algoParamsLength = readASN1Length(cb);
+    cb.expectUint8(constructedUniversalTypeSet, "constructed universal type set");
+    const algoParam1SetLength = readASN1Length(cb);
+    cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type sequence");
+    const algoParam1SeqLength = readASN1Length(cb);
+    cb.expectUint8(universalTypeOID, "universal type OID");
+    const algoParam1OID = readASN1OID(cb);
+    cb.comment(`OID: ${algoParam1OID}`);
+    cb.expectUint8(universalTypePrintableString, "universal type printable string");
+    const param1StrLen = readASN1Length(cb);
+    const param1Str = cb.readUTF8String(param1StrLen);
+    cb.expectUint8(constructedUniversalTypeSet, "constructed universal type set");
+    const algoParam2SetLength = readASN1Length(cb);
+    cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type sequence");
+    const algoParam2SeqLength = readASN1Length(cb);
+    cb.expectUint8(universalTypeOID, "universal type OID");
+    const algoParam2OID = readASN1OID(cb);
+    cb.comment(`OID: ${algoParam2OID}`);
+    cb.expectUint8(universalTypePrintableString, "universal type printable string");
+    const param2StrLen = readASN1Length(cb);
+    const param2Str = cb.readUTF8String(param2StrLen);
+  } else {
+    throw new Error(`Unexpected ASN.1 type value 0x${algoParamType.toString(16).padStart(2, "0")}`);
+  }
+  console.log(...highlightCommented_default(cb.commentedString(true), "#88c" /* server */));
+}
 function decodePEM(pem, tag = "[A-Z0-9 ]+") {
   const pattern = new RegExp(`-{5}BEGIN ${tag}-{5}([a-zA-Z0-9=+\\/\\n\\r]+)-{5}END ${tag}-{5}`, "g");
   const res = [];
   let matches = null;
   while (matches = pattern.exec(pem)) {
     const base64 = matches[1].replace(/[\r\n]/g, "");
-    res.push(pvtsutils3.Convert.FromBase64(base64));
+    res.push(base64Decode(base64));
   }
   return res;
 }
@@ -24063,6 +24185,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
     remainingCertsLength -= certExtLength;
     const cert = Certificate.fromBER(certData);
     certEntries.push({ certData, certExtData, cert });
+    parseCert(certData);
   }
   if (certEntries.length === 0)
     throw new Error("No certificates supplied");

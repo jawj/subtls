@@ -1,6 +1,7 @@
 import { equal } from './array';
 
 const txtEnc = new TextEncoder();
+const txtDec = new TextDecoder();
 
 export default class Bytes {
   offset: number;
@@ -41,6 +42,13 @@ export default class Bytes {
     return this.uint8Array.slice(this.offset, this.offset += length);
   }
 
+  readUTF8String(length: number) {
+    const bytes = this.subarray(length);
+    const s = txtDec.decode(bytes);
+    this.comment('"' + s.replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"');
+    return s;
+  }
+
   readUint8(comment?: string) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
@@ -59,6 +67,13 @@ export default class Bytes {
     const msb = this.readUint8();
     const lsbs = this.readUint16();
     const result = (msb << 16) + lsbs;
+    if (comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
+    return result;
+  }
+
+  readUint32(comment?: string) {
+    const result = this.dataView.getUint32(this.offset);
+    this.offset += 4;
     if (comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }

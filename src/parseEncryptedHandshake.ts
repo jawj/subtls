@@ -4,7 +4,7 @@ import { hkdfExpandLabel } from './keyscalc';
 import { concat, equal } from './util/array';
 
 import Bytes from './util/bytes';
-import { certNamesMatch, getRootCerts, describeCert, getSubjectAltNamesDNSNames } from './util/cert';
+import { certNamesMatch, getRootCerts, describeCert, getSubjectAltNamesDNSNames, parseCert } from './util/cert';
 import highlightCommented from './util/highlightCommented';
 
 export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
@@ -53,6 +53,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
     const cert = pkijs.Certificate.fromBER(certData);
     certEntries.push({ certData, certExtData, cert });
+
+    parseCert(certData);
   }
 
   if (certEntries.length === 0) throw new Error('No certificates supplied');
