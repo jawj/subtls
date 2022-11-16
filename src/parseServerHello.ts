@@ -5,8 +5,11 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
   let serverPublicKey;
   let tlsVersionSpecified;
 
+  const [endServerHelloMessage] = hello.assertByteCount(hello.remainingBytes());
+
   hello.expectUint8(0x02, 'handshake type: server hello');
-  const helloLength = hello.readUint24('server hello length');
+  const helloLength = hello.readUint24('% bytes of server hello follow');
+  const [endServerHello] = hello.assertByteCount(helloLength);
 
   hello.expectUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
   const serverRandom = hello.readBytes(32);
@@ -18,19 +21,21 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
     0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e,
     0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c
   ])) throw new Error('Unexpected HelloRetryRequest');
-  hello.comment('server random, not SHA256("HelloRetryRequest")');
+  hello.comment('server random — not SHA256("HelloRetryRequest")');
 
-  hello.expectUint8(0x20, 'session ID length');
+  hello.expectUint8(sessionId.length, 'session ID length (matches client session ID)');
   hello.expectBytes(sessionId, 'session ID (matches client session ID)');
 
   hello.expectUint16(0x1301, 'cipher (matches client hello)');
   hello.expectUint8(0x00, 'no compression');
 
   const extensionsLength = hello.readUint16('extensions length');
+  const [endExtensions, extensionsRemainingBytes] = hello.assertByteCount(extensionsLength);
 
-  while (hello.remainingBytes() > 0) {
+  while (extensionsRemainingBytes() > 0) {
     const extensionType = hello.readUint16('extension type');
     const extensionLength = hello.readUint16('extension length');
+    const [endExtension] = hello.assertByteCount(extensionLength);
 
     if (extensionType === 0x002b) {
       if (extensionLength !== 2) throw new Error(`Unexpected extension length: ${extensionLength} (expected 2)`);
@@ -49,10 +54,15 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
     } else {
       throw new Error(`Unexpected extension 0x${extensionType.toString(16).padStart(4, '0')}, length ${extensionLength}`)
     }
+    endExtension();
   }
 
-  if (hello.remainingBytes() !== 0) throw new Error(`Unexpected additional data at end of server hello`);
-  if (tlsVersionSpecified !== true || serverPublicKey === undefined) throw new Error(`Incomplete server hello`);
+  endExtensions();
+  endServerHello();
+  endServerHelloMessage();
+
+  if (tlsVersionSpecified !== true) throw new Error('No TLS version provided');
+  if (serverPublicKey === undefined) throw new Error('No key provided');
 
   return serverPublicKey;
 }

@@ -84,6 +84,22 @@ export default class Bytes {
     return result;
   }
 
+  assertByteCount(length: number) {
+    const startOffset = this.offset;
+    const endOffset = startOffset + length;
+    if (endOffset > this.uint8Array.length) throw new Error('Asserted byte count exceeds remaining data');
+    this.indent += 1;
+    this.indents[startOffset] = this.indent;
+    return [
+      () => {
+        this.indent -= 1;
+        this.indents[this.offset] = this.indent;
+        if (this.offset !== endOffset) throw new Error(`${length} bytes claimed but ${this.offset - startOffset} read`);
+      },
+      () => endOffset - this.offset,
+    ] as const;
+  }
+
   expectBytes(expected: Uint8Array | number[], comment?: string) {
     const actual = this.readBytes(expected.length);
     if (comment !== undefined) this.comment(comment);
@@ -179,8 +195,8 @@ export default class Bytes {
   }
 
   commentedString(all = false) {
-    let s = '';
-    let indent = 0;
+    let s = this.indents[0] !== undefined ? indentChars.repeat(this.indents[0]) : '';
+    let indent = this.indents[0] ?? 0;
     const len = all ? this.uint8Array.length : this.offset;
     for (let i = 0; i < len; i++) {
       s += this.uint8Array[i].toString(16).padStart(2, '0') + ' ';

@@ -34,7 +34,7 @@ export async function readTlsRecord(reader: ReadQueue, expectedType?: RecordType
   const version = header.readUint16('TLS version');
   if ([0x0301, 0x0302, 0x0303].indexOf(version) < 0) throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, '0')}`);
 
-  const length = header.readUint16('% bytes follow');
+  const length = header.readUint16('% bytes of TLS record follow');
   if (length > maxRecordLength) throw new Error(`Record too long: ${length} bytes`)
 
   const content = await reader.read(length);
@@ -45,9 +45,10 @@ export async function readEncryptedTlsRecord(reader: ReadQueue, decrypter: Crypt
   const encryptedRecord = await readTlsRecord(reader, RecordType.Application);
 
   const encryptedBytes = new Bytes(encryptedRecord.content);
+  const [endEncrypted] = encryptedBytes.assertByteCount(encryptedBytes.remainingBytes());
   encryptedBytes.skip(encryptedRecord.length - 16, 'encrypted payload');
   encryptedBytes.skip(16, 'auth tag');
-  if (encryptedBytes.remainingBytes() !== 0) throw new Error('Unexpected extra bytes at end of encrypted record');
+  endEncrypted();
   console.log(...highlightCommented(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), Colours.server));
 
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
@@ -71,6 +72,7 @@ export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypte
   encryptedRecord.writeUint8(0x17, 'record type: Application (middlebox compatibility)');
   encryptedRecord.writeUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
   encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
+  const [endEncryptedRecord] = encryptedRecord.assertByteCount(payloadLength);  // unusual but useful when writing
 
   const header = encryptedRecord.array();
   const encryptedData = await encrypter.process(data, 16, header);
@@ -78,6 +80,8 @@ export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypte
   encryptedRecord.comment('encrypted data');
   encryptedRecord.writeBytes(encryptedData.subarray(encryptedData.length - 16));
   encryptedRecord.comment('auth tag');
+
+  endEncryptedRecord();
 
   console.log(...highlightCommented(encryptedRecord.commentedString(), Colours.client));
   return encryptedRecord.array();

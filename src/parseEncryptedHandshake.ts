@@ -10,11 +10,15 @@ import highlightCommented from './util/highlightCommented';
 export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
   // parse encrypted handshake part
   const hs = new Bytes(record);
+  const [endHs] = hs.assertByteCount(record.length);
 
   hs.expectUint8(0x08, 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
   const eeMessageLength = hs.readUint24('% bytes of handshake data follows');
+  const [eeMessageEnd] = hs.assertByteCount(eeMessageLength);
+
   if (eeMessageLength !== 2 && eeMessageLength !== 6) throw new Error('Unexpected extensions length');
   const extLength = hs.readUint16('% bytes of extensions data follow');
+  const [extEnd] = hs.assertByteCount(extLength);
   /* 
    "A server that receives a client hello containing the "server_name"
    extension MAY use the information contained in the extension to guide
@@ -25,37 +29,40 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
    - https://datatracker.ietf.org/doc/html/rfc6066#section-3
   */
   if (extLength > 0) {
-    if (extLength !== 4) throw new Error('Unexpected extensions');
     hs.expectUint16(0x00, 'extension type: SNI');
     hs.expectUint16(0x00, 'no extension data');
   }
+  extEnd();
+  eeMessageEnd();
 
   hs.expectUint8(0x0b, 'handshake message type: server certificate');
   const certPayloadLength = hs.readUint24('% bytes of certificate payload follow');
+  const [endCertPayload] = hs.assertByteCount(certPayloadLength);
+
   hs.expectUint8(0x00, '0 bytes of request context follow');
   let remainingCertsLength = hs.readUint24('% bytes of certificates follow');
-  if (remainingCertsLength !== certPayloadLength - 4) throw new Error('Mystery extra certificate payload');
+  const [endCerts, certsRemainingBytes] = hs.assertByteCount(remainingCertsLength);
 
   const certEntries = [];
-  while (remainingCertsLength > 0) {
+  while (certsRemainingBytes() > 0) {
     const certLength = hs.readUint24('% bytes of certificate follow');
-    remainingCertsLength -= 3;
-
+    const [endCert] = hs.assertByteCount(certLength);
     const certData = hs.readBytes(certLength);
     hs.comment('server certificate');
-    remainingCertsLength -= certLength;
+    endCert();
 
     const certExtLength = hs.readUint16('% bytes of certificate extensions follow');
-    remainingCertsLength -= 2;
-
+    const [endCertExt] = hs.assertByteCount(certExtLength);
     const certExtData = hs.readBytes(certExtLength);
-    remainingCertsLength -= certExtLength;
+    endCertExt();
 
     const cert = pkijs.Certificate.fromBER(certData);
     certEntries.push({ certData, certExtData, cert });
 
     parseCert(certData);
   }
+  endCerts();
+  endCertPayload();
 
   if (certEntries.length === 0) throw new Error('No certificates supplied');
 
@@ -86,10 +93,14 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   hs.expectUint8(0x0f, 'handshake message type: certificate verify');
   const certVerifyPayloadLength = hs.readUint24('% bytes of handshake message data follow');
+  const [endCertVerifyPayload] = hs.assertByteCount(certVerifyPayloadLength);
   const signatureType = hs.readUint16('signature type');
   const signatureLength = hs.readUint16('signature length');
+  const [endSignature] = hs.assertByteCount(signatureLength);
   const signature = hs.readBytes(signatureLength);
   hs.comment('signature');
+  endSignature();
+  endCertVerifyPayload();
 
   const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
@@ -101,16 +112,15 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   hs.expectUint8(0x14, 'handshake message type: finished');
   const hsFinishedPayloadLength = hs.readUint24('% bytes of handshake message data follow');
+  const [endHsFinishedPayload] = hs.assertByteCount(hsFinishedPayloadLength);
   const verifyHash = hs.readBytes(hsFinishedPayloadLength);
   hs.comment('verify hash');
+  endHsFinishedPayload();
 
-  if (equal(verifyHash, correctVerifyHash)) {
-    console.log('server verify hash validated');
-  } else {
-    throw new Error('Invalid server verify hash');
-  }
+  endHs();
+
+  if (equal(verifyHash, correctVerifyHash)) console.log('server verify hash validated');
+  else throw new Error('Invalid server verify hash');
 
   console.log(...highlightCommented(hs.commentedString(true), Colours.server));
-
-  if (hs.remainingBytes() !== 0) throw new Error('Unexpected extra bytes at end of encrypted handshake');
 }

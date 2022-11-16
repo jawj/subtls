@@ -39,8 +39,9 @@ async function startTls(host: string, port: number) {
   // dummy cipher change
   const changeCipherRecord = await readTlsRecord(reader, RecordType.ChangeCipherSpec);
   const ccipher = new Bytes(changeCipherRecord.content);
+  const [endCipherPayload] = ccipher.assertByteCount(1);
   ccipher.expectUint8(0x01, 'dummy ChangeCipherSpec payload (middlebox compatibility)');
-  if (ccipher.remainingBytes() !== 0) throw new Error(`Unexpected additional data at end of ChangeCipherSpec`);
+  endCipherPayload();
   console.log(...highlightCommented(changeCipherRecord.header.commentedString() + ccipher.commentedString(), Colours.server));
 
   // keys
@@ -62,8 +63,9 @@ async function startTls(host: string, port: number) {
   const clientCipherChange = new Bytes(6);
   clientCipherChange.writeUint8(0x14, 'record type: ChangeCipherSpec');
   clientCipherChange.writeUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
-  clientCipherChange.writeUint16(0x0001, 'payload length: 1 byte');
+  const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
   clientCipherChange.writeUint8(0x01, 'dummy ChangeCipherSpec payload (middlebox compatibility)');
+  endClientCipherChangePayload();
   console.log(...highlightCommented(clientCipherChange.commentedString(), Colours.client));
   const clientCipherChangeData = clientCipherChange.array();
   // ws.send(clientCipherChangeData);  // no: we'll batch this up and send below
