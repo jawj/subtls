@@ -369,16 +369,6 @@ var require_build = __commonJS({
   }
 });
 
-// src/util/highlightCommented.ts
-function highlightCommented_default(s, colour) {
-  const css = [];
-  s = s.replace(/\S  .+/gm, (m) => {
-    css.push(`color: ${colour}`, "color: inherit");
-    return `${m.charAt(0)}%c${m.slice(1)}%c`;
-  });
-  return [s, ...css];
-}
-
 // src/util/array.ts
 function concat(...arrs) {
   length = arrs.reduce((memo, arr) => memo + arr.length, 0);
@@ -403,6 +393,7 @@ function equal(a, b) {
 // src/util/bytes.ts
 var txtEnc = new TextEncoder();
 var txtDec = new TextDecoder();
+var indentChars = "\xB7\xB7 ";
 var Bytes = class {
   offset;
   dataView;
@@ -570,11 +561,22 @@ var Bytes = class {
         indent = this.indents[i + 1];
       if (comment !== void 0)
         s += ` ${comment}
-${"   ".repeat(indent)}`;
+${indentChars.repeat(indent)}`;
     }
     return s;
   }
 };
+
+// src/util/highlightCommented.ts
+var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
+function highlightCommented_default(s, colour) {
+  const css = [];
+  s = s.replace(regex, (m) => {
+    css.push(m.startsWith(indentChars) ? `color: #ddd` : `color: ${colour}`, "color: inherit");
+    return `%c${m}%c`;
+  });
+  return [s, ...css];
+}
 
 // src/clientHello.ts
 function makeClientHello(host, publicKey) {

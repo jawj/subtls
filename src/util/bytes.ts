@@ -3,6 +3,8 @@ import { equal } from './array';
 const txtEnc = new TextEncoder();
 const txtDec = new TextDecoder();
 
+export const indentChars = '·· ';  // careful: this has complex interactions with highlightCommented
+
 export default class Bytes {
   offset: number;
   dataView: DataView;
@@ -184,7 +186,7 @@ export default class Bytes {
       s += this.uint8Array[i].toString(16).padStart(2, '0') + ' ';
       const comment = this.comments[i + 1];
       if (this.indents[i + 1] !== undefined) indent = this.indents[i + 1];
-      if (comment !== undefined) s += ` ${comment}\n${'   '.repeat(indent)}`;
+      if (comment !== undefined) s += ` ${comment}\n${indentChars.repeat(indent)}`;
     }
     return s;
   }
