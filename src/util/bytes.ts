@@ -8,12 +8,16 @@ export default class Bytes {
   dataView: DataView;
   uint8Array: Uint8Array;
   comments: Record<number, string>;
+  indents: Record<number, number>;
+  indent: number;
 
   constructor(arrayOrMaxBytes: number | Uint8Array) {
     this.offset = 0;
     this.uint8Array = typeof arrayOrMaxBytes === 'number' ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
     this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
     this.comments = {};
+    this.indents = {};
+    this.indent = 0;
   }
 
   remainingBytes() {
@@ -133,10 +137,12 @@ export default class Bytes {
 
   // forward-looking lengths
 
-  _lengthGeneric(lengthBytes: 1 | 2 | 3, comment?: string) {
+  _writeLengthGeneric(lengthBytes: 1 | 2 | 3, comment?: string) {
     const startOffset = this.offset;
     this.offset += lengthBytes;
     const endOffset = this.offset;
+    this.indent += 1;
+    this.indents[endOffset] = this.indent;
     return () => {
       const length = this.offset - endOffset;
       if (lengthBytes === 1) this.dataView.setUint8(startOffset, length);
@@ -147,19 +153,21 @@ export default class Bytes {
       }
       else throw new Error(`Invalid length for length field: ${lengthBytes}`);
       this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, endOffset);
+      this.indent -= 1;
+      this.indents[this.offset] = this.indent;
     };
   }
 
-  lengthUint8(comment?: string) {
-    return this._lengthGeneric(1, comment);
+  writeLengthUint8(comment?: string) {
+    return this._writeLengthGeneric(1, comment);
   }
 
-  lengthUint16(comment?: string) {
-    return this._lengthGeneric(2, comment);
+  writeLengthUint16(comment?: string) {
+    return this._writeLengthGeneric(2, comment);
   }
 
-  lengthUint24(comment?: string) {
-    return this._lengthGeneric(3, comment);
+  writeLengthUint24(comment?: string) {
+    return this._writeLengthGeneric(3, comment);
   }
 
   // output
@@ -170,11 +178,13 @@ export default class Bytes {
 
   commentedString(all = false) {
     let s = '';
+    let indent = 0;
     const len = all ? this.uint8Array.length : this.offset;
     for (let i = 0; i < len; i++) {
       s += this.uint8Array[i].toString(16).padStart(2, '0') + ' ';
       const comment = this.comments[i + 1];
-      if (comment !== undefined) s += ` ${comment}\n`;
+      if (this.indents[i + 1] !== undefined) indent = this.indents[i + 1];
+      if (comment !== undefined) s += ` ${comment}\n${'   '.repeat(indent)}`;
     }
     return s;
   }

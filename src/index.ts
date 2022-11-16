@@ -83,7 +83,7 @@ async function startTls(host: string, port: number) {
 
   const clientFinishedRecord = new Bytes(37);
   clientFinishedRecord.writeUint8(0x14, 'handshake message type: finished');
-  const clientFinishedRecordEnd = clientFinishedRecord.lengthUint24('handshake finished data');
+  const clientFinishedRecordEnd = clientFinishedRecord.writeLengthUint24('handshake finished data');
   clientFinishedRecord.writeBytes(verifyData);
   clientFinishedRecord.comment('verify data');
   clientFinishedRecordEnd();

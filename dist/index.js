@@ -372,9 +372,9 @@ var require_build = __commonJS({
 // src/util/highlightCommented.ts
 function highlightCommented_default(s, colour) {
   const css = [];
-  s = s.replace(/  .+$/gm, (m) => {
+  s = s.replace(/\S  .+/gm, (m) => {
     css.push(`color: ${colour}`, "color: inherit");
-    return `%c${m}%c`;
+    return `${m.charAt(0)}%c${m.slice(1)}%c`;
   });
   return [s, ...css];
 }
@@ -408,11 +408,15 @@ var Bytes = class {
   dataView;
   uint8Array;
   comments;
+  indents;
+  indent;
   constructor(arrayOrMaxBytes) {
     this.offset = 0;
     this.uint8Array = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
     this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
     this.comments = {};
+    this.indents = {};
+    this.indent = 0;
   }
   remainingBytes() {
     return this.uint8Array.length - this.offset;
@@ -521,10 +525,12 @@ var Bytes = class {
       this.comment(comment);
     return this;
   }
-  _lengthGeneric(lengthBytes, comment) {
+  _writeLengthGeneric(lengthBytes, comment) {
     const startOffset = this.offset;
     this.offset += lengthBytes;
     const endOffset = this.offset;
+    this.indent += 1;
+    this.indents[endOffset] = this.indent;
     return () => {
       const length2 = this.offset - endOffset;
       if (lengthBytes === 1)
@@ -537,29 +543,34 @@ var Bytes = class {
       } else
         throw new Error(`Invalid length for length field: ${lengthBytes}`);
       this.comment(`${length2} bytes${comment ? ` of ${comment}` : ""} follow`, endOffset);
+      this.indent -= 1;
+      this.indents[this.offset] = this.indent;
     };
   }
-  lengthUint8(comment) {
-    return this._lengthGeneric(1, comment);
+  writeLengthUint8(comment) {
+    return this._writeLengthGeneric(1, comment);
   }
-  lengthUint16(comment) {
-    return this._lengthGeneric(2, comment);
+  writeLengthUint16(comment) {
+    return this._writeLengthGeneric(2, comment);
   }
-  lengthUint24(comment) {
-    return this._lengthGeneric(3, comment);
+  writeLengthUint24(comment) {
+    return this._writeLengthGeneric(3, comment);
   }
   array() {
     return this.uint8Array.subarray(0, this.offset);
   }
   commentedString(all = false) {
     let s = "";
+    let indent = 0;
     const len = all ? this.uint8Array.length : this.offset;
     for (let i = 0; i < len; i++) {
       s += this.uint8Array[i].toString(16).padStart(2, "0") + " ";
       const comment = this.comments[i + 1];
+      if (this.indents[i + 1] !== void 0)
+        indent = this.indents[i + 1];
       if (comment !== void 0)
         s += ` ${comment}
-`;
+${"   ".repeat(indent)}`;
     }
     return s;
   }
@@ -572,78 +583,78 @@ function makeClientHello(host, publicKey) {
   h.comment("record type: handshake");
   h.writeUint16(769);
   h.comment("TLS protocol version 1.0");
-  const endRecordHeader = h.lengthUint16();
+  const endRecordHeader = h.writeLengthUint16();
   h.writeUint8(1);
   h.comment("handshake type: client hello");
-  const endHandshakeHeader = h.lengthUint24();
+  const endHandshakeHeader = h.writeLengthUint24();
   h.writeUint16(771);
   h.comment("TLS version 1.2 (middlebox compatibility)");
   crypto.getRandomValues(h.subarray(32));
   h.comment("client random");
-  const endSessionId = h.lengthUint8("session ID");
+  const endSessionId = h.writeLengthUint8("session ID");
   const sessionId = h.subarray(32);
   crypto.getRandomValues(sessionId);
   h.comment("session ID (middlebox compatibility)");
   endSessionId();
-  const endCiphers = h.lengthUint16("ciphers");
+  const endCiphers = h.writeLengthUint16("ciphers");
   h.writeUint16(4865);
   h.comment("cipher: TLS_AES_128_GCM_SHA256");
   endCiphers();
-  const endCompressionMethods = h.lengthUint8("compression methods");
+  const endCompressionMethods = h.writeLengthUint8("compression methods");
   h.writeUint8(0);
   h.comment("compression method: none");
   endCompressionMethods();
-  const endExtensions = h.lengthUint16("extensions");
+  const endExtensions = h.writeLengthUint16("extensions");
   h.writeUint16(0);
   h.comment("extension type: SNI");
-  const endSNIExt = h.lengthUint16("SNI data");
-  const endSNI = h.lengthUint16("SNI records");
+  const endSNIExt = h.writeLengthUint16("SNI data");
+  const endSNI = h.writeLengthUint16("SNI records");
   h.writeUint8(0);
   h.comment("list entry type: DNS hostname");
-  const endHostname = h.lengthUint16("hostname");
+  const endHostname = h.writeLengthUint16("hostname");
   h.writeUTF8String(host);
   endHostname();
   endSNI();
   endSNIExt();
   h.writeUint16(11);
   h.comment("extension type: EC point formats");
-  const endFormatTypesExt = h.lengthUint16("formats data");
-  const endFormatTypes = h.lengthUint8("formats");
+  const endFormatTypesExt = h.writeLengthUint16("formats data");
+  const endFormatTypes = h.writeLengthUint8("formats");
   h.writeUint8(0);
   h.comment("format: uncompressed");
   endFormatTypes();
   endFormatTypesExt();
   h.writeUint16(10);
   h.comment("extension type: supported groups (curves)");
-  const endGroupsExt = h.lengthUint16("groups data");
-  const endGroups = h.lengthUint16("groups");
+  const endGroupsExt = h.writeLengthUint16("groups data");
+  const endGroups = h.writeLengthUint16("groups");
   h.writeUint16(23);
   h.comment("curve secp256r1 (NIST P-256)");
   endGroups();
   endGroupsExt();
   h.writeUint16(13);
   h.comment("extension type: signature algorithms");
-  const endSigsExt = h.lengthUint16("signature algorithms data");
-  const endSigs = h.lengthUint16("signature algorithms");
+  const endSigsExt = h.writeLengthUint16("signature algorithms data");
+  const endSigs = h.writeLengthUint16("signature algorithms");
   h.writeUint16(1027);
   h.comment("ECDSA-SECP256r1-SHA256");
   endSigs();
   endSigsExt();
   h.writeUint16(43);
   h.comment("extension type: supported TLS versions");
-  const endVersionsExt = h.lengthUint16("TLS versions data");
-  const endVersions = h.lengthUint8("TLS versions");
+  const endVersionsExt = h.writeLengthUint16("TLS versions data");
+  const endVersions = h.writeLengthUint8("TLS versions");
   h.writeUint16(772);
   h.comment("TLS version 1.3");
   endVersions();
   endVersionsExt();
   h.writeUint16(51);
   h.comment("extension type: key share");
-  const endKeyShareExt = h.lengthUint16("key share data");
-  const endKeyShares = h.lengthUint16("key shares");
+  const endKeyShareExt = h.writeLengthUint16("key share data");
+  const endKeyShares = h.writeLengthUint16("key shares");
   h.writeUint16(23);
   h.comment("secp256r1 (NIST P-256) key share");
-  const endKeyShare = h.lengthUint16("key share");
+  const endKeyShare = h.writeLengthUint16("key share");
   h.writeBytes(new Uint8Array(publicKey));
   h.comment("key");
   endKeyShare();
@@ -24288,7 +24299,7 @@ async function startTls(host, port) {
   const verifyData = new Uint8Array(verifyDataBuffer);
   const clientFinishedRecord = new Bytes(37);
   clientFinishedRecord.writeUint8(20, "handshake message type: finished");
-  const clientFinishedRecordEnd = clientFinishedRecord.lengthUint24("handshake finished data");
+  const clientFinishedRecordEnd = clientFinishedRecord.writeLengthUint24("handshake finished data");
   clientFinishedRecord.writeBytes(verifyData);
   clientFinishedRecord.comment("verify data");
   clientFinishedRecordEnd();

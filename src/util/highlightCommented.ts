@@ -1,9 +1,9 @@
 
 export default function (s: string, colour: string) {
   const css: string[] = [];
-  s = s.replace(/  .+$/gm, m => {
+  s = s.replace(/\S  .+/gm, m => {
     css.push(`color: ${colour}`, 'color: inherit');
-    return `%c${m}%c`;
+    return `${m.charAt(0)}%c${m.slice(1)}%c`;
   });
   return [s, ...css];
 }
