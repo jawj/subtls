@@ -769,6 +769,38 @@ function highlightCommented_default(s, colour) {
   return [s, ...css];
 }
 
+// src/presentation/log.ts
+var element = document.querySelector("#logs");
+function htmlFromLogArgs(...args) {
+  let result = "<span>", arg, matchArr;
+  while ((arg = args.shift()) !== void 0) {
+    const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;
+    while ((matchArr = formatRegExp.exec(arg)) !== null) {
+      const [whole, literal, sub] = matchArr;
+      if (sub === void 0) {
+        result += whole;
+      } else {
+        result += literal;
+        if (sub === "c") {
+          result += `</span><span style="${args.shift()}">`;
+        } else if (sub === "s") {
+          result += args.shift();
+        } else if (sub === "o" || sub === "O") {
+          result += JSON.stringify(args.shift(), void 0, sub === "O" ? 2 : void 0);
+        } else if (sub === "i" || sub === "d" || sub === "f") {
+          result += String(args.shift());
+        }
+      }
+    }
+  }
+  result += "</span>";
+  return result;
+}
+function log(...args) {
+  console.log(...args);
+  element.innerHTML += "<div>" + htmlFromLogArgs(...args) + "</div>";
+}
+
 // src/tls/tlsrecord.ts
 var RecordTypeName = {
   20: "ChangeCipherSpec",
@@ -803,14 +835,14 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
   encryptedBytes.skip(16, "auth tag");
   endEncrypted();
-  console.log(...highlightCommented_default(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
+  log(...highlightCommented_default(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
   const lastByteIndex = decryptedRecord.length - 1;
   const record = decryptedRecord.subarray(0, lastByteIndex);
   const type = decryptedRecord[lastByteIndex];
   if (expectedType !== void 0 && type !== expectedType)
     throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
-  console.log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
+  log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
   return record;
 }
 async function makeEncryptedTlsRecord(data, encrypter) {
@@ -830,7 +862,7 @@ async function makeEncryptedTlsRecord(data, encrypter) {
   encryptedRecord.writeBytes(encryptedData.subarray(encryptedData.length - 16));
   encryptedRecord.comment("auth tag");
   endEncryptedRecord();
-  console.log(...highlightCommented_default(encryptedRecord.commentedString(), "#8c8" /* client */));
+  log(...highlightCommented_default(encryptedRecord.commentedString(), "#8c8" /* client */));
   return encryptedRecord.array();
 }
 
@@ -880,31 +912,31 @@ async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, k
   const publicKey = await crypto.subtle.importKey("raw", serverPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
   const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: "ECDH", public: publicKey }, privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
-  console.log("shared secret", hexFromU8(sharedSecret));
+  log("shared secret", hexFromU8(sharedSecret));
   const hellosHashBuffer = await crypto.subtle.digest("SHA-256", hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
-  console.log("hellos hash", hexFromU8(hellosHash));
+  log("hellos hash", hexFromU8(hellosHash));
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
-  console.log("early secret", hexFromU8(new Uint8Array(earlySecret)));
+  log("early secret", hexFromU8(new Uint8Array(earlySecret)));
   const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
-  console.log("empty hash", hexFromU8(emptyHash));
+  log("empty hash", hexFromU8(emptyHash));
   const derivedSecret = await hkdfExpandLabel(earlySecret, "derived", emptyHash, hashBytes, hashBits);
-  console.log("derived secret", hexFromU8(derivedSecret));
+  log("derived secret", hexFromU8(derivedSecret));
   const handshakeSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
-  console.log("handshake secret", hexFromU8(handshakeSecret));
+  log("handshake secret", hexFromU8(handshakeSecret));
   const clientSecret = await hkdfExpandLabel(handshakeSecret, "c hs traffic", hellosHash, hashBytes, hashBits);
-  console.log("client secret", hexFromU8(clientSecret));
+  log("client secret", hexFromU8(clientSecret));
   const serverSecret = await hkdfExpandLabel(handshakeSecret, "s hs traffic", hellosHash, hashBytes, hashBits);
-  console.log("server secret", hexFromU8(serverSecret));
+  log("server secret", hexFromU8(serverSecret));
   const clientHandshakeKey = await hkdfExpandLabel(clientSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  console.log("client handshake key", hexFromU8(clientHandshakeKey));
+  log("client handshake key", hexFromU8(clientHandshakeKey));
   const serverHandshakeKey = await hkdfExpandLabel(serverSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  console.log("server handshake key", hexFromU8(serverHandshakeKey));
+  log("server handshake key", hexFromU8(serverHandshakeKey));
   const clientHandshakeIV = await hkdfExpandLabel(clientSecret, "iv", new Uint8Array(0), 12, hashBits);
-  console.log("client handshake iv", hexFromU8(clientHandshakeIV));
+  log("client handshake iv", hexFromU8(clientHandshakeIV));
   const serverHandshakeIV = await hkdfExpandLabel(serverSecret, "iv", new Uint8Array(0), 12, hashBits);
-  console.log("server handshake iv", hexFromU8(serverHandshakeIV));
+  log("server handshake iv", hexFromU8(serverHandshakeIV));
   return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV, handshakeSecret, clientSecret, serverSecret };
 }
 async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyLength) {
@@ -912,23 +944,23 @@ async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyL
   const zeroKey = new Uint8Array(hashBytes);
   const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
-  console.log("empty hash", hexFromU8(emptyHash));
+  log("empty hash", hexFromU8(emptyHash));
   const derivedSecret = await hkdfExpandLabel(handshakeSecret, "derived", emptyHash, hashBytes, hashBits);
-  console.log("derived secret", hexFromU8(derivedSecret));
+  log("derived secret", hexFromU8(derivedSecret));
   const masterSecret = await hkdfExtract(derivedSecret, zeroKey, hashBits);
-  console.log("master secret", hexFromU8(masterSecret));
+  log("master secret", hexFromU8(masterSecret));
   const clientSecret = await hkdfExpandLabel(masterSecret, "c ap traffic", handshakeHash, hashBytes, hashBits);
-  console.log("client secret", hexFromU8(clientSecret));
+  log("client secret", hexFromU8(clientSecret));
   const serverSecret = await hkdfExpandLabel(masterSecret, "s ap traffic", handshakeHash, hashBytes, hashBits);
-  console.log("server secret", hexFromU8(serverSecret));
+  log("server secret", hexFromU8(serverSecret));
   const clientApplicationKey = await hkdfExpandLabel(clientSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  console.log("client application key", hexFromU8(clientApplicationKey));
+  log("client application key", hexFromU8(clientApplicationKey));
   const serverApplicationKey = await hkdfExpandLabel(serverSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  console.log("server application key", hexFromU8(serverApplicationKey));
+  log("server application key", hexFromU8(serverApplicationKey));
   const clientApplicationIV = await hkdfExpandLabel(clientSecret, "iv", new Uint8Array(0), 12, hashBits);
-  console.log("client application iv", hexFromU8(clientApplicationIV));
+  log("client application iv", hexFromU8(clientApplicationIV));
   const serverApplicationIV = await hkdfExpandLabel(serverSecret, "iv", new Uint8Array(0), 12, hashBits);
-  console.log("server application iv", hexFromU8(serverApplicationIV));
+  log("server application iv", hexFromU8(serverApplicationIV));
   return { serverApplicationKey, serverApplicationIV, clientApplicationKey, clientApplicationIV };
 }
 
@@ -1238,8 +1270,8 @@ function fromBase64(input, useUrlTemplate = false, cutTailZeros = false) {
 function arrayBufferToString(buffer) {
   let resultString = "";
   const view = new Uint8Array(buffer);
-  for (const element of view) {
-    resultString += String.fromCharCode(element);
+  for (const element2 of view) {
+    resultString += String.fromCharCode(element2);
   }
   return resultString;
 }
@@ -4767,7 +4799,7 @@ var ByteStream = class {
     } else {
       result = findAllResult;
     }
-    output.searchPatternPositions.push(...Array.from(result, (element) => element.position));
+    output.searchPatternPositions.push(...Array.from(result, (element2) => element2.position));
     const patternDifference = searchPattern.length - replacePattern.length;
     const changedBuffer = new ArrayBuffer(this.view.length - result.length * patternDifference);
     const changedView = new Uint8Array(changedBuffer);
@@ -5600,7 +5632,7 @@ var RelativeDistinguishedNames = class extends PkiObject {
     }));
     AsnError.assertSchema(asn1, this.className);
     if (TYPE_AND_VALUES in asn1.result) {
-      this.typesAndValues = Array.from(asn1.result.typesAndValues, (element) => new AttributeTypeAndValue({ schema: element }));
+      this.typesAndValues = Array.from(asn1.result.typesAndValues, (element2) => new AttributeTypeAndValue({ schema: element2 }));
     }
     this.valueBeforeDecode = asn1.result.RDN.valueBeforeDecodeView.slice().buffer;
   }
@@ -6456,7 +6488,7 @@ var AltName = class extends PkiObject {
     }));
     AsnError.assertSchema(asn1, this.className);
     if (ALT_NAMES in asn1.result) {
-      this.altNames = Array.from(asn1.result.altNames, (element) => new GeneralName({ schema: element }));
+      this.altNames = Array.from(asn1.result.altNames, (element2) => new GeneralName({ schema: element2 }));
     }
   }
   toSchema() {
@@ -6659,7 +6691,7 @@ var GeneralNames = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.names = Array.from(asn1.result.generalNames, (element) => new GeneralName({ schema: element }));
+    this.names = Array.from(asn1.result.generalNames, (element2) => new GeneralName({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -7154,7 +7186,7 @@ var PolicyInformation = class extends PkiObject {
     AsnError.assertSchema(asn1, this.className);
     this.policyIdentifier = asn1.result.policyIdentifier.valueBlock.toString();
     if (POLICY_QUALIFIERS in asn1.result) {
-      this.policyQualifiers = Array.from(asn1.result.policyQualifiers, (element) => new PolicyQualifierInfo({ schema: element }));
+      this.policyQualifiers = Array.from(asn1.result.policyQualifiers, (element2) => new PolicyQualifierInfo({ schema: element2 }));
     }
   }
   toSchema() {
@@ -7219,7 +7251,7 @@ var CertificatePolicies = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.certificatePolicies = Array.from(asn1.result.certificatePolicies, (element) => new PolicyInformation({ schema: element }));
+    this.certificatePolicies = Array.from(asn1.result.certificatePolicies, (element2) => new PolicyInformation({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -7445,7 +7477,7 @@ var DistributionPoint = class extends PkiObject {
     AsnError.assertSchema(asn1, this.className);
     if (DISTRIBUTION_POINT$1 in asn1.result) {
       if (asn1.result.distributionPoint.idBlock.tagNumber === 0) {
-        this.distributionPoint = Array.from(asn1.result.distributionPointNames, (element) => new GeneralName({ schema: element }));
+        this.distributionPoint = Array.from(asn1.result.distributionPointNames, (element2) => new GeneralName({ schema: element2 }));
       }
       if (asn1.result.distributionPoint.idBlock.tagNumber === 1) {
         this.distributionPoint = new RelativeDistinguishedNames({
@@ -7459,7 +7491,7 @@ var DistributionPoint = class extends PkiObject {
       this.reasons = new BitString({ valueHex: asn1.result.reasons.valueBlock.valueHex });
     }
     if (CRL_ISSUER in asn1.result) {
-      this.cRLIssuer = Array.from(asn1.result.cRLIssuerNames, (element) => new GeneralName({ schema: element }));
+      this.cRLIssuer = Array.from(asn1.result.cRLIssuerNames, (element2) => new GeneralName({ schema: element2 }));
     }
   }
   toSchema() {
@@ -7572,7 +7604,7 @@ var CRLDistributionPoints = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.distributionPoints = Array.from(asn1.result.distributionPoints, (element) => new DistributionPoint({ schema: element }));
+    this.distributionPoints = Array.from(asn1.result.distributionPoints, (element2) => new DistributionPoint({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -7626,11 +7658,11 @@ var ExtKeyUsage = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.keyPurposes = Array.from(asn1.result.keyPurposes, (element) => element.valueBlock.toString());
+    this.keyPurposes = Array.from(asn1.result.keyPurposes, (element2) => element2.valueBlock.toString());
   }
   toSchema() {
     return new Sequence({
-      value: Array.from(this.keyPurposes, (element) => new ObjectIdentifier({ value: element }))
+      value: Array.from(this.keyPurposes, (element2) => new ObjectIdentifier({ value: element2 }))
     });
   }
   toJSON() {
@@ -7679,7 +7711,7 @@ var InfoAccess = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.accessDescriptions = Array.from(asn1.result.accessDescriptions, (element) => new AccessDescription({ schema: element }));
+    this.accessDescriptions = Array.from(asn1.result.accessDescriptions, (element2) => new AccessDescription({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -7843,7 +7875,7 @@ var IssuingDistributionPoint = class extends PkiObject {
     if (DISTRIBUTION_POINT in asn1.result) {
       switch (true) {
         case asn1.result.distributionPoint.idBlock.tagNumber === 0:
-          this.distributionPoint = Array.from(asn1.result.distributionPointNames, (element) => new GeneralName({ schema: element }));
+          this.distributionPoint = Array.from(asn1.result.distributionPointNames, (element2) => new GeneralName({ schema: element2 }));
           break;
         case asn1.result.distributionPoint.idBlock.tagNumber === 1:
           {
@@ -8202,9 +8234,9 @@ var NameConstraints = class extends PkiObject {
     }));
     AsnError.assertSchema(asn1, this.className);
     if (PERMITTED_SUBTREES in asn1.result)
-      this.permittedSubtrees = Array.from(asn1.result.permittedSubtrees, (element) => new GeneralSubtree({ schema: element }));
+      this.permittedSubtrees = Array.from(asn1.result.permittedSubtrees, (element2) => new GeneralSubtree({ schema: element2 }));
     if (EXCLUDED_SUBTREES in asn1.result)
-      this.excludedSubtrees = Array.from(asn1.result.excludedSubtrees, (element) => new GeneralSubtree({ schema: element }));
+      this.excludedSubtrees = Array.from(asn1.result.excludedSubtrees, (element2) => new GeneralSubtree({ schema: element2 }));
   }
   toSchema() {
     const outputArray = [];
@@ -8456,7 +8488,7 @@ var PolicyMappings = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.mappings = Array.from(asn1.result.mappings, (element) => new PolicyMapping({ schema: element }));
+    this.mappings = Array.from(asn1.result.mappings, (element2) => new PolicyMapping({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -8711,7 +8743,7 @@ var QCStatements = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.values = Array.from(asn1.result.values, (element) => new QCStatement({ schema: element }));
+    this.values = Array.from(asn1.result.values, (element2) => new QCStatement({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -9463,7 +9495,7 @@ var RSAPrivateKey = class extends PkiObject {
     this.exponent2 = asn1.result.exponent2.convertFromDER(128);
     this.coefficient = asn1.result.coefficient.convertFromDER(128);
     if (OTHER_PRIME_INFOS in asn1.result)
-      this.otherPrimeInfos = Array.from(asn1.result.otherPrimeInfos, (element) => new OtherPrimeInfo({ schema: element }));
+      this.otherPrimeInfos = Array.from(asn1.result.otherPrimeInfos, (element2) => new OtherPrimeInfo({ schema: element2 }));
   }
   toSchema() {
     const outputArray = [];
@@ -9512,7 +9544,7 @@ var RSAPrivateKey = class extends PkiObject {
     this.exponent2 = new Integer({ valueHex: pvtsutils2.Convert.FromBase64Url(json.dq) });
     this.coefficient = new Integer({ valueHex: pvtsutils2.Convert.FromBase64Url(json.qi) });
     if (json.oth) {
-      this.otherPrimeInfos = Array.from(json.oth, (element) => new OtherPrimeInfo({ json: element }));
+      this.otherPrimeInfos = Array.from(json.oth, (element2) => new OtherPrimeInfo({ json: element2 }));
     }
   }
 };
@@ -9606,7 +9638,7 @@ var PrivateKeyInfo = class extends PkiObject {
     this.privateKeyAlgorithm = new AlgorithmIdentifier({ schema: asn1.result.privateKeyAlgorithm });
     this.privateKey = asn1.result.privateKey;
     if (ATTRIBUTES$5 in asn1.result)
-      this.attributes = Array.from(asn1.result.attributes, (element) => new Attribute({ schema: element }));
+      this.attributes = Array.from(asn1.result.attributes, (element2) => new Attribute({ schema: element2 }));
     switch (this.privateKeyAlgorithm.algorithmId) {
       case "1.2.840.113549.1.1.1":
         {
@@ -12269,9 +12301,9 @@ var SignedCertificateTimestamp = class extends PkiObject {
     const logId = toBase64(arrayBufferToString(this.logID));
     let publicKeyBase64 = null;
     const stream = new SeqStream();
-    for (const log of logs) {
-      if (log.log_id === logId) {
-        publicKeyBase64 = log.key;
+    for (const log3 of logs) {
+      if (log3.log_id === logId) {
+        publicKeyBase64 = log3.key;
         break;
       }
     }
@@ -12411,7 +12443,7 @@ var SubjectDirectoryAttributes = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.attributes = Array.from(asn1.result.attributes, (element) => new Attribute({ schema: element }));
+    this.attributes = Array.from(asn1.result.attributes, (element2) => new Attribute({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -12626,7 +12658,7 @@ var Extensions = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.extensions = Array.from(asn1.result.extensions, (element) => new Extension({ schema: element }));
+    this.extensions = Array.from(asn1.result.extensions, (element2) => new Extension({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -12899,7 +12931,7 @@ var AttributeCertificateInfoV1 = class extends PkiObject {
     this.signature = new AlgorithmIdentifier({ schema: asn1.result.signature });
     this.serialNumber = asn1.result.serialNumber;
     this.attrCertValidityPeriod = new AttCertValidityPeriod({ schema: asn1.result.attrCertValidityPeriod });
-    this.attributes = Array.from(asn1.result.attributes.valueBlock.value, (element) => new Attribute({ schema: element }));
+    this.attributes = Array.from(asn1.result.attributes.valueBlock.value, (element2) => new Attribute({ schema: element2 }));
     if (ISSUER_UNIQUE_ID$2 in asn1.result) {
       this.issuerUniqueID = asn1.result.issuerUniqueID;
     }
@@ -13586,7 +13618,7 @@ var AttributeCertificateInfoV2 = class extends PkiObject {
     this.signature = new AlgorithmIdentifier({ schema: asn1.result.signature });
     this.serialNumber = asn1.result.serialNumber;
     this.attrCertValidityPeriod = new AttCertValidityPeriod({ schema: asn1.result.attrCertValidityPeriod });
-    this.attributes = Array.from(asn1.result.attributes.valueBlock.value, (element) => new Attribute({ schema: element }));
+    this.attributes = Array.from(asn1.result.attributes.valueBlock.value, (element2) => new Attribute({ schema: element2 }));
     if (ISSUER_UNIQUE_ID$1 in asn1.result) {
       this.issuerUniqueID = asn1.result.issuerUniqueID;
     }
@@ -14124,7 +14156,7 @@ var Certificate = class extends PkiObject {
     if (TBS_CERTIFICATE_SUBJECT_UNIQUE_ID in asn1.result)
       this.subjectUniqueID = asn1.result[TBS_CERTIFICATE_SUBJECT_UNIQUE_ID].valueBlock.valueHex;
     if (TBS_CERTIFICATE_EXTENSIONS in asn1.result)
-      this.extensions = Array.from(asn1.result[TBS_CERTIFICATE_EXTENSIONS], (element) => new Extension({ schema: element }));
+      this.extensions = Array.from(asn1.result[TBS_CERTIFICATE_EXTENSIONS], (element2) => new Extension({ schema: element2 }));
     this.signatureAlgorithm = new AlgorithmIdentifier({ schema: asn1.result.signatureAlgorithm });
     this.signatureValue = asn1.result.signatureValue;
   }
@@ -14685,7 +14717,7 @@ var CertificateRevocationList = class extends PkiObject {
       this.nextUpdate = new Time({ schema: asn1.result[TBS_CERT_LIST_NEXT_UPDATE] });
     }
     if (TBS_CERT_LIST_REVOKED_CERTIFICATES in asn1.result) {
-      this.revokedCertificates = Array.from(asn1.result[TBS_CERT_LIST_REVOKED_CERTIFICATES], (element) => new RevokedCertificate({ schema: element }));
+      this.revokedCertificates = Array.from(asn1.result[TBS_CERT_LIST_REVOKED_CERTIFICATES], (element2) => new RevokedCertificate({ schema: element2 }));
     }
     if (TBS_CERT_LIST_EXTENSIONS in asn1.result) {
       this.crlExtensions = new Extensions({ schema: asn1.result[TBS_CERT_LIST_EXTENSIONS] });
@@ -15010,7 +15042,7 @@ var EncryptedData = class extends PkiObject {
     this.version = asn1.result.version.valueBlock.valueDec;
     this.encryptedContentInfo = new EncryptedContentInfo({ schema: asn1.result.encryptedContentInfo });
     if (UNPROTECTED_ATTRS$1 in asn1.result)
-      this.unprotectedAttrs = Array.from(asn1.result.unprotectedAttrs, (element) => new Attribute({ schema: element }));
+      this.unprotectedAttrs = Array.from(asn1.result.unprotectedAttrs, (element2) => new Attribute({ schema: element2 }));
   }
   toSchema() {
     const outputArray = [];
@@ -15373,7 +15405,7 @@ var SafeBag = class extends PkiObject {
     }
     this.bagValue = new bagType({ schema: asn1.result.bagValue });
     if (BAG_ATTRIBUTES in asn1.result) {
-      this.bagAttributes = Array.from(asn1.result.bagAttributes, (element) => new Attribute({ schema: element }));
+      this.bagAttributes = Array.from(asn1.result.bagAttributes, (element2) => new Attribute({ schema: element2 }));
     }
   }
   toSchema() {
@@ -15455,7 +15487,7 @@ var SafeContents = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.safeBags = Array.from(asn1.result.safeBags, (element) => new SafeBag({ schema: element }));
+    this.safeBags = Array.from(asn1.result.safeBags, (element2) => new SafeBag({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -15601,12 +15633,12 @@ var CertificateSet = class extends PkiObject {
     clearProps(schema, CLEAR_PROPS$G);
     const asn1 = compareSchema(schema, schema, CertificateSet.schema());
     AsnError.assertSchema(asn1, this.className);
-    this.certificates = Array.from(asn1.result.certificates || [], (element) => {
-      const initialTagNumber = element.idBlock.tagNumber;
-      if (element.idBlock.tagClass === 1)
-        return new Certificate({ schema: element });
+    this.certificates = Array.from(asn1.result.certificates || [], (element2) => {
+      const initialTagNumber = element2.idBlock.tagNumber;
+      if (element2.idBlock.tagClass === 1)
+        return new Certificate({ schema: element2 });
       const elementSequence = new Sequence({
-        value: element.valueBlock.value
+        value: element2.valueBlock.value
       });
       switch (initialTagNumber) {
         case 1:
@@ -15620,41 +15652,41 @@ var CertificateSet = class extends PkiObject {
         case 3:
           return new OtherCertificateFormat({ schema: elementSequence });
       }
-      return element;
+      return element2;
     });
   }
   toSchema() {
     return new Set({
-      value: Array.from(this.certificates, (element) => {
+      value: Array.from(this.certificates, (element2) => {
         switch (true) {
-          case element instanceof Certificate:
-            return element.toSchema();
-          case element instanceof AttributeCertificateV1:
+          case element2 instanceof Certificate:
+            return element2.toSchema();
+          case element2 instanceof AttributeCertificateV1:
             return new Constructed({
               idBlock: {
                 tagClass: 3,
                 tagNumber: 1
               },
-              value: element.toSchema().valueBlock.value
+              value: element2.toSchema().valueBlock.value
             });
-          case element instanceof AttributeCertificateV2:
+          case element2 instanceof AttributeCertificateV2:
             return new Constructed({
               idBlock: {
                 tagClass: 3,
                 tagNumber: 2
               },
-              value: element.toSchema().valueBlock.value
+              value: element2.toSchema().valueBlock.value
             });
-          case element instanceof OtherCertificateFormat:
+          case element2 instanceof OtherCertificateFormat:
             return new Constructed({
               idBlock: {
                 tagClass: 3,
                 tagNumber: 3
               },
-              value: element.toSchema().valueBlock.value
+              value: element2.toSchema().valueBlock.value
             });
         }
-        return element.toSchema();
+        return element2.toSchema();
       })
     });
   }
@@ -15785,19 +15817,19 @@ var RevocationInfoChoices = class extends PkiObject {
     }));
     AsnError.assertSchema(asn1, this.className);
     if (asn1.result.crls) {
-      for (const element of asn1.result.crls) {
-        if (element.idBlock.tagClass === 1)
-          this.crls.push(new CertificateRevocationList({ schema: element }));
+      for (const element2 of asn1.result.crls) {
+        if (element2.idBlock.tagClass === 1)
+          this.crls.push(new CertificateRevocationList({ schema: element2 }));
         else
-          this.otherRevocationInfos.push(new OtherRevocationInfoFormat({ schema: element }));
+          this.otherRevocationInfos.push(new OtherRevocationInfoFormat({ schema: element2 }));
       }
     }
   }
   toSchema() {
     const outputArray = [];
     outputArray.push(...Array.from(this.crls, (o) => o.toSchema()));
-    outputArray.push(...Array.from(this.otherRevocationInfos, (element) => {
-      const schema = element.toSchema();
+    outputArray.push(...Array.from(this.otherRevocationInfos, (element2) => {
+      const schema = element2.toSchema();
       schema.idBlock.tagClass = 3;
       schema.idBlock.tagNumber = 1;
       return schema;
@@ -16851,7 +16883,7 @@ var RecipientEncryptedKeys = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.encryptedKeys = Array.from(asn1.result.RecipientEncryptedKeys, (element) => new RecipientEncryptedKey({ schema: element }));
+    this.encryptedKeys = Array.from(asn1.result.RecipientEncryptedKeys, (element2) => new RecipientEncryptedKey({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -18706,7 +18738,7 @@ var AuthenticatedSafe = class extends PkiObject {
       }
     }));
     AsnError.assertSchema(asn1, this.className);
-    this.safeContents = Array.from(asn1.result.contentInfos, (element) => new ContentInfo({ schema: element }));
+    this.safeContents = Array.from(asn1.result.contentInfos, (element2) => new ContentInfo({ schema: element2 }));
   }
   toSchema() {
     return new Sequence({
@@ -19131,7 +19163,7 @@ var SingleResponse = class extends PkiObject {
     if (NEXT_UPDATE in asn1.result)
       this.nextUpdate = asn1.result.nextUpdate.toDate();
     if (SINGLE_EXTENSIONS in asn1.result)
-      this.singleExtensions = Array.from(asn1.result.singleExtensions.valueBlock.value, (element) => new Extension({ schema: element }));
+      this.singleExtensions = Array.from(asn1.result.singleExtensions.valueBlock.value, (element2) => new Extension({ schema: element2 }));
   }
   toSchema() {
     const outputArray = [];
@@ -19320,9 +19352,9 @@ var ResponseData = class extends PkiObject {
     else
       this.responderID = asn1.result[RESPONSE_DATA_RESPONDER_ID].valueBlock.value[0];
     this.producedAt = asn1.result[RESPONSE_DATA_PRODUCED_AT].toDate();
-    this.responses = Array.from(asn1.result[RESPONSE_DATA_RESPONSES], (element) => new SingleResponse({ schema: element }));
+    this.responses = Array.from(asn1.result[RESPONSE_DATA_RESPONSES], (element2) => new SingleResponse({ schema: element2 }));
     if (RESPONSE_DATA_RESPONSE_EXTENSIONS in asn1.result)
-      this.responseExtensions = Array.from(asn1.result[RESPONSE_DATA_RESPONSE_EXTENSIONS].valueBlock.value, (element) => new Extension({ schema: element }));
+      this.responseExtensions = Array.from(asn1.result[RESPONSE_DATA_RESPONSE_EXTENSIONS].valueBlock.value, (element2) => new Extension({ schema: element2 }));
   }
   toSchema(encodeFlag = false) {
     let tbsSchema;
@@ -19583,7 +19615,7 @@ var CertificateChainValidationEngine = class {
       const issuerCertificates = [];
       const crls = [];
       const crlsAndCertificates = [];
-      issuerCertificates.push(...localCerts.filter((element) => certificate.issuer.isEqual(element.subject)));
+      issuerCertificates.push(...localCerts.filter((element2) => certificate.issuer.isEqual(element2.subject)));
       if (issuerCertificates.length === 0) {
         return {
           status: 1,
@@ -20609,7 +20641,7 @@ var BasicOCSPResponse = class extends PkiObject {
     this.signatureAlgorithm = new AlgorithmIdentifier({ schema: asn1.result[BASIC_OCSP_RESPONSE_SIGNATURE_ALGORITHM] });
     this.signature = asn1.result[BASIC_OCSP_RESPONSE_SIGNATURE];
     if (BASIC_OCSP_RESPONSE_CERTS in asn1.result) {
-      this.certs = Array.from(asn1.result[BASIC_OCSP_RESPONSE_CERTS], (element) => new Certificate({ schema: element }));
+      this.certs = Array.from(asn1.result[BASIC_OCSP_RESPONSE_CERTS], (element2) => new Certificate({ schema: element2 }));
     }
   }
   toSchema() {
@@ -20880,7 +20912,7 @@ var CertificationRequest = class extends PkiObject {
     this.subject = new RelativeDistinguishedNames({ schema: asn1.result[CSR_INFO_SUBJECT] });
     this.subjectPublicKeyInfo = new PublicKeyInfo({ schema: asn1.result[CSR_INFO_SPKI] });
     if (CSR_INFO_ATTRS in asn1.result) {
-      this.attributes = Array.from(asn1.result[CSR_INFO_ATTRS], (element) => new Attribute({ schema: element }));
+      this.attributes = Array.from(asn1.result[CSR_INFO_ATTRS], (element2) => new Attribute({ schema: element2 }));
     }
     this.signatureAlgorithm = new AlgorithmIdentifier({ schema: asn1.result.signatureAlgorithm });
     this.signatureValue = asn1.result.signatureValue;
@@ -21435,7 +21467,7 @@ var Request = class extends PkiObject {
     AsnError.assertSchema(asn1, this.className);
     this.reqCert = new CertID({ schema: asn1.result.reqCert });
     if (SINGLE_REQUEST_EXTENSIONS in asn1.result) {
-      this.singleRequestExtensions = Array.from(asn1.result.singleRequestExtensions.valueBlock.value, (element) => new Extension({ schema: element }));
+      this.singleRequestExtensions = Array.from(asn1.result.singleRequestExtensions.valueBlock.value, (element2) => new Extension({ schema: element2 }));
     }
   }
   toSchema() {
@@ -21599,9 +21631,9 @@ var TBSRequest = class extends PkiObject {
       this.version = asn1.result[TBS_REQUEST_VERSION].valueBlock.valueDec;
     if (TBS_REQUEST_REQUESTOR_NAME in asn1.result)
       this.requestorName = new GeneralName({ schema: asn1.result[TBS_REQUEST_REQUESTOR_NAME] });
-    this.requestList = Array.from(asn1.result[TBS_REQUEST_REQUESTS], (element) => new Request({ schema: element }));
+    this.requestList = Array.from(asn1.result[TBS_REQUEST_REQUESTS], (element2) => new Request({ schema: element2 }));
     if (TBS_REQUEST_REQUEST_EXTENSIONS in asn1.result)
-      this.requestExtensions = Array.from(asn1.result[TBS_REQUEST_REQUEST_EXTENSIONS].valueBlock.value, (element) => new Extension({ schema: element }));
+      this.requestExtensions = Array.from(asn1.result[TBS_REQUEST_REQUEST_EXTENSIONS].valueBlock.value, (element2) => new Extension({ schema: element2 }));
   }
   toSchema(encodeFlag = false) {
     let tbsSchema;
@@ -21756,7 +21788,7 @@ var Signature = class extends PkiObject {
     this.signatureAlgorithm = new AlgorithmIdentifier({ schema: asn1.result.signatureAlgorithm });
     this.signature = asn1.result.signature;
     if (CERTS in asn1.result)
-      this.certs = Array.from(asn1.result.certs, (element) => new Certificate({ schema: element }));
+      this.certs = Array.from(asn1.result.certs, (element2) => new Certificate({ schema: element2 }));
   }
   toSchema() {
     const outputArray = [];
@@ -22200,7 +22232,7 @@ var SignedAndUnsignedAttributes = class extends PkiObject {
       else
         return;
     }
-    this.attributes = Array.from(asn1.result.attributes, (element) => new Attribute({ schema: element }));
+    this.attributes = Array.from(asn1.result.attributes, (element2) => new Attribute({ schema: element2 }));
   }
   toSchema() {
     if (SignedAndUnsignedAttributes.compareWithDefault(TYPE, this.type) || SignedAndUnsignedAttributes.compareWithDefault(ATTRIBUTES, this.attributes))
@@ -22616,7 +22648,7 @@ var TSTInfo = class extends PkiObject {
     if (TST_INFO_TSA in asn1.result)
       this.tsa = new GeneralName({ schema: asn1.result[TST_INFO_TSA] });
     if (TST_INFO_EXTENSIONS in asn1.result)
-      this.extensions = Array.from(asn1.result[TST_INFO_EXTENSIONS], (element) => new Extension({ schema: element }));
+      this.extensions = Array.from(asn1.result[TST_INFO_EXTENSIONS], (element2) => new Extension({ schema: element2 }));
   }
   toSchema() {
     const outputArray = [];
@@ -23758,7 +23790,7 @@ var TimeStampReq = class extends PkiObject {
     if (TIME_STAMP_REQ_CERT_REQ in asn1.result)
       this.certReq = asn1.result[TIME_STAMP_REQ_CERT_REQ].valueBlock.value;
     if (TIME_STAMP_REQ_EXTENSIONS in asn1.result)
-      this.extensions = Array.from(asn1.result[TIME_STAMP_REQ_EXTENSIONS], (element) => new Extension({ schema: element }));
+      this.extensions = Array.from(asn1.result[TIME_STAMP_REQ_EXTENSIONS], (element2) => new Extension({ schema: element2 }));
   }
   toSchema() {
     const outputArray = [];
@@ -24116,7 +24148,7 @@ function parseCert(certData) {
   endNotAfterTime();
   endValiditySeq();
   parseSeqOfSetOfSeq(cb, "subject");
-  console.log(...highlightCommented_default(cb.commentedString(true), "#88c" /* server */));
+  log(...highlightCommented_default(cb.commentedString(true), "#88c" /* server */));
 }
 function decodePEM(pem, tag = "[A-Z0-9 ]+") {
   const pattern = new RegExp(`-{5}BEGIN ${tag}-{5}([a-zA-Z0-9=+\\/\\n\\r]+)-{5}END ${tag}-{5}`, "g");
@@ -24149,7 +24181,7 @@ function certNamesMatch(host, certNames) {
       hostName = hostName.slice(hostName.indexOf("."));
     }
     if (certName === hostName) {
-      console.log(`matched "${host}" to subjectAltName "${cert}"`);
+      log(`matched "${host}" to subjectAltName "${cert}"`);
       return true;
     }
   });
@@ -24218,24 +24250,24 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   endCertPayload();
   if (certEntries.length === 0)
     throw new Error("No certificates supplied");
-  console.log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
+  log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
   for (const entry of certEntries)
-    console.log(describeCert(entry.cert));
+    log(describeCert(entry.cert));
   const userCert = certEntries[0].cert;
   const altNames = getSubjectAltNamesDNSNames(userCert);
   const namesMatch = certNamesMatch(host, altNames);
   if (!namesMatch)
     throw new Error(`No matching subjectAltName for ${host}`);
   const rootCerts = getRootCerts();
-  console.log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
+  log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
   for (const cert of rootCerts)
-    console.log(describeCert(cert));
+    log(describeCert(cert));
   const chainEngine = new CertificateChainValidationEngine({
     certs: certEntries.map((entry) => entry.cert).reverse(),
     trustedCerts: rootCerts
   });
   const chain = await chainEngine.verify();
-  console.log("cert verify result", chain);
+  log("cert verify result", chain);
   if (chain.result !== true)
     throw new Error(chain.resultMessage);
   hs.expectUint8(15, "handshake message type: certificate verify");
@@ -24263,10 +24295,10 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   endHsFinishedPayload();
   endHs();
   if (equal(verifyHash, correctVerifyHash))
-    console.log("server verify hash validated");
+    log("server verify hash validated");
   else
     throw new Error("Invalid server verify hash");
-  console.log(...highlightCommented_default(hs.commentedString(true), "#88c" /* server */));
+  log(...highlightCommented_default(hs.commentedString(true), "#88c" /* server */));
 }
 
 // src/util/readqueue.ts
@@ -24348,20 +24380,20 @@ async function startTls(host, read, write) {
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId);
-  console.log(...highlightCommented_default(clientHello.commentedString(), "#8c8" /* client */));
+  log(...highlightCommented_default(clientHello.commentedString(), "#8c8" /* client */));
   const clientHelloData = clientHello.array();
   write(clientHelloData);
   const serverHelloRecord = await readTlsRecord(read, 22 /* Handshake */);
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
-  console.log(...highlightCommented_default(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
+  log(...highlightCommented_default(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
   const changeCipherRecord = await readTlsRecord(read, 20 /* ChangeCipherSpec */);
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
   endCipherPayload();
-  console.log(...highlightCommented_default(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
-  console.log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations");
+  log(...highlightCommented_default(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
+  log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations");
   const clientHelloContent = clientHelloData.subarray(5);
   const serverHelloContent = serverHelloRecord.content;
   const hellos = concat(clientHelloContent, serverHelloContent);
@@ -24378,12 +24410,12 @@ async function startTls(host, read, write) {
   const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
   clientCipherChange.writeUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
   endClientCipherChangePayload();
-  console.log(...highlightCommented_default(clientCipherChange.commentedString(), "#8c8" /* client */));
+  log(...highlightCommented_default(clientCipherChange.commentedString(), "#8c8" /* client */));
   const clientCipherChangeData = clientCipherChange.array();
   const wholeHandshake = concat(hellos, serverHandshake);
   const wholeHandshakeHashBuffer = await crypto.subtle.digest("SHA-256", wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
-  console.log("whole handshake hash", hexFromU8(wholeHandshakeHash));
+  log("whole handshake hash", hexFromU8(wholeHandshakeHash));
   const finishedKey = await hkdfExpandLabel(handshakeKeys.clientSecret, "finished", new Uint8Array(0), 32, 256);
   const verifyHmacKey = await crypto.subtle.importKey("raw", finishedKey, { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
   const verifyDataBuffer = await crypto.subtle.sign("HMAC", verifyHmacKey, wholeHandshakeHash);
@@ -24395,9 +24427,9 @@ async function startTls(host, read, write) {
   clientFinishedRecord.comment("verify data");
   clientFinishedRecordEnd();
   clientFinishedRecord.writeUint8(22 /* Handshake */, "record type: Handshake");
-  console.log(...highlightCommented_default(clientFinishedRecord.commentedString(), "#8c8" /* client */));
+  log(...highlightCommented_default(clientFinishedRecord.commentedString(), "#8c8" /* client */));
   const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);
-  console.log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
+  log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
   const clientApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const applicationEncrypter = new Crypter("encrypt", clientApplicationKey, applicationKeys.clientApplicationIV);
@@ -24410,12 +24442,12 @@ Connection: close\r
 \r
 `);
   requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
-  console.log(...highlightCommented_default(requestDataRecord.commentedString(), "#8c8" /* client */));
+  log(...highlightCommented_default(requestDataRecord.commentedString(), "#8c8" /* client */));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
   write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
   while (true) {
     const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, 23 /* Application */);
-    console.log(new TextDecoder().decode(serverResponse));
+    log(new TextDecoder().decode(serverResponse));
   }
 }
 start("neon-cf-pg-test.jawj.workers.dev", 443);

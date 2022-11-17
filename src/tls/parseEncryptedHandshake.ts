@@ -6,6 +6,7 @@ import { concat, equal } from '../util/array';
 import Bytes from '../util/bytes';
 import { certNamesMatch, getRootCerts, describeCert, getSubjectAltNamesDNSNames, parseCert } from './cert';
 import highlightCommented from '../presentation/highlightCommented';
+import { log } from '../presentation/log';
 
 export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
   // parse encrypted handshake part
@@ -66,8 +67,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   if (certEntries.length === 0) throw new Error('No certificates supplied');
 
-  console.log('%c%s', `color: ${LogColours.header}`, 'certificates');
-  for (const entry of certEntries) console.log(describeCert(entry.cert));
+  chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates');
+  for (const entry of certEntries) chatty && log(describeCert(entry.cert));
 
   const userCert = certEntries[0].cert;
   const altNames = getSubjectAltNamesDNSNames(userCert);
@@ -79,8 +80,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   // Is this OK? https://scotthelme.co.uk/should-clients-care-about-the-expiration-of-a-root-certificate/
   const rootCerts = getRootCerts();
 
-  console.log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
-  for (const cert of rootCerts) console.log(describeCert(cert));
+  chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
+  for (const cert of rootCerts) chatty && log(describeCert(cert));
 
   const chainEngine = new pkijs.CertificateChainValidationEngine({
     certs: certEntries.map(entry => entry.cert).reverse(),  // end-user cert should be last
@@ -88,7 +89,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   });
 
   const chain = await chainEngine.verify();
-  console.log('cert verify result', chain);
+  chatty && log('cert verify result', chain);
   if (chain.result !== true) throw new Error(chain.resultMessage);
 
   hs.expectUint8(0x0f, 'handshake message type: certificate verify');
@@ -119,8 +120,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   endHs();
 
-  if (equal(verifyHash, correctVerifyHash)) console.log('server verify hash validated');
+  if (equal(verifyHash, correctVerifyHash)) chatty && log('server verify hash validated');
   else throw new Error('Invalid server verify hash');
 
-  console.log(...highlightCommented(hs.commentedString(true), LogColours.server));
+  chatty && log(...highlightCommented(hs.commentedString(true), LogColours.server));
 }

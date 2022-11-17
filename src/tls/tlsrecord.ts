@@ -2,7 +2,7 @@ import { Crypter } from './aesgcm';
 import { LogColours } from '../presentation/appearance';
 import Bytes from '../util/bytes';
 import highlightCommented from '../presentation/highlightCommented';
-import type { ReadQueue } from '../util/readqueue';
+import { log } from '../presentation/log';
 
 export enum RecordType {
   ChangeCipherSpec = 0x14,
@@ -49,7 +49,7 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   encryptedBytes.skip(encryptedRecord.length - 16, 'encrypted payload');
   encryptedBytes.skip(16, 'auth tag');
   endEncrypted();
-  console.log(...highlightCommented(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), LogColours.server));
+  chatty && log(...highlightCommented(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), LogColours.server));
 
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
 
@@ -57,7 +57,7 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   const record = decryptedRecord.subarray(0, lastByteIndex /* exclusive */);
   const type = decryptedRecord[lastByteIndex];
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
-  console.log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, '0'), `color: ${LogColours.server}`, `actual decrypted record type: ${(RecordTypeName as any)[type]}`);
+  chatty && log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, '0'), `color: ${LogColours.server}`, `actual decrypted record type: ${(RecordTypeName as any)[type]}`);
 
   return record;
 }
@@ -83,6 +83,6 @@ export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypte
 
   endEncryptedRecord();
 
-  console.log(...highlightCommented(encryptedRecord.commentedString(), LogColours.client));
+  chatty && log(...highlightCommented(encryptedRecord.commentedString(), LogColours.client));
   return encryptedRecord.array();
 }

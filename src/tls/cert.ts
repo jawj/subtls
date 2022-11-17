@@ -1,9 +1,12 @@
 import * as pkijs from 'pkijs';
 
 import { base64Decode } from '../util/base64';
+import { hexFromU8 } from '../util/hex';
 import Bytes from '../util/bytes';
+
 import highlightCommented from '../presentation/highlightCommented';
 import { LogColours } from '../presentation/appearance';
+import { log } from '../presentation/log';
 
 // @ts-ignore
 import isrgrootx1 from '../roots/isrg-root-x1.pem';
@@ -13,7 +16,7 @@ import isrgrootx2 from '../roots/isrg-root-x2.pem';
 import trustidx3root from '../roots/trustid-x3-root.pem';
 // @ts-ignore
 import cloudflare from '../roots/cloudflare.pem';
-import { hexFromU8 } from '../util/hex';
+
 
 const universalTypeInteger = 0x02;
 const constructedUniversalTypeSequence = 0x30;
@@ -194,7 +197,7 @@ export function parseCert(certData: Uint8Array) {
 
   // endCertSeq();
 
-  console.log(...highlightCommented(cb.commentedString(true), LogColours.server));
+  chatty && log(...highlightCommented(cb.commentedString(true), LogColours.server));
 }
 
 export function decodePEM(pem: string, tag = "[A-Z0-9 ]+") {
@@ -239,7 +242,7 @@ export function certNamesMatch(host: string, certNames: string[]) {
 
     // test
     if (certName === hostName) {
-      console.log(`matched "${host}" to subjectAltName "${cert}"`);
+      chatty && log(`matched "${host}" to subjectAltName "${cert}"`);
       return true;
     }
   });

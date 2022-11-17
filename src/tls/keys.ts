@@ -1,5 +1,6 @@
 import { hexFromU8 } from '../util/hex';
 import { concat } from '../util/array';
+import { log } from '../presentation/log';
 
 const txtEnc = new TextEncoder();
 
@@ -120,42 +121,42 @@ export async function getHandshakeKeys(serverPublicKey: Uint8Array, privateKey: 
   const publicKey = await crypto.subtle.importKey('raw', serverPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false /* extractable */, []);
   const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: 'ECDH', public: publicKey }, privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
-  console.log('shared secret', hexFromU8(sharedSecret));
+  chatty && log('shared secret', hexFromU8(sharedSecret));
 
   const hellosHashBuffer = await crypto.subtle.digest('SHA-256', hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
-  console.log('hellos hash', hexFromU8(hellosHash));
+  chatty && log('hellos hash', hexFromU8(hellosHash));
 
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
-  console.log('early secret', hexFromU8(new Uint8Array(earlySecret)));
+  chatty && log('early secret', hexFromU8(new Uint8Array(earlySecret)));
 
   const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
-  console.log('empty hash', hexFromU8(emptyHash));
+  chatty && log('empty hash', hexFromU8(emptyHash));
 
   const derivedSecret = await hkdfExpandLabel(earlySecret, 'derived', emptyHash, hashBytes, hashBits);
-  console.log('derived secret', hexFromU8(derivedSecret));
+  chatty && log('derived secret', hexFromU8(derivedSecret));
 
   const handshakeSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
-  console.log('handshake secret', hexFromU8(handshakeSecret));
+  chatty && log('handshake secret', hexFromU8(handshakeSecret));
 
   const clientSecret = await hkdfExpandLabel(handshakeSecret, 'c hs traffic', hellosHash, hashBytes, hashBits);
-  console.log('client secret', hexFromU8(clientSecret));
+  chatty && log('client secret', hexFromU8(clientSecret));
 
   const serverSecret = await hkdfExpandLabel(handshakeSecret, 's hs traffic', hellosHash, hashBytes, hashBits);
-  console.log('server secret', hexFromU8(serverSecret));
+  chatty && log('server secret', hexFromU8(serverSecret));
 
   const clientHandshakeKey = await hkdfExpandLabel(clientSecret, 'key', new Uint8Array(0), keyLength, hashBits);
-  console.log('client handshake key', hexFromU8(clientHandshakeKey));
+  chatty && log('client handshake key', hexFromU8(clientHandshakeKey));
 
   const serverHandshakeKey = await hkdfExpandLabel(serverSecret, 'key', new Uint8Array(0), keyLength, hashBits);
-  console.log('server handshake key', hexFromU8(serverHandshakeKey));
+  chatty && log('server handshake key', hexFromU8(serverHandshakeKey));
 
   const clientHandshakeIV = await hkdfExpandLabel(clientSecret, 'iv', new Uint8Array(0), 12, hashBits);
-  console.log('client handshake iv', hexFromU8(clientHandshakeIV));
+  chatty && log('client handshake iv', hexFromU8(clientHandshakeIV));
 
   const serverHandshakeIV = await hkdfExpandLabel(serverSecret, 'iv', new Uint8Array(0), 12, hashBits);
-  console.log('server handshake iv', hexFromU8(serverHandshakeIV));
+  chatty && log('server handshake iv', hexFromU8(serverHandshakeIV));
 
   return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV, handshakeSecret, clientSecret, serverSecret };
 }
@@ -166,31 +167,31 @@ export async function getApplicationKeys(handshakeSecret: Uint8Array, handshakeH
 
   const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
-  console.log('empty hash', hexFromU8(emptyHash));
+  chatty && log('empty hash', hexFromU8(emptyHash));
 
   const derivedSecret = await hkdfExpandLabel(handshakeSecret, 'derived', emptyHash, hashBytes, hashBits);
-  console.log('derived secret', hexFromU8(derivedSecret));
+  chatty && log('derived secret', hexFromU8(derivedSecret));
 
   const masterSecret = await hkdfExtract(derivedSecret, zeroKey, hashBits);
-  console.log('master secret', hexFromU8(masterSecret));
+  chatty && log('master secret', hexFromU8(masterSecret));
 
   const clientSecret = await hkdfExpandLabel(masterSecret, 'c ap traffic', handshakeHash, hashBytes, hashBits);
-  console.log('client secret', hexFromU8(clientSecret));
+  chatty && log('client secret', hexFromU8(clientSecret));
 
   const serverSecret = await hkdfExpandLabel(masterSecret, 's ap traffic', handshakeHash, hashBytes, hashBits);
-  console.log('server secret', hexFromU8(serverSecret));
+  chatty && log('server secret', hexFromU8(serverSecret));
 
   const clientApplicationKey = await hkdfExpandLabel(clientSecret, 'key', new Uint8Array(0), keyLength, hashBits);
-  console.log('client application key', hexFromU8(clientApplicationKey));
+  chatty && log('client application key', hexFromU8(clientApplicationKey));
 
   const serverApplicationKey = await hkdfExpandLabel(serverSecret, 'key', new Uint8Array(0), keyLength, hashBits);
-  console.log('server application key', hexFromU8(serverApplicationKey));
+  chatty && log('server application key', hexFromU8(serverApplicationKey));
 
   const clientApplicationIV = await hkdfExpandLabel(clientSecret, 'iv', new Uint8Array(0), 12, hashBits);
-  console.log('client application iv', hexFromU8(clientApplicationIV));
+  chatty && log('client application iv', hexFromU8(clientApplicationIV));
 
   const serverApplicationIV = await hkdfExpandLabel(serverSecret, 'iv', new Uint8Array(0), 12, hashBits);
-  console.log('server application iv', hexFromU8(serverApplicationIV));
+  chatty && log('server application iv', hexFromU8(serverApplicationIV));
 
   return { serverApplicationKey, serverApplicationIV, clientApplicationKey, clientApplicationIV };
 }
