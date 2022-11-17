@@ -26,6 +26,10 @@ const universalTypePrintableString = 0x13;
 const universalTypeUTF8String = 0x0c;
 const universalTypeUTCTime = 0x17;
 const universalTypeNull = 0x05;
+const universalTypeOctetString = 0x04;
+const universalTypeBitString = 0x03;
+const constructedContextSpecificType = 0xa3;
+const dNSName = 0x82;
 
 const rdnmap: Record<string, string> = {
   "2.5.4.6": "C",
@@ -38,7 +42,14 @@ const rdnmap: Record<string, string> = {
   "2.5.4.42": "GN",
   "2.5.4.43": "I",
   "2.5.4.4": "SN",
-  "1.2.840.113549.1.9.1": "E-mail"
+  "1.2.840.113549.1.9.1": "E-mail",
+};
+
+const keymap: Record<string, string> = {
+  "1.2.840.10045.2.1": "ECPublicKey",
+  "1.2.840.10045.3.1.7": "secp256r1",
+  "1.3.132.0.34": "secp384r1",
+  "1.2.840.113549.1.1.1": "RSAES-PKCS1-v1_5",
 };
 
 const algomap: Record<string, string> = {
@@ -52,8 +63,21 @@ const algomap: Record<string, string> = {
   "1.2.840.113549.1.1.14": "SHA224 with RSA",
   "1.2.840.113549.1.1.11": "SHA256 with RSA",
   "1.2.840.113549.1.1.12": "SHA384 with RSA",
-  "1.2.840.113549.1.1.13": "SHA512 with RSA"
+  "1.2.840.113549.1.1.13": "SHA512 with RSA",
 };
+
+const extmap: Record<string, string> = {
+  "2.5.29.15": "KeyUsage",
+  "2.5.29.37": "ExtKeyUsage",
+  "2.5.29.19": "BasicConstraints",
+  "2.5.29.14": "SubjectKeyIdentifier",
+  "2.5.29.35": "AuthorityKeyIdentifier",
+  "1.3.6.1.5.5.7.1.1": "AuthorityInfoAccess",
+  "2.5.29.17": "SubjectAltName",
+  "2.5.29.32": "CertificatePolicies",
+  "1.3.6.1.4.1.11129.2.4.2": "SignedCertificateTimestampList",
+  "2.5.29.31": "CRLDistributionPoints",
+}
 
 function readASN1Length(bytes: Bytes) {
   const byte1 = bytes.readUint8();
@@ -73,7 +97,7 @@ function readASN1OID(bytes: Bytes) {  // starting with length (i.e. after OID ty
   const OIDLength = readASN1Length(bytes);
   const [endOID, OIDRemainingBytes] = bytes.expectLength(OIDLength);
   const byte1 = bytes.readUint8();
-  const oid = [Math.floor(byte1 / 40), byte1 % 40];
+  let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
   while (OIDRemainingBytes() > 0) {  // loop over numbers in OID
     let value = 0;
     while (true) {  // loop over bytes in number
@@ -82,10 +106,11 @@ function readASN1OID(bytes: Bytes) {  // starting with length (i.e. after OID ty
       value += nextByte & 0x7f;
       if (nextByte < 0x80) break;
     }
-    oid.push(value);
+    oid += `.${value}`;
   }
+  bytes.comment(oid);
   endOID();
-  return oid.join('.');
+  return oid;
 }
 
 function parseUTCTime(s: string) {
@@ -93,8 +118,8 @@ function parseUTCTime(s: string) {
   if (!parts) throw new Error('Unrecognised UTC time format in certificate validity');
   const [, yr2dstr, mth, dy, hr, min, sec] = parts;
   const yr2d = parseInt(yr2dstr, 10);
-  const yr = yr2d + (yr2d >= 70 ? 1900 : 2000);  // TODO: where do we put the cut-off?
-  const date = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);  // ISO8601 should be safe
+  const yr = yr2d + (yr2d >= 50 ? 1900 : 2000);
+  const date = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);  // ISO8601 should be safe to parse
   return date;
 }
 
@@ -114,7 +139,7 @@ function parseSeqOfSetOfSeq(cb: Bytes, seqType: string) {
 
     cb.expectUint8(universalTypeOID, 'universal type: OID');
     const itemOID = readASN1OID(cb);
-    cb.comment(`OID: ${itemOID} = ${rdnmap[itemOID]}`);
+    cb.comment(`= ${rdnmap[itemOID]}`);
 
     const valueType = cb.readUint8();
     if (valueType === universalTypePrintableString) {
@@ -160,7 +185,7 @@ export function parseCert(certData: Uint8Array) {
   const [endAlgo, algoRemainingBytes] = cb.expectLength(algoLength);
   cb.expectUint8(universalTypeOID, 'universal type: OID');
   const algoOID = readASN1OID(cb);
-  cb.comment(`algorithm OID: ${algoOID} = ${algomap[algoOID]}`);
+  cb.comment(`= ${algomap[algoOID]}`);
   if (algoRemainingBytes() > 0) {
     cb.expectUint8(universalTypeNull, 'universal type: null');
     cb.expectUint8(0x00, 'null length');
@@ -190,6 +215,86 @@ export function parseCert(certData: Uint8Array) {
   endValiditySeq();
 
   parseSeqOfSetOfSeq(cb, 'subject');
+
+  cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence (public key)');
+  const publicKeySeqLength = readASN1Length(cb);
+  const [endPublicKeySeq] = cb.expectLength(publicKeySeqLength);
+
+  cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence (public key params)');
+  const keyParamsLength = readASN1Length(cb);
+  const [endKeyOID, keyOIDRemainingBytes] = cb.expectLength(keyParamsLength);
+
+  while (keyOIDRemainingBytes() > 0) {
+    const keyParamRecordType = cb.readUint8();
+    if (keyParamRecordType === universalTypeOID) {
+      cb.comment('universal type: OID');
+      const keyOID = readASN1OID(cb);
+      cb.comment(`= ${keymap[keyOID]}`)
+
+    } else if (keyParamRecordType === universalTypeNull) {
+      cb.comment('universal type: null');
+      cb.expectUint8(0x00, 'null length');
+    }
+  }
+  endKeyOID();
+
+  cb.expectUint8(universalTypeBitString, 'universal type: bit string');
+  const keyBitStringLength = readASN1Length(cb);
+  const [endKeyBitString, keyBitStringBytesRemaining] = cb.expectLength(keyBitStringLength);
+  const keyRightPadBits = cb.readUint8('right-padding bits');
+  const key = cb.readBytes(keyBitStringBytesRemaining());
+  cb.comment('public key');
+  endKeyBitString();
+
+  endPublicKeySeq();
+
+  cb.expectUint8(constructedContextSpecificType, 'constructed context-specific type');
+  const extsDataLength = readASN1Length(cb);
+  const [endExtsData] = cb.expectLength(extsDataLength);
+  cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence (extensions)');
+  const extsLength = readASN1Length(cb);
+  const [endExts, extsBytesRemaining] = cb.expectLength(extsLength);
+
+  while (extsBytesRemaining() > 0) {
+    cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence');
+    const extLength = readASN1Length(cb);
+    const [endExt, extBytesRemaining] = cb.expectLength(extLength);
+    cb.expectUint8(universalTypeOID, 'universal type: OID (extension type)');
+    const extOID = readASN1OID(cb);
+    cb.comment(`= ${extmap[extOID]}`);
+
+    if (extOID === "2.5.29.17") {
+      cb.expectUint8(universalTypeOctetString, 'universal type: octet string');
+      const sanDerDocLength = readASN1Length(cb);
+      const [endSanDerDoc] = cb.expectLength(sanDerDocLength);
+      cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence');
+      const sanSeqLength = readASN1Length(cb);
+      const [endSanSeq, sanSeqBytesRemaining] = cb.expectLength(sanSeqLength);
+      while (sanSeqBytesRemaining() > 0) {
+        const nameType = cb.readUint8('GeneralName type');
+        const sanNameLength = readASN1Length(cb);
+        const [endSanName] = cb.expectLength(sanNameLength);
+        if (nameType === dNSName) {
+          const sanName = cb.readUTF8String(sanNameLength);
+          cb.comment('= DNS name');
+        } else {
+          cb.skip(sanNameLength, 'unparsed name data');
+        }
+        endSanName();
+      }
+      endSanSeq();
+      endSanDerDoc();
+
+    } else {
+      cb.skip(extBytesRemaining(), 'unparsed extension data');
+    }
+
+    endExt();
+  }
+
+  endExts();
+  endExtsData();
+
 
   // endCertInfoSeq()
 
