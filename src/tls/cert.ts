@@ -17,7 +17,7 @@ import trustidx3root from '../roots/trustid-x3-root.pem';
 // @ts-ignore
 import cloudflare from '../roots/cloudflare.pem';
 
-
+const universalTypeBoolean = 0x01;
 const universalTypeInteger = 0x02;
 const constructedUniversalTypeSequence = 0x30;
 const constructedUniversalTypeSet = 0x31;
@@ -113,17 +113,66 @@ function readASN1OID(bytes: Bytes) {  // starting with length (i.e. after OID ty
   return oid;
 }
 
-function parseUTCTime(s: string) {
-  const parts = s.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
+function readASN1Boolean(bytes: Bytes) {
+  const length = bytes.readUint8('length of boolean');
+  if (length !== 1) throw new Error(`Boolean has weird length: ${length}`);
+  const [endBoolean] = bytes.expectLength(length);
+  const byte = bytes.readUint8();
+  let result;
+  if (byte === 0xff) result = true;
+  else if (byte === 0x00) result = false;
+  else throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
+  bytes.comment(result.toString());
+  endBoolean();
+  return result;
+}
+
+function readASN1UTCTime(bytes: Bytes) {
+  const timeLength = readASN1Length(bytes);
+  const [endTime] = bytes.expectLength(timeLength);
+  const timeStr = bytes.readUTF8String(timeLength);
+  const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
   if (!parts) throw new Error('Unrecognised UTC time format in certificate validity');
   const [, yr2dstr, mth, dy, hr, min, sec] = parts;
   const yr2d = parseInt(yr2dstr, 10);
   const yr = yr2d + (yr2d >= 50 ? 1900 : 2000);
-  const date = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);  // ISO8601 should be safe to parse
-  return date;
+  const time = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);  // ISO8601 should be safe to parse
+  bytes.comment('= ' + time.toISOString());
+  endTime();
+  return time;
 }
 
-function parseSeqOfSetOfSeq(cb: Bytes, seqType: string) {
+function readASN1BitString(bytes: Bytes) {
+  const bitStringLength = readASN1Length(bytes);
+  const [endBitString, bitStringBytesRemaining] = bytes.expectLength(bitStringLength);
+  const rightPadBits = bytes.readUint8('right-padding bits');
+  const bytesLength = bitStringBytesRemaining()
+  const bitString = bytes.readBytes(bytesLength);
+  if (rightPadBits > 7) throw new Error(`Invalid right pad value: ${rightPadBits}`);
+  if (rightPadBits > 0) {  // (this was surprisingly hard to get right)
+    const leftPadNext = 8 - rightPadBits;
+    for (let i = bytesLength - 1; i > 0; i--) {
+      bitString[i] = (0xff & (bitString[i - 1] << leftPadNext)) | (bitString[i] >>> rightPadBits);
+    }
+    bitString[0] = bitString[0] >>> rightPadBits;
+  }
+  endBitString();
+  return bitString;
+}
+
+function intFromBitString(bs: Uint8Array) {
+  const { length } = bs;
+  if (length > 4) throw new Error(`Bit string length ${length} would overflow JS bit operators`);
+  let result = 0;
+  let leftShift = 0;
+  for (let i = bs.length - 1; i >= 0; i--) {
+    result |= bs[i] << leftShift;
+    leftShift += 8;
+  }
+  return result;
+}
+
+function readSeqOfSetOfSeq(cb: Bytes, seqType: string) {  // used for issuer and subject
   cb.expectUint8(constructedUniversalTypeSequence, `constructed universal type: sequence (${seqType})`);
   const seqLength = readASN1Length(cb);
   const [endSeq, seqRemainingBytes] = cb.expectLength(seqLength);
@@ -173,6 +222,7 @@ export function parseCert(certData: Uint8Array) {
 
   cb.expectBytes([0xa0, 0x03, 0x02, 0x01, 0x02], 'certificate version v3');  // must be v3 to have extensions
 
+
   cb.expectUint8(universalTypeInteger, 'universal type: integer');
   const serialNumberLength = readASN1Length(cb);
   const [endSerialNumber] = cb.expectLength(serialNumberLength);
@@ -180,41 +230,35 @@ export function parseCert(certData: Uint8Array) {
   cb.comment('serial number');
   endSerialNumber();
 
+
   cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence (algorithm)');
   const algoLength = readASN1Length(cb);
   const [endAlgo, algoRemainingBytes] = cb.expectLength(algoLength);
   cb.expectUint8(universalTypeOID, 'universal type: OID');
   const algoOID = readASN1OID(cb);
   cb.comment(`= ${algomap[algoOID]}`);
-  if (algoRemainingBytes() > 0) {
+  if (algoRemainingBytes() > 0) {  // null parameters
     cb.expectUint8(universalTypeNull, 'universal type: null');
     cb.expectUint8(0x00, 'null length');
   }
   endAlgo();
 
-  parseSeqOfSetOfSeq(cb, 'issuer');
+
+  readSeqOfSetOfSeq(cb, 'issuer');
+
 
   cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence (validity)');
   const validitySeqLength = readASN1Length(cb);
   const [endValiditySeq] = cb.expectLength(validitySeqLength);
-
   cb.expectUint8(universalTypeUTCTime, 'universal type: UTC time (not before)');
-  const notBeforeTimeLength = readASN1Length(cb);
-  const [endNotBeforeTime] = cb.expectLength(notBeforeTimeLength);
-  const notBeforeTimeStr = cb.readUTF8String(notBeforeTimeLength);
-  const notBeforeTime = parseUTCTime(notBeforeTimeStr);
-  cb.comment('= ' + notBeforeTime.toISOString());
-  endNotBeforeTime();
+  const notBeforeTime = readASN1UTCTime(cb);
   cb.expectUint8(universalTypeUTCTime, 'universal type: UTC time (not after)');
-  const notAfterTimeLength = readASN1Length(cb);
-  const [endNotAfterTime] = cb.expectLength(notAfterTimeLength);
-  const notAfterTimeStr = cb.readUTF8String(notBeforeTimeLength);
-  const notAfterTIme = parseUTCTime(notAfterTimeStr);
-  cb.comment('= ' + notAfterTIme.toISOString());
-  endNotAfterTime();
+  const notAfterTime = readASN1UTCTime(cb);
   endValiditySeq();
 
-  parseSeqOfSetOfSeq(cb, 'subject');
+
+  readSeqOfSetOfSeq(cb, 'subject');
+
 
   cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence (public key)');
   const publicKeySeqLength = readASN1Length(cb);
@@ -239,14 +283,11 @@ export function parseCert(certData: Uint8Array) {
   endKeyOID();
 
   cb.expectUint8(universalTypeBitString, 'universal type: bit string');
-  const keyBitStringLength = readASN1Length(cb);
-  const [endKeyBitString, keyBitStringBytesRemaining] = cb.expectLength(keyBitStringLength);
-  const keyRightPadBits = cb.readUint8('right-padding bits');
-  const key = cb.readBytes(keyBitStringBytesRemaining());
+  const publicKey = readASN1BitString(cb);
   cb.comment('public key');
-  endKeyBitString();
 
   endPublicKeySeq();
+
 
   cb.expectUint8(constructedContextSpecificType, 'constructed context-specific type');
   const extsDataLength = readASN1Length(cb);
@@ -263,7 +304,7 @@ export function parseCert(certData: Uint8Array) {
     const extOID = readASN1OID(cb);
     cb.comment(`= ${extmap[extOID]}`);
 
-    if (extOID === "2.5.29.17") {
+    if (extOID === "2.5.29.17") {  // subjectAltName
       cb.expectUint8(universalTypeOctetString, 'universal type: octet string');
       const sanDerDocLength = readASN1Length(cb);
       const [endSanDerDoc] = cb.expectLength(sanDerDocLength);
@@ -285,7 +326,33 @@ export function parseCert(certData: Uint8Array) {
       endSanSeq();
       endSanDerDoc();
 
+    } else if (extOID === '2.5.29.15') {  // keyUsage
+      cb.expectUint8(universalTypeBoolean, 'universal type: boolean');
+      const critical = readASN1Boolean(cb);
+      cb.expectUint8(universalTypeOctetString, 'universal type: octet string');
+      const keyUsageDerLength = readASN1Length(cb);
+      const [endKeyUsageDer] = cb.expectLength(keyUsageDerLength);
+      cb.expectUint8(universalTypeBitString, 'universal type: bit string');
+      const keyUsage = readASN1BitString(cb);
+      const keyUsageInt = intFromBitString(keyUsage);
+      const allKeyUsages = [
+        // https://www.rfc-editor.org/rfc/rfc3280#section-4.2.1.3
+        'digitalSignature', // (0)
+        'nonRepudiation',   // (1)
+        'keyEncipherment',  // (2)
+        'dataEncipherment', // (3)
+        'keyAgreement',     // (4)
+        'keyCertSign',      // (5)
+        'cRLSign',          // (6)
+        'encipherOnly',     // (7)
+        'decipherOnly',     // (8)
+      ];
+      const keyUsages = new Set(allKeyUsages.filter((u, i) => keyUsageInt & (1 << i)));
+      cb.comment(`key usage: ${keyUsage} = ${[...keyUsages]}`);
+      endKeyUsageDer();
+
     } else {
+
       cb.skip(extBytesRemaining(), 'unparsed extension data');
     }
 
@@ -296,7 +363,7 @@ export function parseCert(certData: Uint8Array) {
   endExtsData();
 
 
-  // endCertInfoSeq()
+  endCertInfoSeq();
 
   // ... signature stuff ...
 

@@ -3324,18 +3324,18 @@ _a$k = Sequence;
 })();
 Sequence.NAME = "SEQUENCE";
 var _a$j;
-var Set = class extends Constructed {
+var Set2 = class extends Constructed {
   constructor(parameters = {}) {
     super(parameters);
     this.idBlock.tagClass = 1;
     this.idBlock.tagNumber = 17;
   }
 };
-_a$j = Set;
+_a$j = Set2;
 (() => {
   typeStore.Set = _a$j;
 })();
-Set.NAME = "SET";
+Set2.NAME = "SET";
 var LocalStringValueBlock = class extends HexBlock(ValueBlock) {
   constructor({ ...parameters } = {}) {
     super(parameters);
@@ -5607,7 +5607,7 @@ var RelativeDistinguishedNames = class extends PkiObject {
       value: [
         new Repeated({
           name: names.repeatedSequence || EMPTY_STRING2,
-          value: new Set({
+          value: new Set2({
             value: [
               new Repeated({
                 name: names.repeatedSet || EMPTY_STRING2,
@@ -5639,7 +5639,7 @@ var RelativeDistinguishedNames = class extends PkiObject {
   toSchema() {
     if (this.valueBeforeDecode.byteLength === 0) {
       return new Sequence({
-        value: [new Set({
+        value: [new Set2({
           value: Array.from(this.typesAndValues, (o) => o.toSchema())
         })]
       });
@@ -5831,7 +5831,7 @@ function builtInDomainDefinedAttributes(optional = false) {
   });
 }
 function extensionAttributes(optional = false) {
-  return new Set({
+  return new Set2({
     optional,
     value: [
       new Primitive({
@@ -6544,7 +6544,7 @@ var Attribute = class extends PkiObject {
       name: names.blockName || EMPTY_STRING2,
       value: [
         new ObjectIdentifier({ name: names.type || EMPTY_STRING2 }),
-        new Set({
+        new Set2({
           name: names.setName || EMPTY_STRING2,
           value: [
             new Repeated({
@@ -6572,7 +6572,7 @@ var Attribute = class extends PkiObject {
     return new Sequence({
       value: [
         new ObjectIdentifier({ value: this.type }),
-        new Set({
+        new Set2({
           value: this.values
         })
       ]
@@ -15376,7 +15376,7 @@ var SafeBag = class extends PkiObject {
           },
           value: [new Any({ name: names.bagValue || BAG_VALUE })]
         }),
-        new Set({
+        new Set2({
           optional: true,
           value: [
             new Repeated({
@@ -15420,7 +15420,7 @@ var SafeBag = class extends PkiObject {
       })
     ];
     if (this.bagAttributes) {
-      outputArray.push(new Set({
+      outputArray.push(new Set2({
         value: Array.from(this.bagAttributes, (o) => o.toSchema())
       }));
     }
@@ -15583,7 +15583,7 @@ var CertificateSet = class extends PkiObject {
   }
   static schema(parameters = {}) {
     const names = getParametersValue(parameters, "names", {});
-    return new Set({
+    return new Set2({
       name: names.blockName || EMPTY_STRING2,
       value: [
         new Repeated({
@@ -15656,7 +15656,7 @@ var CertificateSet = class extends PkiObject {
     });
   }
   toSchema() {
-    return new Set({
+    return new Set2({
       value: Array.from(this.certificates, (element2) => {
         switch (true) {
           case element2 instanceof Certificate:
@@ -15784,7 +15784,7 @@ var RevocationInfoChoices = class extends PkiObject {
   }
   static schema(parameters = {}) {
     const names = getParametersValue(parameters, "names", {});
-    return new Set({
+    return new Set2({
       name: names.blockName || EMPTY_STRING2,
       value: [
         new Repeated({
@@ -15834,7 +15834,7 @@ var RevocationInfoChoices = class extends PkiObject {
       schema.idBlock.tagNumber = 1;
       return schema;
     }));
-    return new Set({
+    return new Set2({
       value: outputArray
     });
   }
@@ -15917,14 +15917,14 @@ var OriginatorInfo = class extends PkiObject {
     AsnError.assertSchema(asn1, this.className);
     if (CERTS$3 in asn1.result) {
       this.certs = new CertificateSet({
-        schema: new Set({
+        schema: new Set2({
           value: asn1.result.certs.valueBlock.value
         })
       });
     }
     if (CRLS$2 in asn1.result) {
       this.crls = new RevocationInfoChoices({
-        schema: new Set({
+        schema: new Set2({
           value: asn1.result.crls.valueBlock.value
         })
       });
@@ -17993,7 +17993,7 @@ var EnvelopedData = class extends PkiObject {
           },
           value: OriginatorInfo.schema().valueBlock.value
         }),
-        new Set({
+        new Set2({
           value: [
             new Repeated({
               name: names.recipientInfos || EMPTY_STRING2,
@@ -18060,7 +18060,7 @@ var EnvelopedData = class extends PkiObject {
         value: this.originatorInfo.toSchema().valueBlock.value
       }));
     }
-    outputArray.push(new Set({
+    outputArray.push(new Set2({
       value: Array.from(this.recipientInfos, (o) => o.toSchema())
     }));
     outputArray.push(this.encryptedContentInfo.toSchema());
@@ -22827,7 +22827,7 @@ var SignedData = class extends PkiObject {
       optional: names.optional,
       value: [
         new Integer({ name: names.version || SIGNED_DATA_VERSION }),
-        new Set({
+        new Set2({
           value: [
             new Repeated({
               name: names.digestAlgorithms || SIGNED_DATA_DIGEST_ALGORITHMS,
@@ -22861,7 +22861,7 @@ var SignedData = class extends PkiObject {
             }
           }).valueBlock.value
         }),
-        new Set({
+        new Set2({
           value: [
             new Repeated({
               name: names.signerInfos || SIGNED_DATA_SIGNER_INFOS,
@@ -22882,7 +22882,7 @@ var SignedData = class extends PkiObject {
     this.encapContentInfo = new EncapsulatedContentInfo({ schema: asn1.result[SIGNED_DATA_ENCAP_CONTENT_INFO] });
     if (SIGNED_DATA_CERTIFICATES in asn1.result) {
       const certificateSet = new CertificateSet({
-        schema: new Set({
+        schema: new Set2({
           value: asn1.result[SIGNED_DATA_CERTIFICATES].valueBlock.value
         })
       });
@@ -22912,7 +22912,7 @@ var SignedData = class extends PkiObject {
       this.version = 1;
     }
     outputArray.push(new Integer({ value: this.version }));
-    outputArray.push(new Set({
+    outputArray.push(new Set2({
       value: Array.from(this.digestAlgorithms, (algorithm) => algorithm.toSchema())
     }));
     outputArray.push(this.encapContentInfo.toSchema());
@@ -22944,7 +22944,7 @@ var SignedData = class extends PkiObject {
         })
       }));
     }
-    outputArray.push(new Set({
+    outputArray.push(new Set2({
       value: Array.from(this.signerInfos, (signerInfo) => signerInfo.toSchema())
     }));
     return new Sequence({
@@ -23991,6 +23991,7 @@ var trustid_x3_root_default = "-----BEGIN CERTIFICATE-----\nMIIDSjCCAjKgAwIBAgIQ
 var cloudflare_default = "-----BEGIN CERTIFICATE-----\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\n-----END CERTIFICATE-----";
 
 // src/tls/cert.ts
+var universalTypeBoolean = 1;
 var universalTypeInteger = 2;
 var constructedUniversalTypeSequence = 48;
 var constructedUniversalTypeSet = 49;
@@ -24084,17 +24085,69 @@ function readASN1OID(bytes) {
   endOID();
   return oid;
 }
-function parseUTCTime(s) {
-  const parts = s.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
+function readASN1Boolean(bytes) {
+  const length2 = bytes.readUint8("length of boolean");
+  if (length2 !== 1)
+    throw new Error(`Boolean has weird length: ${length2}`);
+  const [endBoolean] = bytes.expectLength(length2);
+  const byte = bytes.readUint8();
+  let result;
+  if (byte === 255)
+    result = true;
+  else if (byte === 0)
+    result = false;
+  else
+    throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
+  bytes.comment(result.toString());
+  endBoolean();
+  return result;
+}
+function readASN1UTCTime(bytes) {
+  const timeLength = readASN1Length(bytes);
+  const [endTime] = bytes.expectLength(timeLength);
+  const timeStr = bytes.readUTF8String(timeLength);
+  const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
   if (!parts)
     throw new Error("Unrecognised UTC time format in certificate validity");
   const [, yr2dstr, mth, dy, hr, min, sec] = parts;
   const yr2d = parseInt(yr2dstr, 10);
   const yr = yr2d + (yr2d >= 50 ? 1900 : 2e3);
-  const date = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);
-  return date;
+  const time = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);
+  bytes.comment("= " + time.toISOString());
+  endTime();
+  return time;
 }
-function parseSeqOfSetOfSeq(cb, seqType) {
+function readASN1BitString(bytes) {
+  const bitStringLength = readASN1Length(bytes);
+  const [endBitString, bitStringBytesRemaining] = bytes.expectLength(bitStringLength);
+  const rightPadBits = bytes.readUint8("right-padding bits");
+  const bytesLength = bitStringBytesRemaining();
+  const bitString = bytes.readBytes(bytesLength);
+  if (rightPadBits > 7)
+    throw new Error(`Invalid right pad value: ${rightPadBits}`);
+  if (rightPadBits > 0) {
+    const leftPadNext = 8 - rightPadBits;
+    for (let i = bytesLength - 1; i > 0; i--) {
+      bitString[i] = 255 & bitString[i - 1] << leftPadNext | bitString[i] >>> rightPadBits;
+    }
+    bitString[0] = bitString[0] >>> rightPadBits;
+  }
+  endBitString();
+  return bitString;
+}
+function intFromBitString(bs) {
+  const { length: length2 } = bs;
+  if (length2 > 4)
+    throw new Error(`Bit string length ${length2} would overflow JS bit operators`);
+  let result = 0;
+  let leftShift = 0;
+  for (let i = bs.length - 1; i >= 0; i--) {
+    result |= bs[i] << leftShift;
+    leftShift += 8;
+  }
+  return result;
+}
+function readSeqOfSetOfSeq(cb, seqType) {
   cb.expectUint8(constructedUniversalTypeSequence, `constructed universal type: sequence (${seqType})`);
   const seqLength = readASN1Length(cb);
   const [endSeq, seqRemainingBytes] = cb.expectLength(seqLength);
@@ -24151,26 +24204,16 @@ function parseCert(certData) {
     cb.expectUint8(0, "null length");
   }
   endAlgo();
-  parseSeqOfSetOfSeq(cb, "issuer");
+  readSeqOfSetOfSeq(cb, "issuer");
   cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence (validity)");
   const validitySeqLength = readASN1Length(cb);
   const [endValiditySeq] = cb.expectLength(validitySeqLength);
   cb.expectUint8(universalTypeUTCTime, "universal type: UTC time (not before)");
-  const notBeforeTimeLength = readASN1Length(cb);
-  const [endNotBeforeTime] = cb.expectLength(notBeforeTimeLength);
-  const notBeforeTimeStr = cb.readUTF8String(notBeforeTimeLength);
-  const notBeforeTime = parseUTCTime(notBeforeTimeStr);
-  cb.comment("= " + notBeforeTime.toISOString());
-  endNotBeforeTime();
+  const notBeforeTime = readASN1UTCTime(cb);
   cb.expectUint8(universalTypeUTCTime, "universal type: UTC time (not after)");
-  const notAfterTimeLength = readASN1Length(cb);
-  const [endNotAfterTime] = cb.expectLength(notAfterTimeLength);
-  const notAfterTimeStr = cb.readUTF8String(notBeforeTimeLength);
-  const notAfterTIme = parseUTCTime(notAfterTimeStr);
-  cb.comment("= " + notAfterTIme.toISOString());
-  endNotAfterTime();
+  const notAfterTime = readASN1UTCTime(cb);
   endValiditySeq();
-  parseSeqOfSetOfSeq(cb, "subject");
+  readSeqOfSetOfSeq(cb, "subject");
   cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence (public key)");
   const publicKeySeqLength = readASN1Length(cb);
   const [endPublicKeySeq] = cb.expectLength(publicKeySeqLength);
@@ -24190,12 +24233,8 @@ function parseCert(certData) {
   }
   endKeyOID();
   cb.expectUint8(universalTypeBitString, "universal type: bit string");
-  const keyBitStringLength = readASN1Length(cb);
-  const [endKeyBitString, keyBitStringBytesRemaining] = cb.expectLength(keyBitStringLength);
-  const keyRightPadBits = cb.readUint8("right-padding bits");
-  const key = cb.readBytes(keyBitStringBytesRemaining());
+  const publicKey = readASN1BitString(cb);
   cb.comment("public key");
-  endKeyBitString();
   endPublicKeySeq();
   cb.expectUint8(constructedContextSpecificType, "constructed context-specific type");
   const extsDataLength = readASN1Length(cb);
@@ -24231,6 +24270,29 @@ function parseCert(certData) {
       }
       endSanSeq();
       endSanDerDoc();
+    } else if (extOID === "2.5.29.15") {
+      cb.expectUint8(universalTypeBoolean, "universal type: boolean");
+      const critical = readASN1Boolean(cb);
+      cb.expectUint8(universalTypeOctetString, "universal type: octet string");
+      const keyUsageDerLength = readASN1Length(cb);
+      const [endKeyUsageDer] = cb.expectLength(keyUsageDerLength);
+      cb.expectUint8(universalTypeBitString, "universal type: bit string");
+      const keyUsage = readASN1BitString(cb);
+      const keyUsageInt = intFromBitString(keyUsage);
+      const allKeyUsages = [
+        "digitalSignature",
+        "nonRepudiation",
+        "keyEncipherment",
+        "dataEncipherment",
+        "keyAgreement",
+        "keyCertSign",
+        "cRLSign",
+        "encipherOnly",
+        "decipherOnly"
+      ];
+      const keyUsages = new Set(allKeyUsages.filter((u, i) => keyUsageInt & 1 << i));
+      cb.comment(`key usage: ${keyUsage} = ${[...keyUsages]}`);
+      endKeyUsageDer();
     } else {
       cb.skip(extBytesRemaining(), "unparsed extension data");
     }
@@ -24238,6 +24300,7 @@ function parseCert(certData) {
   }
   endExts();
   endExtsData();
+  endCertInfoSeq();
   log(...highlightCommented_default(cb.commentedString(true), "#88c" /* server */));
 }
 function decodePEM(pem, tag = "[A-Z0-9 ]+") {
