@@ -23964,6 +23964,7 @@ var constructedUniversalTypeSequence = 48;
 var constructedUniversalTypeSet = 49;
 var universalTypeOID = 6;
 var universalTypePrintableString = 19;
+var universalTypeUTF8String = 12;
 var universalTypeUTCTime = 23;
 var universalTypeNull = 5;
 var rdnmap = {
@@ -24038,6 +24039,37 @@ function parseUTCTime(s) {
   const date = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);
   return date;
 }
+function parseSeqOfSetOfSeq(cb, seqType) {
+  cb.expectUint8(constructedUniversalTypeSequence, `constructed universal type: sequence (${seqType})`);
+  const seqLength = readASN1Length(cb);
+  const [endSeq, seqRemainingBytes] = cb.expectLength(seqLength);
+  while (seqRemainingBytes() > 0) {
+    cb.expectUint8(constructedUniversalTypeSet, "constructed universal type: set");
+    const itemSetLength = readASN1Length(cb);
+    const [endItemSet] = cb.expectLength(itemSetLength);
+    cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence");
+    const itemSeqLength = readASN1Length(cb);
+    const [endItemSeq] = cb.expectLength(itemSeqLength);
+    cb.expectUint8(universalTypeOID, "universal type: OID");
+    const itemOID = readASN1OID(cb);
+    cb.comment(`OID: ${itemOID} = ${rdnmap[itemOID]}`);
+    const valueType = cb.readUint8();
+    if (valueType === universalTypePrintableString) {
+      cb.comment("universal type: printable string");
+    } else if (valueType === universalTypeUTF8String) {
+      cb.comment("universal type: UTF8 string");
+    } else {
+      throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
+    }
+    const itemStringLength = readASN1Length(cb);
+    const [endItemString] = cb.expectLength(itemStringLength);
+    const itemString = cb.readUTF8String(itemStringLength);
+    endItemString();
+    endItemSeq();
+    endItemSet();
+  }
+  endSeq();
+}
 function parseCert(certData) {
   const cb = new Bytes(certData);
   cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence (certificate)");
@@ -24064,28 +24096,7 @@ function parseCert(certData) {
     cb.expectUint8(0, "null length");
   }
   endAlgo();
-  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence (issuer)");
-  const issuerSeqLength = readASN1Length(cb);
-  const [endIssuerSeq, issuerSeqRemainingBytes] = cb.expectLength(issuerSeqLength);
-  while (issuerSeqRemainingBytes() > 0) {
-    cb.expectUint8(constructedUniversalTypeSet, "constructed universal type: set");
-    const issuerItemSetLength = readASN1Length(cb);
-    const [endIssuerItemSet] = cb.expectLength(issuerItemSetLength);
-    cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence");
-    const issuerItemSeqLength = readASN1Length(cb);
-    const [endIssuerItemSeq] = cb.expectLength(issuerItemSeqLength);
-    cb.expectUint8(universalTypeOID, "universal type: OID");
-    const issuerItemOID = readASN1OID(cb);
-    cb.comment(`OID: ${issuerItemOID} = ${rdnmap[issuerItemOID]}`);
-    cb.expectUint8(universalTypePrintableString, "universal type printable string");
-    const issuerItemStringLength = readASN1Length(cb);
-    const [endIssuerItemString] = cb.expectLength(issuerItemStringLength);
-    const issuerItemString = cb.readUTF8String(issuerItemStringLength);
-    endIssuerItemString();
-    endIssuerItemSeq();
-    endIssuerItemSet();
-  }
-  endIssuerSeq();
+  parseSeqOfSetOfSeq(cb, "issuer");
   cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence (validity)");
   const validitySeqLength = readASN1Length(cb);
   const [endValiditySeq] = cb.expectLength(validitySeqLength);
@@ -24104,6 +24115,7 @@ function parseCert(certData) {
   cb.comment("= " + notAfterTIme.toISOString());
   endNotAfterTime();
   endValiditySeq();
+  parseSeqOfSetOfSeq(cb, "subject");
   console.log(...highlightCommented_default(cb.commentedString(true), "#88c" /* server */));
 }
 function decodePEM(pem, tag = "[A-Z0-9 ]+") {

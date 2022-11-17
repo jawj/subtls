@@ -13,12 +13,14 @@ import isrgrootx2 from '../roots/isrg-root-x2.pem';
 import trustidx3root from '../roots/trustid-x3-root.pem';
 // @ts-ignore
 import cloudflare from '../roots/cloudflare.pem';
+import { hexFromU8 } from '../util/hex';
 
 const universalTypeInteger = 0x02;
 const constructedUniversalTypeSequence = 0x30;
 const constructedUniversalTypeSet = 0x31;
 const universalTypeOID = 0x06;
 const universalTypePrintableString = 0x13;
+const universalTypeUTF8String = 0x0c;
 const universalTypeUTCTime = 0x17;
 const universalTypeNull = 0x05;
 
@@ -93,6 +95,43 @@ function parseUTCTime(s: string) {
   return date;
 }
 
+function parseSeqOfSetOfSeq(cb: Bytes, seqType: string) {
+  cb.expectUint8(constructedUniversalTypeSequence, `constructed universal type: sequence (${seqType})`);
+  const seqLength = readASN1Length(cb);
+  const [endSeq, seqRemainingBytes] = cb.expectLength(seqLength);
+
+  while (seqRemainingBytes() > 0) {
+    cb.expectUint8(constructedUniversalTypeSet, 'constructed universal type: set');
+    const itemSetLength = readASN1Length(cb);
+    const [endItemSet] = cb.expectLength(itemSetLength);
+
+    cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence');
+    const itemSeqLength = readASN1Length(cb);
+    const [endItemSeq] = cb.expectLength(itemSeqLength);
+
+    cb.expectUint8(universalTypeOID, 'universal type: OID');
+    const itemOID = readASN1OID(cb);
+    cb.comment(`OID: ${itemOID} = ${rdnmap[itemOID]}`);
+
+    const valueType = cb.readUint8();
+    if (valueType === universalTypePrintableString) {
+      cb.comment('universal type: printable string');
+    } else if (valueType === universalTypeUTF8String) {
+      cb.comment('universal type: UTF8 string');
+    } else {
+      throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
+    }
+    const itemStringLength = readASN1Length(cb);
+    const [endItemString] = cb.expectLength(itemStringLength);
+    const itemString = cb.readUTF8String(itemStringLength);
+    endItemString();
+
+    endItemSeq();
+    endItemSet();
+  }
+  endSeq();
+}
+
 export function parseCert(certData: Uint8Array) {
   const cb = new Bytes(certData);
 
@@ -125,33 +164,7 @@ export function parseCert(certData: Uint8Array) {
   }
   endAlgo();
 
-  cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence (issuer)');
-  const issuerSeqLength = readASN1Length(cb);
-  const [endIssuerSeq, issuerSeqRemainingBytes] = cb.expectLength(issuerSeqLength);
-
-  while (issuerSeqRemainingBytes() > 0) {
-    cb.expectUint8(constructedUniversalTypeSet, 'constructed universal type: set');
-    const issuerItemSetLength = readASN1Length(cb);
-    const [endIssuerItemSet] = cb.expectLength(issuerItemSetLength);
-
-    cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence');
-    const issuerItemSeqLength = readASN1Length(cb);
-    const [endIssuerItemSeq] = cb.expectLength(issuerItemSeqLength);
-
-    cb.expectUint8(universalTypeOID, 'universal type: OID');
-    const issuerItemOID = readASN1OID(cb);
-    cb.comment(`OID: ${issuerItemOID} = ${rdnmap[issuerItemOID]}`);
-
-    cb.expectUint8(universalTypePrintableString, 'universal type printable string');
-    const issuerItemStringLength = readASN1Length(cb);
-    const [endIssuerItemString] = cb.expectLength(issuerItemStringLength);
-    const issuerItemString = cb.readUTF8String(issuerItemStringLength);
-    endIssuerItemString();
-
-    endIssuerItemSeq();
-    endIssuerItemSet();
-  }
-  endIssuerSeq();
+  parseSeqOfSetOfSeq(cb, 'issuer');
 
   cb.expectUint8(constructedUniversalTypeSequence, 'constructed universal type: sequence (validity)');
   const validitySeqLength = readASN1Length(cb);
@@ -164,7 +177,6 @@ export function parseCert(certData: Uint8Array) {
   const notBeforeTime = parseUTCTime(notBeforeTimeStr);
   cb.comment('= ' + notBeforeTime.toISOString());
   endNotBeforeTime();
-
   cb.expectUint8(universalTypeUTCTime, 'universal type: UTC time (not after)');
   const notAfterTimeLength = readASN1Length(cb);
   const [endNotAfterTime] = cb.expectLength(notAfterTimeLength);
@@ -172,8 +184,9 @@ export function parseCert(certData: Uint8Array) {
   const notAfterTIme = parseUTCTime(notAfterTimeStr);
   cb.comment('= ' + notAfterTIme.toISOString());
   endNotAfterTime();
-
   endValiditySeq();
+
+  parseSeqOfSetOfSeq(cb, 'subject');
 
   // endCertInfoSeq()
 
