@@ -369,20 +369,6 @@ var require_build = __commonJS({
   }
 });
 
-// src/presentation/appearance.ts
-var indentChars = "\xB7\xB7 ";
-
-// src/presentation/highlightCommented.ts
-var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
-function highlightCommented_default(s, colour) {
-  const css = [];
-  s = s.replace(regex, (m) => {
-    css.push(m.startsWith(indentChars) ? `color: #ddd` : `color: ${colour}`, "color: inherit");
-    return `%c${m}%c`;
-  });
-  return [s, ...css];
-}
-
 // src/util/array.ts
 function concat(...arrs) {
   length = arrs.reduce((memo, arr) => memo + arr.length, 0);
@@ -403,6 +389,9 @@ function equal(a, b) {
       return false;
   return true;
 }
+
+// src/presentation/appearance.ts
+var indentChars = "\xB7\xB7 ";
 
 // src/util/bytes.ts
 var txtEnc = new TextEncoder();
@@ -687,134 +676,6 @@ function makeClientHello(host, publicKey) {
   return { clientHello: h, sessionId };
 }
 
-// src/util/readqueue.ts
-var ReadQueue = class {
-  queue;
-  outstandingRequest;
-  constructor(ws) {
-    this.queue = [];
-    ws.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
-  }
-  enqueue(data) {
-    this.queue.push(data);
-    this.dequeue();
-  }
-  dequeue() {
-    if (this.outstandingRequest === void 0)
-      return;
-    const { resolve, bytes } = this.outstandingRequest;
-    const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes)
-      return;
-    this.outstandingRequest = void 0;
-    const firstItem = this.queue[0];
-    const firstItemLength = firstItem.length;
-    if (firstItemLength === bytes) {
-      this.queue.shift();
-      return resolve(firstItem);
-    } else if (firstItemLength > bytes) {
-      this.queue[0] = firstItem.subarray(bytes);
-      return resolve(firstItem.subarray(0, bytes));
-    } else {
-      const result = new Uint8Array(bytes);
-      let outstandingBytes = bytes;
-      let offset = 0;
-      while (outstandingBytes > 0) {
-        const nextItem = this.queue[0];
-        const nextItemLength = nextItem.length;
-        if (nextItemLength <= outstandingBytes) {
-          this.queue.shift();
-          result.set(nextItem, offset);
-          offset += nextItemLength;
-          outstandingBytes -= nextItemLength;
-        } else {
-          this.queue[0] = nextItem.subarray(outstandingBytes);
-          result.set(nextItem.subarray(0, outstandingBytes), offset);
-          outstandingBytes -= outstandingBytes;
-          offset += outstandingBytes;
-        }
-      }
-      return resolve(result);
-    }
-  }
-  bytesInQueue() {
-    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
-  }
-  async read(bytes) {
-    if (this.outstandingRequest !== void 0)
-      throw new Error("Can\u2019t read while already awaiting read");
-    return new Promise((resolve) => {
-      this.outstandingRequest = { resolve, bytes };
-      this.dequeue();
-    });
-  }
-};
-
-// src/tls/tlsrecord.ts
-var RecordTypeName = {
-  20: "ChangeCipherSpec",
-  21: "Alert",
-  22: "Handshake",
-  23: "Application",
-  24: "Heartbeat"
-};
-var maxRecordLength = 1 << 14;
-async function readTlsRecord(reader, expectedType) {
-  const headerData = await reader.read(5);
-  const header = new Bytes(headerData);
-  const type = header.readUint8();
-  if (type < 20 || type > 24)
-    throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
-  if (expectedType !== void 0 && type !== expectedType)
-    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
-  header.comment(`record type: ${RecordTypeName[type]}`);
-  const version = header.readUint16("TLS version");
-  if ([769, 770, 771].indexOf(version) < 0)
-    throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
-  const length2 = header.readUint16("% bytes of TLS record follow");
-  if (length2 > maxRecordLength)
-    throw new Error(`Record too long: ${length2} bytes`);
-  const content = await reader.read(length2);
-  return { headerData, header, type, version, length: length2, content };
-}
-async function readEncryptedTlsRecord(reader, decrypter, expectedType) {
-  const encryptedRecord = await readTlsRecord(reader, 23 /* Application */);
-  const encryptedBytes = new Bytes(encryptedRecord.content);
-  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remainingBytes());
-  encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
-  encryptedBytes.skip(16, "auth tag");
-  endEncrypted();
-  console.log(...highlightCommented_default(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
-  const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
-  const lastByteIndex = decryptedRecord.length - 1;
-  const record = decryptedRecord.subarray(0, lastByteIndex);
-  const type = decryptedRecord[lastByteIndex];
-  if (expectedType !== void 0 && type !== expectedType)
-    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
-  console.log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
-  return record;
-}
-async function makeEncryptedTlsRecord(data, encrypter) {
-  const headerLength = 5;
-  const dataLength = data.length;
-  const authTagLength = 16;
-  const payloadLength = dataLength + authTagLength;
-  const encryptedRecord = new Bytes(headerLength + payloadLength);
-  encryptedRecord.writeUint8(23, "record type: Application (middlebox compatibility)");
-  encryptedRecord.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
-  encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
-  const [endEncryptedRecord] = encryptedRecord.expectLength(payloadLength);
-  const header = encryptedRecord.array();
-  const encryptedData = await encrypter.process(data, 16, header);
-  encryptedRecord.writeBytes(encryptedData.subarray(0, encryptedData.length - 16));
-  encryptedRecord.comment("encrypted data");
-  encryptedRecord.writeBytes(encryptedData.subarray(encryptedData.length - 16));
-  encryptedRecord.comment("auth tag");
-  endEncryptedRecord();
-  console.log(...highlightCommented_default(encryptedRecord.commentedString(), "#8c8" /* client */));
-  return encryptedRecord.array();
-}
-
 // src/tls/parseServerHello.ts
 function parseServerHello(hello, sessionId) {
   let serverPublicKey;
@@ -896,12 +757,88 @@ function parseServerHello(hello, sessionId) {
   return serverPublicKey;
 }
 
+// src/presentation/highlightCommented.ts
+var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
+function highlightCommented_default(s, colour) {
+  const css = [];
+  s = s.replace(regex, (m) => {
+    css.push(m.startsWith(indentChars) ? `color: #ddd` : `color: ${colour}`, "color: inherit");
+    return `%c${m}%c`;
+  });
+  return [s, ...css];
+}
+
+// src/tls/tlsrecord.ts
+var RecordTypeName = {
+  20: "ChangeCipherSpec",
+  21: "Alert",
+  22: "Handshake",
+  23: "Application",
+  24: "Heartbeat"
+};
+var maxRecordLength = 1 << 14;
+async function readTlsRecord(read, expectedType) {
+  const headerData = await read(5);
+  const header = new Bytes(headerData);
+  const type = header.readUint8();
+  if (type < 20 || type > 24)
+    throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
+  if (expectedType !== void 0 && type !== expectedType)
+    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
+  header.comment(`record type: ${RecordTypeName[type]}`);
+  const version = header.readUint16("TLS version");
+  if ([769, 770, 771].indexOf(version) < 0)
+    throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
+  const length2 = header.readUint16("% bytes of TLS record follow");
+  if (length2 > maxRecordLength)
+    throw new Error(`Record too long: ${length2} bytes`);
+  const content = await read(length2);
+  return { headerData, header, type, version, length: length2, content };
+}
+async function readEncryptedTlsRecord(read, decrypter, expectedType) {
+  const encryptedRecord = await readTlsRecord(read, 23 /* Application */);
+  const encryptedBytes = new Bytes(encryptedRecord.content);
+  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remainingBytes());
+  encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
+  encryptedBytes.skip(16, "auth tag");
+  endEncrypted();
+  console.log(...highlightCommented_default(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
+  const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
+  const lastByteIndex = decryptedRecord.length - 1;
+  const record = decryptedRecord.subarray(0, lastByteIndex);
+  const type = decryptedRecord[lastByteIndex];
+  if (expectedType !== void 0 && type !== expectedType)
+    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
+  console.log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
+  return record;
+}
+async function makeEncryptedTlsRecord(data, encrypter) {
+  const headerLength = 5;
+  const dataLength = data.length;
+  const authTagLength = 16;
+  const payloadLength = dataLength + authTagLength;
+  const encryptedRecord = new Bytes(headerLength + payloadLength);
+  encryptedRecord.writeUint8(23, "record type: Application (middlebox compatibility)");
+  encryptedRecord.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
+  const [endEncryptedRecord] = encryptedRecord.expectLength(payloadLength);
+  const header = encryptedRecord.array();
+  const encryptedData = await encrypter.process(data, 16, header);
+  encryptedRecord.writeBytes(encryptedData.subarray(0, encryptedData.length - 16));
+  encryptedRecord.comment("encrypted data");
+  encryptedRecord.writeBytes(encryptedData.subarray(encryptedData.length - 16));
+  encryptedRecord.comment("auth tag");
+  endEncryptedRecord();
+  console.log(...highlightCommented_default(encryptedRecord.commentedString(), "#8c8" /* client */));
+  return encryptedRecord.array();
+}
+
 // src/util/hex.ts
 function hexFromU8(u8) {
   return [...u8].map((n) => n.toString(16).padStart(2, "0")).join("");
 }
 
-// src/tls/getKeys.ts
+// src/tls/keys.ts
 var txtEnc2 = new TextEncoder();
 async function hkdfExtract(salt, keyMaterial, hashBits) {
   const hmacKey = await crypto.subtle.importKey("raw", salt, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
@@ -4356,15 +4293,15 @@ var ByteStream = class {
     for (let i = 0; i < stringLength; i++)
       this.view[i] = string.charCodeAt(i);
   }
-  toString(start = 0, length2 = this.view.length - start) {
+  toString(start2 = 0, length2 = this.view.length - start2) {
     let result = "";
-    if (start >= this.view.length || start < 0) {
-      start = 0;
+    if (start2 >= this.view.length || start2 < 0) {
+      start2 = 0;
     }
     if (length2 >= this.view.length || length2 < 0) {
-      length2 = this.view.length - start;
+      length2 = this.view.length - start2;
     }
-    for (let i = start; i < start + length2; i++)
+    for (let i = start2; i < start2 + length2; i++)
       result += String.fromCharCode(this.view[i]);
     return result;
   }
@@ -4407,41 +4344,41 @@ var ByteStream = class {
       }
     }
   }
-  toHexString(start = 0, length2 = this.view.length - start) {
+  toHexString(start2 = 0, length2 = this.view.length - start2) {
     let result = "";
-    if (start >= this.view.length || start < 0) {
-      start = 0;
+    if (start2 >= this.view.length || start2 < 0) {
+      start2 = 0;
     }
     if (length2 >= this.view.length || length2 < 0) {
-      length2 = this.view.length - start;
+      length2 = this.view.length - start2;
     }
-    for (let i = start; i < start + length2; i++) {
+    for (let i = start2; i < start2 + length2; i++) {
       const str = this.view[i].toString(16).toUpperCase();
       result = result + (str.length == 1 ? "0" : "") + str;
     }
     return result;
   }
-  copy(start = 0, length2 = this.length - start) {
-    if (!start && !this.length) {
+  copy(start2 = 0, length2 = this.length - start2) {
+    if (!start2 && !this.length) {
       return new ByteStream();
     }
-    if (start < 0 || start > this.length - 1) {
-      throw new Error(`Wrong start position: ${start}`);
+    if (start2 < 0 || start2 > this.length - 1) {
+      throw new Error(`Wrong start position: ${start2}`);
     }
     const stream = new ByteStream({
-      buffer: this._buffer.slice(start, start + length2)
+      buffer: this._buffer.slice(start2, start2 + length2)
     });
     return stream;
   }
-  slice(start = 0, end = this.length) {
-    if (!start && !this.length) {
+  slice(start2 = 0, end = this.length) {
+    if (!start2 && !this.length) {
       return new ByteStream();
     }
-    if (start < 0 || start > this.length - 1) {
-      throw new Error(`Wrong start position: ${start}`);
+    if (start2 < 0 || start2 > this.length - 1) {
+      throw new Error(`Wrong start position: ${start2}`);
     }
     const stream = new ByteStream({
-      buffer: this._buffer.slice(start, end)
+      buffer: this._buffer.slice(start2, end)
     });
     return stream;
   }
@@ -4463,19 +4400,19 @@ var ByteStream = class {
     this.realloc(initialSize + streamViewLength);
     this._view.set(subarrayView, initialSize);
   }
-  insert(stream, start = 0, length2 = this.length - start) {
-    if (start > this.length - 1)
+  insert(stream, start2 = 0, length2 = this.length - start2) {
+    if (start2 > this.length - 1)
       return false;
-    if (length2 > this.length - start) {
-      length2 = this.length - start;
+    if (length2 > this.length - start2) {
+      length2 = this.length - start2;
     }
     if (length2 > stream.length) {
       length2 = stream.length;
     }
     if (length2 == stream.length)
-      this._view.set(stream._view, start);
+      this._view.set(stream._view, start2);
     else {
-      this._view.set(stream._view.subarray(0, length2), start);
+      this._view.set(stream._view.subarray(0, length2), start2);
     }
     return true;
   }
@@ -4498,7 +4435,7 @@ var ByteStream = class {
     return true;
   }
   findPattern(pattern, start_, length_, backward_) {
-    const { start, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
+    const { start: start2, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
     const patternLength = pattern.length;
     if (patternLength > length2) {
       return -1;
@@ -4508,7 +4445,7 @@ var ByteStream = class {
       patternArray.push(pattern.view[i]);
     for (let i = 0; i <= length2 - patternLength; i++) {
       let equal2 = true;
-      const equalStart = backward ? start - patternLength - i : start + i;
+      const equalStart = backward ? start2 - patternLength - i : start2 + i;
       for (let j = 0; j < patternLength; j++) {
         if (this.view[j + equalStart] != patternArray[j]) {
           equal2 = false;
@@ -4516,20 +4453,20 @@ var ByteStream = class {
         }
       }
       if (equal2) {
-        return backward ? start - patternLength - i : start + patternLength + i;
+        return backward ? start2 - patternLength - i : start2 + patternLength + i;
       }
     }
     return -1;
   }
   findFirstIn(patterns, start_, length_, backward_) {
-    const { start, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
+    const { start: start2, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
     const result = {
       id: -1,
-      position: backward ? 0 : start + length2,
+      position: backward ? 0 : start2 + length2,
       length: 0
     };
     for (let i = 0; i < patterns.length; i++) {
-      const position = this.findPattern(patterns[i], start, length2, backward);
+      const position = this.findPattern(patterns[i], start2, length2, backward);
       if (position != -1) {
         let valid = false;
         const patternLength = patterns[i].length;
@@ -4550,11 +4487,11 @@ var ByteStream = class {
     return result;
   }
   findAllIn(patterns, start_, length_) {
-    let { start, length: length2 } = this.prepareFindParameters(start_, length_);
+    let { start: start2, length: length2 } = this.prepareFindParameters(start_, length_);
     const result = [];
     let patternFound = {
       id: -1,
-      position: start
+      position: start2
     };
     do {
       const position = patternFound.position;
@@ -4571,7 +4508,7 @@ var ByteStream = class {
     return result;
   }
   findAllPatternIn(pattern, start_, length_) {
-    const { start, length: length2 } = this.prepareFindParameters(start_, length_);
+    const { start: start2, length: length2 } = this.prepareFindParameters(start_, length_);
     const result = [];
     const patternLength = pattern.length;
     if (patternLength > length2) {
@@ -4580,7 +4517,7 @@ var ByteStream = class {
     const patternArray = Array.from(pattern.view);
     for (let i = 0; i <= length2 - patternLength; i++) {
       let equal2 = true;
-      const equalStart = start + i;
+      const equalStart = start2 + i;
       for (let j = 0; j < patternLength; j++) {
         if (this.view[j + equalStart] != patternArray[j]) {
           equal2 = false;
@@ -4588,18 +4525,18 @@ var ByteStream = class {
         }
       }
       if (equal2) {
-        result.push(start + patternLength + i);
+        result.push(start2 + patternLength + i);
         i += patternLength - 1;
       }
     }
     return result;
   }
   findFirstNotIn(patterns, start_, length_, backward_) {
-    let { start, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
+    let { start: start2, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
     const result = {
       left: {
         id: -1,
-        position: start
+        position: start2
       },
       right: {
         id: -1,
@@ -4609,29 +4546,29 @@ var ByteStream = class {
     };
     let currentLength = length2;
     while (currentLength > 0) {
-      result.right = this.findFirstIn(patterns, backward ? start - length2 + currentLength : start + length2 - currentLength, currentLength, backward);
+      result.right = this.findFirstIn(patterns, backward ? start2 - length2 + currentLength : start2 + length2 - currentLength, currentLength, backward);
       if (result.right.id == -1) {
         length2 = currentLength;
         if (backward) {
-          start -= length2;
+          start2 -= length2;
         } else {
-          start = result.left.position;
+          start2 = result.left.position;
         }
         result.value = new ByteStream({
-          buffer: this._buffer.slice(start, start + length2)
+          buffer: this._buffer.slice(start2, start2 + length2)
         });
         break;
       }
       if (result.right.position != (backward ? result.left.position - patterns[result.right.id].length : result.left.position + patterns[result.right.id].length)) {
         if (backward) {
-          start = result.right.position + patterns[result.right.id].length;
+          start2 = result.right.position + patterns[result.right.id].length;
           length2 = result.left.position - result.right.position - patterns[result.right.id].length;
         } else {
-          start = result.left.position;
+          start2 = result.left.position;
           length2 = result.right.position - result.left.position - patterns[result.right.id].length;
         }
         result.value = new ByteStream({
-          buffer: this._buffer.slice(start, start + length2)
+          buffer: this._buffer.slice(start2, start2 + length2)
         });
         break;
       }
@@ -4646,16 +4583,16 @@ var ByteStream = class {
     return result;
   }
   findAllNotIn(patterns, start_, length_) {
-    let { start, length: length2 } = this.prepareFindParameters(start_, length_);
+    let { start: start2, length: length2 } = this.prepareFindParameters(start_, length_);
     const result = [];
     let patternFound = {
       left: {
         id: -1,
-        position: start
+        position: start2
       },
       right: {
         id: -1,
-        position: start
+        position: start2
       },
       value: new ByteStream()
     };
@@ -4678,24 +4615,24 @@ var ByteStream = class {
     return result;
   }
   findFirstSequence(patterns, start_, length_, backward_) {
-    let { start, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
-    const firstIn = this.skipNotPatterns(patterns, start, length2, backward);
+    let { start: start2, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
+    const firstIn = this.skipNotPatterns(patterns, start2, length2, backward);
     if (firstIn == -1) {
       return {
         position: -1,
         value: new ByteStream()
       };
     }
-    const firstNotIn = this.skipPatterns(patterns, firstIn, length2 - (backward ? start - firstIn : firstIn - start), backward);
+    const firstNotIn = this.skipPatterns(patterns, firstIn, length2 - (backward ? start2 - firstIn : firstIn - start2), backward);
     if (backward) {
-      start = firstNotIn;
+      start2 = firstNotIn;
       length2 = firstIn - firstNotIn;
     } else {
-      start = firstIn;
+      start2 = firstIn;
       length2 = firstNotIn - firstIn;
     }
     const value = new ByteStream({
-      buffer: this._buffer.slice(start, start + length2)
+      buffer: this._buffer.slice(start2, start2 + length2)
     });
     return {
       position: firstNotIn,
@@ -4703,10 +4640,10 @@ var ByteStream = class {
     };
   }
   findAllSequences(patterns, start_, length_) {
-    let { start, length: length2 } = this.prepareFindParameters(start_, length_);
+    let { start: start2, length: length2 } = this.prepareFindParameters(start_, length_);
     const result = [];
     let patternFound = {
-      position: start,
+      position: start2,
       value: new ByteStream()
     };
     do {
@@ -4726,13 +4663,13 @@ var ByteStream = class {
     const result = [];
     if (leftPattern.isEqual(rightPattern))
       return result;
-    const { start, length: length2 } = this.prepareFindParameters(start_, length_);
+    const { start: start2, length: length2 } = this.prepareFindParameters(start_, length_);
     let currentPositionLeft = 0;
-    const leftPatterns = this.findAllPatternIn(leftPattern, start, length2);
+    const leftPatterns = this.findAllPatternIn(leftPattern, start2, length2);
     if (!Array.isArray(leftPatterns) || leftPatterns.length == 0) {
       return result;
     }
-    const rightPatterns = this.findAllPatternIn(rightPattern, start, length2);
+    const rightPatterns = this.findAllPatternIn(rightPattern, start2, length2);
     if (!Array.isArray(rightPatterns) || rightPatterns.length == 0) {
       return result;
     }
@@ -4770,13 +4707,13 @@ var ByteStream = class {
     return result;
   }
   findPairedArrays(inputLeftPatterns, inputRightPatterns, start_, length_) {
-    const { start, length: length2 } = this.prepareFindParameters(start_, length_);
+    const { start: start2, length: length2 } = this.prepareFindParameters(start_, length_);
     const result = [];
     let currentPositionLeft = 0;
-    const leftPatterns = this.findAllIn(inputLeftPatterns, start, length2);
+    const leftPatterns = this.findAllIn(inputLeftPatterns, start2, length2);
     if (leftPatterns.length == 0)
       return result;
-    const rightPatterns = this.findAllIn(inputRightPatterns, start, length2);
+    const rightPatterns = this.findAllIn(inputRightPatterns, start2, length2);
     if (rightPatterns.length == 0)
       return result;
     while (currentPositionLeft < leftPatterns.length) {
@@ -4820,9 +4757,9 @@ var ByteStream = class {
       searchPatternPositions: [],
       replacePatternPositions: []
     };
-    const { start, length: length2 } = this.prepareFindParameters(start_, length_);
+    const { start: start2, length: length2 } = this.prepareFindParameters(start_, length_);
     if (findAllResult == null) {
-      result = this.findAllIn([searchPattern], start, length2);
+      result = this.findAllIn([searchPattern], start2, length2);
       if (result.length == 0) {
         return output;
       }
@@ -4833,9 +4770,9 @@ var ByteStream = class {
     const patternDifference = searchPattern.length - replacePattern.length;
     const changedBuffer = new ArrayBuffer(this.view.length - result.length * patternDifference);
     const changedView = new Uint8Array(changedBuffer);
-    changedView.set(new Uint8Array(this.buffer, 0, start));
+    changedView.set(new Uint8Array(this.buffer, 0, start2));
     for (i = 0; i < result.length; i++) {
-      const currentPosition = i == 0 ? start : result[i - 1].position;
+      const currentPosition = i == 0 ? start2 : result[i - 1].position;
       changedView.set(new Uint8Array(this.buffer, currentPosition, result[i].position - searchPattern.length - currentPosition), currentPosition - i * patternDifference);
       changedView.set(replacePattern.view, result[i].position - searchPattern.length - i * patternDifference);
       output.replacePatternPositions.push(result[i].position - searchPattern.length - i * patternDifference);
@@ -4848,8 +4785,8 @@ var ByteStream = class {
     return output;
   }
   skipPatterns(patterns, start_, length_, backward_) {
-    const { start, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
-    let result = start;
+    const { start: start2, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
+    let result = start2;
     for (let k = 0; k < patterns.length; k++) {
       const patternLength = patterns[k].length;
       const equalStart = backward ? result - patternLength : result;
@@ -4868,7 +4805,7 @@ var ByteStream = class {
             return result;
         } else {
           result += patternLength;
-          if (result >= start + length2)
+          if (result >= start2 + length2)
             return result;
         }
       }
@@ -4876,12 +4813,12 @@ var ByteStream = class {
     return result;
   }
   skipNotPatterns(patterns, start_, length_, backward_) {
-    const { start, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
+    const { start: start2, length: length2, backward } = this.prepareFindParameters(start_, length_, backward_);
     let result = -1;
     for (let i = 0; i < length2; i++) {
       for (let k = 0; k < patterns.length; k++) {
         const patternLength = patterns[k].length;
-        const equalStart = backward ? start - i - patternLength : start + i;
+        const equalStart = backward ? start2 - i - patternLength : start2 + i;
         let equal2 = true;
         for (let j = 0; j < patternLength; j++) {
           if (this.view[j + equalStart] != patterns[k].view[j]) {
@@ -4890,7 +4827,7 @@ var ByteStream = class {
           }
         }
         if (equal2) {
-          result = backward ? start - i : start + i;
+          result = backward ? start2 - i : start2 + i;
           break;
         }
       }
@@ -4900,29 +4837,29 @@ var ByteStream = class {
     }
     return result;
   }
-  prepareFindParameters(start = null, length2 = null, backward = false) {
-    if (start === null) {
-      start = backward ? this.length : 0;
+  prepareFindParameters(start2 = null, length2 = null, backward = false) {
+    if (start2 === null) {
+      start2 = backward ? this.length : 0;
     }
-    if (start > this.length) {
-      start = this.length;
+    if (start2 > this.length) {
+      start2 = this.length;
     }
     if (backward) {
       if (length2 === null) {
-        length2 = start;
+        length2 = start2;
       }
-      if (length2 > start) {
-        length2 = start;
+      if (length2 > start2) {
+        length2 = start2;
       }
     } else {
       if (length2 === null) {
-        length2 = this.length - start;
+        length2 = this.length - start2;
       }
-      if (length2 > this.length - start) {
-        length2 = this.length - start;
+      if (length2 > this.length - start2) {
+        length2 = this.length - start2;
       }
     }
-    return { start, length: length2, backward };
+    return { start: start2, length: length2, backward };
   }
 };
 
@@ -5047,8 +4984,8 @@ var SeqStream = class {
     return result;
   }
   findAllIn(patterns) {
-    const start = this.backward ? this.start - this.length : this.start;
-    return this.stream.findAllIn(patterns, start, this.length);
+    const start2 = this.backward ? this.start - this.length : this.start;
+    return this.stream.findAllIn(patterns, start2, this.length);
   }
   findFirstNotIn(patterns, gap = null) {
     if (gap == null || gap > this._length) {
@@ -5107,8 +5044,8 @@ var SeqStream = class {
     return result;
   }
   findAllNotIn(patterns) {
-    const start = this.backward ? this._start - this._length : this._start;
-    return this._stream.findAllNotIn(patterns, start, this._length);
+    const start2 = this.backward ? this._start - this._length : this._start;
+    return this._stream.findAllNotIn(patterns, start2, this._length);
   }
   findFirstSequence(patterns, length2 = null, gap = null) {
     if (length2 == null || length2 > this._length) {
@@ -5140,15 +5077,15 @@ var SeqStream = class {
     return result;
   }
   findAllSequences(patterns) {
-    const start = this.backward ? this.start - this.length : this.start;
-    return this.stream.findAllSequences(patterns, start, this.length);
+    const start2 = this.backward ? this.start - this.length : this.start;
+    return this.stream.findAllSequences(patterns, start2, this.length);
   }
   findPairedPatterns(leftPattern, rightPattern, gap = null) {
     if (gap == null || gap > this.length) {
       gap = this.length;
     }
-    const start = this.backward ? this.start - this.length : this.start;
-    const result = this.stream.findPairedPatterns(leftPattern, rightPattern, start, this.length);
+    const start2 = this.backward ? this.start - this.length : this.start;
+    const result = this.stream.findPairedPatterns(leftPattern, rightPattern, start2, this.length);
     if (result.length) {
       if (this.backward) {
         if (result[0].right < this.start - rightPattern.length - gap) {
@@ -5166,8 +5103,8 @@ var SeqStream = class {
     if (gap == null || gap > this.length) {
       gap = this.length;
     }
-    const start = this.backward ? this.start - this.length : this.start;
-    const result = this.stream.findPairedArrays(leftPatterns, rightPatterns, start, this.length);
+    const start2 = this.backward ? this.start - this.length : this.start;
+    const result = this.stream.findPairedArrays(leftPatterns, rightPatterns, start2, this.length);
     if (result.length) {
       if (this.backward) {
         if (result[0].right.position < this.start - rightPatterns[result[0].right.id].length - gap) {
@@ -5182,8 +5119,8 @@ var SeqStream = class {
     return result;
   }
   replacePattern(searchPattern, replacePattern) {
-    const start = this.backward ? this.start - this.length : this.start;
-    return this.stream.replacePattern(searchPattern, replacePattern, start, this.length);
+    const start2 = this.backward ? this.start - this.length : this.start;
+    return this.stream.replacePattern(searchPattern, replacePattern, start2, this.length);
   }
   skipPatterns(patterns) {
     const result = this.stream.skipPatterns(patterns, this.start, this.length, this.backward);
@@ -24287,25 +24224,91 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   console.log(...highlightCommented_default(hs.commentedString(true), "#88c" /* server */));
 }
 
+// src/util/readqueue.ts
+var ReadQueue = class {
+  queue;
+  outstandingRequest;
+  constructor(ws) {
+    this.queue = [];
+    ws.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+  }
+  enqueue(data) {
+    this.queue.push(data);
+    this.dequeue();
+  }
+  dequeue() {
+    if (this.outstandingRequest === void 0)
+      return;
+    const { resolve, bytes } = this.outstandingRequest;
+    const bytesInQueue = this.bytesInQueue();
+    if (bytesInQueue < bytes)
+      return;
+    this.outstandingRequest = void 0;
+    const firstItem = this.queue[0];
+    const firstItemLength = firstItem.length;
+    if (firstItemLength === bytes) {
+      this.queue.shift();
+      return resolve(firstItem);
+    } else if (firstItemLength > bytes) {
+      this.queue[0] = firstItem.subarray(bytes);
+      return resolve(firstItem.subarray(0, bytes));
+    } else {
+      const result = new Uint8Array(bytes);
+      let outstandingBytes = bytes;
+      let offset = 0;
+      while (outstandingBytes > 0) {
+        const nextItem = this.queue[0];
+        const nextItemLength = nextItem.length;
+        if (nextItemLength <= outstandingBytes) {
+          this.queue.shift();
+          result.set(nextItem, offset);
+          offset += nextItemLength;
+          outstandingBytes -= nextItemLength;
+        } else {
+          this.queue[0] = nextItem.subarray(outstandingBytes);
+          result.set(nextItem.subarray(0, outstandingBytes), offset);
+          outstandingBytes -= outstandingBytes;
+          offset += outstandingBytes;
+        }
+      }
+      return resolve(result);
+    }
+  }
+  bytesInQueue() {
+    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
+  }
+  async read(bytes) {
+    if (this.outstandingRequest !== void 0)
+      throw new Error("Can\u2019t read while already awaiting read");
+    return new Promise((resolve) => {
+      this.outstandingRequest = { resolve, bytes };
+      this.dequeue();
+    });
+  }
+};
+
 // src/index.ts
-async function startTls(host, port) {
-  const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
-  const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
+async function start(host, port) {
   const ws = await new Promise((resolve) => {
     const ws2 = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
     ws2.addEventListener("open", () => resolve(ws2));
   });
   const reader = new ReadQueue(ws);
+  await startTls(host, reader.read.bind(reader), ws.send.bind(ws));
+}
+async function startTls(host, read, write) {
+  const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
+  const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
   const { clientHello, sessionId } = makeClientHello(host, rawPublicKey);
   console.log(...highlightCommented_default(clientHello.commentedString(), "#8c8" /* client */));
   const clientHelloData = clientHello.array();
-  ws.send(clientHelloData);
-  const serverHelloRecord = await readTlsRecord(reader, 22 /* Handshake */);
+  write(clientHelloData);
+  const serverHelloRecord = await readTlsRecord(read, 22 /* Handshake */);
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
   console.log(...highlightCommented_default(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
-  const changeCipherRecord = await readTlsRecord(reader, 20 /* ChangeCipherSpec */);
+  const changeCipherRecord = await readTlsRecord(read, 20 /* ChangeCipherSpec */);
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
@@ -24320,7 +24323,7 @@ async function startTls(host, port) {
   const handshakeDecrypter = new Crypter("decrypt", serverHandshakeKey, handshakeKeys.serverHandshakeIV);
   const clientHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
-  const serverHandshake = await readEncryptedTlsRecord(reader, handshakeDecrypter, 22 /* Handshake */);
+  const serverHandshake = await readEncryptedTlsRecord(read, handshakeDecrypter, 22 /* Handshake */);
   await parseEncryptedHandshake(host, serverHandshake, handshakeKeys.serverSecret, hellos);
   const clientCipherChange = new Bytes(6);
   clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
@@ -24362,13 +24365,13 @@ Connection: close\r
   requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
   console.log(...highlightCommented_default(requestDataRecord.commentedString(), "#8c8" /* client */));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
-  ws.send(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
+  write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
   while (true) {
-    const serverResponse = await readEncryptedTlsRecord(reader, applicationDecrypter, 23 /* Application */);
+    const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, 23 /* Application */);
     console.log(new TextDecoder().decode(serverResponse));
   }
 }
-startTls("neon-cf-pg-test.jawj.workers.dev", 443);
+start("neon-cf-pg-test.jawj.workers.dev", 443);
 /*!
  * Copyright (c) 2014, GMO GlobalSign
  * Copyright (c) 2015-2022, Peculiar Ventures

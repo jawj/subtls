@@ -1,6 +1,6 @@
 import * as pkijs from 'pkijs';
 import { LogColours } from '../presentation/appearance';
-import { hkdfExpandLabel } from './getKeys';
+import { hkdfExpandLabel } from './keys';
 import { concat, equal } from '../util/array';
 
 import Bytes from '../util/bytes';

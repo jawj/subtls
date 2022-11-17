@@ -22,8 +22,8 @@ export const RecordTypeName = {
 
 const maxRecordLength = 1 << 14;
 
-export async function readTlsRecord(reader: ReadQueue, expectedType?: RecordType) {
-  const headerData = await reader.read(5);
+export async function readTlsRecord(read: (length: number) => Promise<Uint8Array>, expectedType?: RecordType) {
+  const headerData = await read(5);
   const header = new Bytes(headerData);
 
   const type = header.readUint8() as keyof typeof RecordTypeName;
@@ -37,12 +37,12 @@ export async function readTlsRecord(reader: ReadQueue, expectedType?: RecordType
   const length = header.readUint16('% bytes of TLS record follow');
   if (length > maxRecordLength) throw new Error(`Record too long: ${length} bytes`)
 
-  const content = await reader.read(length);
+  const content = await read(length);
   return { headerData, header, type, version, length, content };
 }
 
-export async function readEncryptedTlsRecord(reader: ReadQueue, decrypter: Crypter, expectedType?: RecordType) {
-  const encryptedRecord = await readTlsRecord(reader, RecordType.Application);
+export async function readEncryptedTlsRecord(read: (length: number) => Promise<Uint8Array>, decrypter: Crypter, expectedType?: RecordType) {
+  const encryptedRecord = await readTlsRecord(read, RecordType.Application);
 
   const encryptedBytes = new Bytes(encryptedRecord.content);
   const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remainingBytes());
