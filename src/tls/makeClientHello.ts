@@ -1,6 +1,6 @@
 import Bytes from '../util/bytes';
 
-export default function makeClientHello(host: string, publicKey: ArrayBuffer) {
+export default function makeClientHello(host: string, publicKey: ArrayBuffer, sessionId: Uint8Array) {
   const h = new Bytes(1024);
 
   h.writeUint8(0x16);
@@ -20,8 +20,7 @@ export default function makeClientHello(host: string, publicKey: ArrayBuffer) {
   h.comment('client random');
 
   const endSessionId = h.writeLengthUint8('session ID');
-  const sessionId = h.subarray(32);
-  crypto.getRandomValues(sessionId);
+  h.writeBytes(sessionId);
   h.comment('session ID (middlebox compatibility)');
   endSessionId();
 
@@ -103,5 +102,5 @@ export default function makeClientHello(host: string, publicKey: ArrayBuffer) {
   endHandshakeHeader();
   endRecordHeader();
 
-  return { clientHello: h, sessionId };
+  return h;
 }

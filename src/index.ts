@@ -26,10 +26,13 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   const ecdhKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true /* extractable */, ['deriveKey', 'deriveBits']);
   const rawPublicKey = await crypto.subtle.exportKey('raw', ecdhKeys.publicKey);
 
-  // send client hello
-  const { clientHello, sessionId } = makeClientHello(host, rawPublicKey);
+  // client hello
+  const sessionId = new Uint8Array(32);
+  crypto.getRandomValues(sessionId);
+  const clientHello = makeClientHello(host, rawPublicKey, sessionId);
   console.log(...highlightCommented(clientHello.commentedString(), LogColours.client));
   const clientHelloData = clientHello.array();
+
   write(clientHelloData);
 
   // parse server hello
@@ -46,11 +49,11 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   endCipherPayload();
   console.log(...highlightCommented(changeCipherRecord.header.commentedString() + ccipher.commentedString(), LogColours.server));
 
-  // handshake keys and encryption/decryption
+  // handshake keys, encryption/decryption instances
   console.log('%c%s', `color: ${LogColours.header}`, 'handshake key computations');
   const clientHelloContent = clientHelloData.subarray(5);  // cut off the 5-byte record header
   const serverHelloContent = serverHelloRecord.content;    // 5-byte record header is already excluded
-  const hellos = concat(clientHelloContent, serverHelloContent);  // we could slightly improve efficiency with Cloudflare's DigestStream by avoiding a concat
+  const hellos = concat(clientHelloContent, serverHelloContent);
   const handshakeKeys = await getHandshakeKeys(serverPublicKey, ecdhKeys.privateKey, hellos, 256, 16);  // would be 384, 32 for AES256_SHA384
   const serverHandshakeKey = await crypto.subtle.importKey('raw', handshakeKeys.serverHandshakeKey, { name: 'AES-GCM' }, false, ['decrypt']);
   const handshakeDecrypter = new Crypter('decrypt', serverHandshakeKey, handshakeKeys.serverHandshakeIV);
@@ -71,9 +74,8 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   console.log(...highlightCommented(clientCipherChange.commentedString(), LogColours.client));
   const clientCipherChangeData = clientCipherChange.array();  // to be sent below
 
-  // hash of whole handshake (cipher change excluded)
+  // hash of whole handshake (note: dummy cipher change is excluded)
   const wholeHandshake = concat(hellos, serverHandshake);
-  // note: we could improve efficiency with Cloudflare's DigestStream: avoid concat and just add more data to the hellosHash digest here
   const wholeHandshakeHashBuffer = await crypto.subtle.digest('SHA-256', wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
   console.log('whole handshake hash', hexFromU8(wholeHandshakeHash));
@@ -94,7 +96,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   console.log(...highlightCommented(clientFinishedRecord.commentedString(), LogColours.client));
   const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);  // to be sent below
 
-  // application keys and encryption/decryption
+  // application keys, encryption/decryption instances
   console.log('%c%s', `color: ${LogColours.header}`, 'application key computations');
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
   const clientApplicationKey = await crypto.subtle.importKey('raw', applicationKeys.clientApplicationKey, { name: 'AES-GCM' }, false, ['encrypt']);
@@ -109,10 +111,8 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   console.log(...highlightCommented(requestDataRecord.commentedString(), LogColours.client));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);  // to be sent below
 
-  // write
   write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
 
-  // read
   while (true) {
     const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, RecordType.Application);
     console.log(new TextDecoder().decode(serverResponse));
