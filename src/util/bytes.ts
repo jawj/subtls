@@ -37,7 +37,9 @@ export default class Bytes {
   }
 
   comment(s: string, offset = this.offset) {
-    this.comments[offset] = s;
+    const existing = this.comments[offset];
+    const result = (existing === undefined ? '' : existing + ' ') + s;
+    this.comments[offset] = result;
     return this;
   }
 

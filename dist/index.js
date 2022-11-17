@@ -424,7 +424,9 @@ var Bytes = class {
     return this;
   }
   comment(s, offset = this.offset) {
-    this.comments[offset] = s;
+    const existing = this.comments[offset];
+    const result = (existing === void 0 ? "" : existing + " ") + s;
+    this.comments[offset] = result;
     return this;
   }
   readBytes(length2) {
@@ -587,7 +589,7 @@ ${indentChars.repeat(indent)}`;
 };
 
 // src/tls/makeClientHello.ts
-function makeClientHello(host, publicKey) {
+function makeClientHello(host, publicKey, sessionId) {
   const h = new Bytes(1024);
   h.writeUint8(22);
   h.comment("record type: handshake");
@@ -602,8 +604,7 @@ function makeClientHello(host, publicKey) {
   crypto.getRandomValues(h.subarray(32));
   h.comment("client random");
   const endSessionId = h.writeLengthUint8("session ID");
-  const sessionId = h.subarray(32);
-  crypto.getRandomValues(sessionId);
+  h.writeBytes(sessionId);
   h.comment("session ID (middlebox compatibility)");
   endSessionId();
   const endCiphers = h.writeLengthUint16("ciphers");
@@ -673,7 +674,7 @@ function makeClientHello(host, publicKey) {
   endExtensions();
   endHandshakeHeader();
   endRecordHeader();
-  return { clientHello: h, sessionId };
+  return h;
 }
 
 // src/tls/parseServerHello.ts
@@ -23958,6 +23959,39 @@ var trustid_x3_root_default = "-----BEGIN CERTIFICATE-----\nMIIDSjCCAjKgAwIBAgIQ
 var cloudflare_default = "-----BEGIN CERTIFICATE-----\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\n-----END CERTIFICATE-----";
 
 // src/tls/cert.ts
+var universalTypeInteger = 2;
+var constructedUniversalTypeSequence = 48;
+var constructedUniversalTypeSet = 49;
+var universalTypeOID = 6;
+var universalTypePrintableString = 19;
+var universalTypeUTCTime = 23;
+var universalTypeNull = 5;
+var rdnmap = {
+  "2.5.4.6": "C",
+  "2.5.4.10": "O",
+  "2.5.4.11": "OU",
+  "2.5.4.3": "CN",
+  "2.5.4.7": "L",
+  "2.5.4.8": "ST",
+  "2.5.4.12": "T",
+  "2.5.4.42": "GN",
+  "2.5.4.43": "I",
+  "2.5.4.4": "SN",
+  "1.2.840.113549.1.9.1": "E-mail"
+};
+var algomap = {
+  "1.2.840.10040.4.3": "SHA1 with DSA",
+  "1.2.840.10045.4.1": "SHA1 with ECDSA",
+  "1.2.840.10045.4.3.2": "SHA256 with ECDSA",
+  "1.2.840.10045.4.3.3": "SHA384 with ECDSA",
+  "1.2.840.10045.4.3.4": "SHA512 with ECDSA",
+  "1.2.840.113549.1.1.10": "RSA-PSS",
+  "1.2.840.113549.1.1.5": "SHA1 with RSA",
+  "1.2.840.113549.1.1.14": "SHA224 with RSA",
+  "1.2.840.113549.1.1.11": "SHA256 with RSA",
+  "1.2.840.113549.1.1.12": "SHA384 with RSA",
+  "1.2.840.113549.1.1.13": "SHA512 with RSA"
+};
 function readASN1Length(bytes) {
   const byte1 = bytes.readUint8();
   if (byte1 < 128) {
@@ -23975,12 +24009,12 @@ function readASN1Length(bytes) {
     return bytes.readUint32("% bytes follow (ASN.1)");
   throw new Error(`ASN.1 length fields are only supported up to 4 bytes (this one is ${lengthBytes} bytes)`);
 }
-function readASN1OID(allBytes) {
-  const OIDLength = readASN1Length(allBytes);
-  const bytes = new Bytes(allBytes.subarray(OIDLength));
+function readASN1OID(bytes) {
+  const OIDLength = readASN1Length(bytes);
+  const [endOID, OIDRemainingBytes] = bytes.expectLength(OIDLength);
   const byte1 = bytes.readUint8();
   const oid = [Math.floor(byte1 / 40), byte1 % 40];
-  while (bytes.remainingBytes() > 0) {
+  while (OIDRemainingBytes() > 0) {
     let value = 0;
     while (true) {
       const nextByte = bytes.readUint8();
@@ -23991,60 +24025,85 @@ function readASN1OID(allBytes) {
     }
     oid.push(value);
   }
+  endOID();
   return oid.join(".");
 }
-var universalTypeInteger = 2;
-var constructedUniversalTypeSequence = 48;
-var constructedUniversalTypeSet = 49;
-var universalTypeOID = 6;
-var universalTypePrintableString = 19;
-var universalTypeNull = 5;
+function parseUTCTime(s) {
+  const parts = s.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
+  if (!parts)
+    throw new Error("Unrecognised UTC time format in certificate validity");
+  const [, yr2dstr, mth, dy, hr, min, sec] = parts;
+  const yr2d = parseInt(yr2dstr, 10);
+  const yr = yr2d + (yr2d >= 70 ? 1900 : 2e3);
+  const date = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);
+  return date;
+}
 function parseCert(certData) {
   const cb = new Bytes(certData);
-  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type sequence (certificate)");
+  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence (certificate)");
   const certSeqLength = readASN1Length(cb);
-  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type sequence (certificate info)");
+  const [endCertSeq] = cb.expectLength(certSeqLength);
+  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence (certificate info)");
   const certInfoSeqLength = readASN1Length(cb);
+  const [endCertInfoSeq] = cb.expectLength(certInfoSeqLength);
   cb.expectBytes([160, 3, 2, 1, 2], "certificate version v3");
-  cb.expectUint8(universalTypeInteger, "universal type integer");
+  cb.expectUint8(universalTypeInteger, "universal type: integer");
   const serialNumberLength = readASN1Length(cb);
+  const [endSerialNumber] = cb.expectLength(serialNumberLength);
   const serialNumber = cb.subarray(serialNumberLength);
   cb.comment("serial number");
-  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type sequence (algorithm)");
+  endSerialNumber();
+  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence (algorithm)");
   const algoLength = readASN1Length(cb);
-  cb.expectUint8(universalTypeOID, "universal type OID");
+  const [endAlgo, algoRemainingBytes] = cb.expectLength(algoLength);
+  cb.expectUint8(universalTypeOID, "universal type: OID");
   const algoOID = readASN1OID(cb);
-  cb.comment(`algorithm OID: ${algoOID}`);
-  const algoParamType = cb.readUint8();
-  if (algoParamType === universalTypeNull) {
-    cb.comment("universal type null");
-    cb.expectUint8(0, "null length of 0 bytes");
-  } else if (algoParamType === constructedUniversalTypeSequence) {
-    cb.comment("constructed universal type sequence");
-    const algoParamsLength = readASN1Length(cb);
-    cb.expectUint8(constructedUniversalTypeSet, "constructed universal type set");
-    const algoParam1SetLength = readASN1Length(cb);
-    cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type sequence");
-    const algoParam1SeqLength = readASN1Length(cb);
-    cb.expectUint8(universalTypeOID, "universal type OID");
-    const algoParam1OID = readASN1OID(cb);
-    cb.comment(`OID: ${algoParam1OID}`);
-    cb.expectUint8(universalTypePrintableString, "universal type printable string");
-    const param1StrLen = readASN1Length(cb);
-    const param1Str = cb.readUTF8String(param1StrLen);
-    cb.expectUint8(constructedUniversalTypeSet, "constructed universal type set");
-    const algoParam2SetLength = readASN1Length(cb);
-    cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type sequence");
-    const algoParam2SeqLength = readASN1Length(cb);
-    cb.expectUint8(universalTypeOID, "universal type OID");
-    const algoParam2OID = readASN1OID(cb);
-    cb.comment(`OID: ${algoParam2OID}`);
-    cb.expectUint8(universalTypePrintableString, "universal type printable string");
-    const param2StrLen = readASN1Length(cb);
-    const param2Str = cb.readUTF8String(param2StrLen);
-  } else {
-    throw new Error(`Unexpected ASN.1 type value 0x${algoParamType.toString(16).padStart(2, "0")}`);
+  cb.comment(`algorithm OID: ${algoOID} = ${algomap[algoOID]}`);
+  if (algoRemainingBytes() > 0) {
+    cb.expectUint8(universalTypeNull, "universal type: null");
+    cb.expectUint8(0, "null length");
   }
+  endAlgo();
+  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence (issuer)");
+  const issuerSeqLength = readASN1Length(cb);
+  const [endIssuerSeq, issuerSeqRemainingBytes] = cb.expectLength(issuerSeqLength);
+  while (issuerSeqRemainingBytes() > 0) {
+    cb.expectUint8(constructedUniversalTypeSet, "constructed universal type: set");
+    const issuerItemSetLength = readASN1Length(cb);
+    const [endIssuerItemSet] = cb.expectLength(issuerItemSetLength);
+    cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence");
+    const issuerItemSeqLength = readASN1Length(cb);
+    const [endIssuerItemSeq] = cb.expectLength(issuerItemSeqLength);
+    cb.expectUint8(universalTypeOID, "universal type: OID");
+    const issuerItemOID = readASN1OID(cb);
+    cb.comment(`OID: ${issuerItemOID} = ${rdnmap[issuerItemOID]}`);
+    cb.expectUint8(universalTypePrintableString, "universal type printable string");
+    const issuerItemStringLength = readASN1Length(cb);
+    const [endIssuerItemString] = cb.expectLength(issuerItemStringLength);
+    const issuerItemString = cb.readUTF8String(issuerItemStringLength);
+    endIssuerItemString();
+    endIssuerItemSeq();
+    endIssuerItemSet();
+  }
+  endIssuerSeq();
+  cb.expectUint8(constructedUniversalTypeSequence, "constructed universal type: sequence (validity)");
+  const validitySeqLength = readASN1Length(cb);
+  const [endValiditySeq] = cb.expectLength(validitySeqLength);
+  cb.expectUint8(universalTypeUTCTime, "universal type: UTC time (not before)");
+  const notBeforeTimeLength = readASN1Length(cb);
+  const [endNotBeforeTime] = cb.expectLength(notBeforeTimeLength);
+  const notBeforeTimeStr = cb.readUTF8String(notBeforeTimeLength);
+  const notBeforeTime = parseUTCTime(notBeforeTimeStr);
+  cb.comment("= " + notBeforeTime.toISOString());
+  endNotBeforeTime();
+  cb.expectUint8(universalTypeUTCTime, "universal type: UTC time (not after)");
+  const notAfterTimeLength = readASN1Length(cb);
+  const [endNotAfterTime] = cb.expectLength(notAfterTimeLength);
+  const notAfterTimeStr = cb.readUTF8String(notBeforeTimeLength);
+  const notAfterTIme = parseUTCTime(notAfterTimeStr);
+  cb.comment("= " + notAfterTIme.toISOString());
+  endNotAfterTime();
+  endValiditySeq();
   console.log(...highlightCommented_default(cb.commentedString(true), "#88c" /* server */));
 }
 function decodePEM(pem, tag = "[A-Z0-9 ]+") {
@@ -24084,32 +24143,6 @@ function certNamesMatch(host, certNames) {
   });
 }
 function describeCert(cert) {
-  const rdnmap = {
-    "2.5.4.6": "C",
-    "2.5.4.10": "O",
-    "2.5.4.11": "OU",
-    "2.5.4.3": "CN",
-    "2.5.4.7": "L",
-    "2.5.4.8": "ST",
-    "2.5.4.12": "T",
-    "2.5.4.42": "GN",
-    "2.5.4.43": "I",
-    "2.5.4.4": "SN",
-    "1.2.840.113549.1.9.1": "E-mail"
-  };
-  const algomap = {
-    "1.2.840.10040.4.3": "SHA1 with DSA",
-    "1.2.840.10045.4.1": "SHA1 with ECDSA",
-    "1.2.840.10045.4.3.2": "SHA256 with ECDSA",
-    "1.2.840.10045.4.3.3": "SHA384 with ECDSA",
-    "1.2.840.10045.4.3.4": "SHA512 with ECDSA",
-    "1.2.840.113549.1.1.10": "RSA-PSS",
-    "1.2.840.113549.1.1.5": "SHA1 with RSA",
-    "1.2.840.113549.1.1.14": "SHA224 with RSA",
-    "1.2.840.113549.1.1.11": "SHA256 with RSA",
-    "1.2.840.113549.1.1.12": "SHA384 with RSA",
-    "1.2.840.113549.1.1.13": "SHA512 with RSA"
-  };
   const validity = `${cert.notBefore.value.toISOString()} \u2014 ${cert.notAfter.value.toISOString()}`;
   const issuer = cert.issuer.typesAndValues.map((typeAndValue) => {
     const typeval = rdnmap[typeAndValue.type] ?? typeAndValue.type;
@@ -24300,7 +24333,9 @@ async function start(host, port) {
 async function startTls(host, read, write) {
   const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
-  const { clientHello, sessionId } = makeClientHello(host, rawPublicKey);
+  const sessionId = new Uint8Array(32);
+  crypto.getRandomValues(sessionId);
+  const clientHello = makeClientHello(host, rawPublicKey, sessionId);
   console.log(...highlightCommented_default(clientHello.commentedString(), "#8c8" /* client */));
   const clientHelloData = clientHello.array();
   write(clientHelloData);
