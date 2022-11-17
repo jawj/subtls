@@ -369,6 +369,20 @@ var require_build = __commonJS({
   }
 });
 
+// src/presentation/appearance.ts
+var indentChars = "\xB7\xB7 ";
+
+// src/presentation/highlightCommented.ts
+var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
+function highlightCommented_default(s, colour) {
+  const css = [];
+  s = s.replace(regex, (m) => {
+    css.push(m.startsWith(indentChars) ? `color: #ddd` : `color: ${colour}`, "color: inherit");
+    return `%c${m}%c`;
+  });
+  return [s, ...css];
+}
+
 // src/util/array.ts
 function concat(...arrs) {
   length = arrs.reduce((memo, arr) => memo + arr.length, 0);
@@ -393,7 +407,6 @@ function equal(a, b) {
 // src/util/bytes.ts
 var txtEnc = new TextEncoder();
 var txtDec = new TextDecoder();
-var indentChars = "\xB7\xB7 ";
 var Bytes = class {
   offset;
   dataView;
@@ -463,23 +476,6 @@ var Bytes = class {
       this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
-  assertByteCount(length2) {
-    const startOffset = this.offset;
-    const endOffset = startOffset + length2;
-    if (endOffset > this.uint8Array.length)
-      throw new Error("Asserted byte count exceeds remaining data");
-    this.indent += 1;
-    this.indents[startOffset] = this.indent;
-    return [
-      () => {
-        this.indent -= 1;
-        this.indents[this.offset] = this.indent;
-        if (this.offset !== endOffset)
-          throw new Error(`${length2} bytes claimed but ${this.offset - startOffset} read`);
-      },
-      () => endOffset - this.offset
-    ];
-  }
   expectBytes(expected, comment) {
     const actual = this.readBytes(expected.length);
     if (comment !== void 0)
@@ -507,6 +503,23 @@ var Bytes = class {
       this.comment(comment);
     if (actualValue !== expectedValue)
       throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
+  expectLength(length2) {
+    const startOffset = this.offset;
+    const endOffset = startOffset + length2;
+    if (endOffset > this.uint8Array.length)
+      throw new Error("Asserted byte count exceeds remaining data");
+    this.indent += 1;
+    this.indents[startOffset] = this.indent;
+    return [
+      () => {
+        this.indent -= 1;
+        this.indents[this.offset] = this.indent;
+        if (this.offset !== endOffset)
+          throw new Error(`${length2} bytes claimed but ${this.offset - startOffset} read`);
+      },
+      () => endOffset - this.offset
+    ];
   }
   writeBytes(bytes) {
     this.uint8Array.set(bytes, this.offset);
@@ -584,18 +597,7 @@ ${indentChars.repeat(indent)}`;
   }
 };
 
-// src/util/highlightCommented.ts
-var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
-function highlightCommented_default(s, colour) {
-  const css = [];
-  s = s.replace(regex, (m) => {
-    css.push(m.startsWith(indentChars) ? `color: #ddd` : `color: ${colour}`, "color: inherit");
-    return `%c${m}%c`;
-  });
-  return [s, ...css];
-}
-
-// src/clientHello.ts
+// src/tls/makeClientHello.ts
 function makeClientHello(host, publicKey) {
   const h = new Bytes(1024);
   h.writeUint8(22);
@@ -748,7 +750,7 @@ var ReadQueue = class {
   }
 };
 
-// src/util/tlsrecord.ts
+// src/tls/tlsrecord.ts
 var RecordTypeName = {
   20: "ChangeCipherSpec",
   21: "Alert",
@@ -778,7 +780,7 @@ async function readTlsRecord(reader, expectedType) {
 async function readEncryptedTlsRecord(reader, decrypter, expectedType) {
   const encryptedRecord = await readTlsRecord(reader, 23 /* Application */);
   const encryptedBytes = new Bytes(encryptedRecord.content);
-  const [endEncrypted] = encryptedBytes.assertByteCount(encryptedBytes.remainingBytes());
+  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remainingBytes());
   encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
   encryptedBytes.skip(16, "auth tag");
   endEncrypted();
@@ -801,7 +803,7 @@ async function makeEncryptedTlsRecord(data, encrypter) {
   encryptedRecord.writeUint8(23, "record type: Application (middlebox compatibility)");
   encryptedRecord.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
   encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
-  const [endEncryptedRecord] = encryptedRecord.assertByteCount(payloadLength);
+  const [endEncryptedRecord] = encryptedRecord.expectLength(payloadLength);
   const header = encryptedRecord.array();
   const encryptedData = await encrypter.process(data, 16, header);
   encryptedRecord.writeBytes(encryptedData.subarray(0, encryptedData.length - 16));
@@ -813,14 +815,14 @@ async function makeEncryptedTlsRecord(data, encrypter) {
   return encryptedRecord.array();
 }
 
-// src/parseServerHello.ts
+// src/tls/parseServerHello.ts
 function parseServerHello(hello, sessionId) {
   let serverPublicKey;
   let tlsVersionSpecified;
-  const [endServerHelloMessage] = hello.assertByteCount(hello.remainingBytes());
+  const [endServerHelloMessage] = hello.expectLength(hello.remainingBytes());
   hello.expectUint8(2, "handshake type: server hello");
   const helloLength = hello.readUint24("% bytes of server hello follow");
-  const [endServerHello] = hello.assertByteCount(helloLength);
+  const [endServerHello] = hello.expectLength(helloLength);
   hello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
   const serverRandom = hello.readBytes(32);
   if (equal(serverRandom, [
@@ -864,11 +866,11 @@ function parseServerHello(hello, sessionId) {
   hello.expectUint16(4865, "cipher (matches client hello)");
   hello.expectUint8(0, "no compression");
   const extensionsLength = hello.readUint16("extensions length");
-  const [endExtensions, extensionsRemainingBytes] = hello.assertByteCount(extensionsLength);
+  const [endExtensions, extensionsRemainingBytes] = hello.expectLength(extensionsLength);
   while (extensionsRemainingBytes() > 0) {
     const extensionType = hello.readUint16("extension type");
     const extensionLength = hello.readUint16("extension length");
-    const [endExtension] = hello.assertByteCount(extensionLength);
+    const [endExtension] = hello.expectLength(extensionLength);
     if (extensionType === 43) {
       if (extensionLength !== 2)
         throw new Error(`Unexpected extension length: ${extensionLength} (expected 2)`);
@@ -899,7 +901,7 @@ function hexFromU8(u8) {
   return [...u8].map((n) => n.toString(16).padStart(2, "0")).join("");
 }
 
-// src/keyscalc.ts
+// src/tls/getKeys.ts
 var txtEnc2 = new TextEncoder();
 async function hkdfExtract(salt, keyMaterial, hashBits) {
   const hmacKey = await crypto.subtle.importKey("raw", salt, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
@@ -992,7 +994,7 @@ async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyL
   return { serverApplicationKey, serverApplicationIV, clientApplicationKey, clientApplicationIV };
 }
 
-// src/aesgcm.ts
+// src/tls/aesgcm.ts
 var Crypter = class {
   mode;
   key;
@@ -24018,7 +24020,7 @@ var trustid_x3_root_default = "-----BEGIN CERTIFICATE-----\nMIIDSjCCAjKgAwIBAgIQ
 // src/roots/cloudflare.pem
 var cloudflare_default = "-----BEGIN CERTIFICATE-----\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\n-----END CERTIFICATE-----";
 
-// src/util/cert.ts
+// src/tls/cert.ts
 function readASN1Length(bytes) {
   const byte1 = bytes.readUint8();
   if (byte1 < 128) {
@@ -24192,17 +24194,17 @@ validity: ${validity}
 signature algorithm: ${signatureAlgorithm}`;
 }
 
-// src/parseEncryptedHandshake.ts
+// src/tls/parseEncryptedHandshake.ts
 async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const hs = new Bytes(record);
-  const [endHs] = hs.assertByteCount(record.length);
+  const [endHs] = hs.expectLength(record.length);
   hs.expectUint8(8, "handshake record type: encrypted extensions");
   const eeMessageLength = hs.readUint24("% bytes of handshake data follows");
-  const [eeMessageEnd] = hs.assertByteCount(eeMessageLength);
+  const [eeMessageEnd] = hs.expectLength(eeMessageLength);
   if (eeMessageLength !== 2 && eeMessageLength !== 6)
     throw new Error("Unexpected extensions length");
   const extLength = hs.readUint16("% bytes of extensions data follow");
-  const [extEnd] = hs.assertByteCount(extLength);
+  const [extEnd] = hs.expectLength(extLength);
   if (extLength > 0) {
     hs.expectUint16(0, "extension type: SNI");
     hs.expectUint16(0, "no extension data");
@@ -24211,19 +24213,19 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   eeMessageEnd();
   hs.expectUint8(11, "handshake message type: server certificate");
   const certPayloadLength = hs.readUint24("% bytes of certificate payload follow");
-  const [endCertPayload] = hs.assertByteCount(certPayloadLength);
+  const [endCertPayload] = hs.expectLength(certPayloadLength);
   hs.expectUint8(0, "0 bytes of request context follow");
   let remainingCertsLength = hs.readUint24("% bytes of certificates follow");
-  const [endCerts, certsRemainingBytes] = hs.assertByteCount(remainingCertsLength);
+  const [endCerts, certsRemainingBytes] = hs.expectLength(remainingCertsLength);
   const certEntries = [];
   while (certsRemainingBytes() > 0) {
     const certLength = hs.readUint24("% bytes of certificate follow");
-    const [endCert] = hs.assertByteCount(certLength);
+    const [endCert] = hs.expectLength(certLength);
     const certData = hs.readBytes(certLength);
     hs.comment("server certificate");
     endCert();
     const certExtLength = hs.readUint16("% bytes of certificate extensions follow");
-    const [endCertExt] = hs.assertByteCount(certExtLength);
+    const [endCertExt] = hs.expectLength(certExtLength);
     const certExtData = hs.readBytes(certExtLength);
     endCertExt();
     const cert = Certificate.fromBER(certData);
@@ -24256,10 +24258,10 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
     throw new Error(chain.resultMessage);
   hs.expectUint8(15, "handshake message type: certificate verify");
   const certVerifyPayloadLength = hs.readUint24("% bytes of handshake message data follow");
-  const [endCertVerifyPayload] = hs.assertByteCount(certVerifyPayloadLength);
+  const [endCertVerifyPayload] = hs.expectLength(certVerifyPayloadLength);
   const signatureType = hs.readUint16("signature type");
   const signatureLength = hs.readUint16("signature length");
-  const [endSignature] = hs.assertByteCount(signatureLength);
+  const [endSignature] = hs.expectLength(signatureLength);
   const signature = hs.readBytes(signatureLength);
   hs.comment("signature");
   endSignature();
@@ -24273,7 +24275,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
   hs.expectUint8(20, "handshake message type: finished");
   const hsFinishedPayloadLength = hs.readUint24("% bytes of handshake message data follow");
-  const [endHsFinishedPayload] = hs.assertByteCount(hsFinishedPayloadLength);
+  const [endHsFinishedPayload] = hs.expectLength(hsFinishedPayloadLength);
   const verifyHash = hs.readBytes(hsFinishedPayloadLength);
   hs.comment("verify hash");
   endHsFinishedPayload();
@@ -24305,7 +24307,7 @@ async function startTls(host, port) {
   console.log(...highlightCommented_default(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
   const changeCipherRecord = await readTlsRecord(reader, 20 /* ChangeCipherSpec */);
   const ccipher = new Bytes(changeCipherRecord.content);
-  const [endCipherPayload] = ccipher.assertByteCount(1);
+  const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
   endCipherPayload();
   console.log(...highlightCommented_default(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));

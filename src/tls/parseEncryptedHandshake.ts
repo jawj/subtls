@@ -1,24 +1,24 @@
 import * as pkijs from 'pkijs';
-import { Colours } from './colours';
-import { hkdfExpandLabel } from './keyscalc';
-import { concat, equal } from './util/array';
+import { LogColours } from '../presentation/appearance';
+import { hkdfExpandLabel } from './getKeys';
+import { concat, equal } from '../util/array';
 
-import Bytes from './util/bytes';
-import { certNamesMatch, getRootCerts, describeCert, getSubjectAltNamesDNSNames, parseCert } from './util/cert';
-import highlightCommented from './util/highlightCommented';
+import Bytes from '../util/bytes';
+import { certNamesMatch, getRootCerts, describeCert, getSubjectAltNamesDNSNames, parseCert } from './cert';
+import highlightCommented from '../presentation/highlightCommented';
 
 export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
   // parse encrypted handshake part
   const hs = new Bytes(record);
-  const [endHs] = hs.assertByteCount(record.length);
+  const [endHs] = hs.expectLength(record.length);
 
   hs.expectUint8(0x08, 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
   const eeMessageLength = hs.readUint24('% bytes of handshake data follows');
-  const [eeMessageEnd] = hs.assertByteCount(eeMessageLength);
+  const [eeMessageEnd] = hs.expectLength(eeMessageLength);
 
   if (eeMessageLength !== 2 && eeMessageLength !== 6) throw new Error('Unexpected extensions length');
   const extLength = hs.readUint16('% bytes of extensions data follow');
-  const [extEnd] = hs.assertByteCount(extLength);
+  const [extEnd] = hs.expectLength(extLength);
   /* 
    "A server that receives a client hello containing the "server_name"
    extension MAY use the information contained in the extension to guide
@@ -37,22 +37,22 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   hs.expectUint8(0x0b, 'handshake message type: server certificate');
   const certPayloadLength = hs.readUint24('% bytes of certificate payload follow');
-  const [endCertPayload] = hs.assertByteCount(certPayloadLength);
+  const [endCertPayload] = hs.expectLength(certPayloadLength);
 
   hs.expectUint8(0x00, '0 bytes of request context follow');
   let remainingCertsLength = hs.readUint24('% bytes of certificates follow');
-  const [endCerts, certsRemainingBytes] = hs.assertByteCount(remainingCertsLength);
+  const [endCerts, certsRemainingBytes] = hs.expectLength(remainingCertsLength);
 
   const certEntries = [];
   while (certsRemainingBytes() > 0) {
     const certLength = hs.readUint24('% bytes of certificate follow');
-    const [endCert] = hs.assertByteCount(certLength);
+    const [endCert] = hs.expectLength(certLength);
     const certData = hs.readBytes(certLength);
     hs.comment('server certificate');
     endCert();
 
     const certExtLength = hs.readUint16('% bytes of certificate extensions follow');
-    const [endCertExt] = hs.assertByteCount(certExtLength);
+    const [endCertExt] = hs.expectLength(certExtLength);
     const certExtData = hs.readBytes(certExtLength);
     endCertExt();
 
@@ -66,7 +66,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   if (certEntries.length === 0) throw new Error('No certificates supplied');
 
-  console.log('%c%s', `color: ${Colours.header}`, 'certificates');
+  console.log('%c%s', `color: ${LogColours.header}`, 'certificates');
   for (const entry of certEntries) console.log(describeCert(entry.cert));
 
   const userCert = certEntries[0].cert;
@@ -79,7 +79,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   // Is this OK? https://scotthelme.co.uk/should-clients-care-about-the-expiration-of-a-root-certificate/
   const rootCerts = getRootCerts();
 
-  console.log('%c%s', `color: ${Colours.header}`, 'trusted root certificates');
+  console.log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
   for (const cert of rootCerts) console.log(describeCert(cert));
 
   const chainEngine = new pkijs.CertificateChainValidationEngine({
@@ -93,10 +93,10 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   hs.expectUint8(0x0f, 'handshake message type: certificate verify');
   const certVerifyPayloadLength = hs.readUint24('% bytes of handshake message data follow');
-  const [endCertVerifyPayload] = hs.assertByteCount(certVerifyPayloadLength);
+  const [endCertVerifyPayload] = hs.expectLength(certVerifyPayloadLength);
   const signatureType = hs.readUint16('signature type');
   const signatureLength = hs.readUint16('signature length');
-  const [endSignature] = hs.assertByteCount(signatureLength);
+  const [endSignature] = hs.expectLength(signatureLength);
   const signature = hs.readBytes(signatureLength);
   hs.comment('signature');
   endSignature();
@@ -112,7 +112,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   hs.expectUint8(0x14, 'handshake message type: finished');
   const hsFinishedPayloadLength = hs.readUint24('% bytes of handshake message data follow');
-  const [endHsFinishedPayload] = hs.assertByteCount(hsFinishedPayloadLength);
+  const [endHsFinishedPayload] = hs.expectLength(hsFinishedPayloadLength);
   const verifyHash = hs.readBytes(hsFinishedPayloadLength);
   hs.comment('verify hash');
   endHsFinishedPayload();
@@ -122,5 +122,5 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   if (equal(verifyHash, correctVerifyHash)) console.log('server verify hash validated');
   else throw new Error('Invalid server verify hash');
 
-  console.log(...highlightCommented(hs.commentedString(true), Colours.server));
+  console.log(...highlightCommented(hs.commentedString(true), LogColours.server));
 }

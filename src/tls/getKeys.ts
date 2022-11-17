@@ -1,5 +1,5 @@
-import { hexFromU8 } from './util/hex';
-import { concat } from './util/array';
+import { hexFromU8 } from '../util/hex';
+import { concat } from '../util/array';
 
 const txtEnc = new TextEncoder();
 

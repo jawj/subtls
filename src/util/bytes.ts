@@ -1,9 +1,8 @@
 import { equal } from './array';
+import { indentChars } from '../presentation/appearance';
 
 const txtEnc = new TextEncoder();
 const txtDec = new TextDecoder();
-
-export const indentChars = '·· ';  // careful: this has complex interactions with highlightCommented
 
 export default class Bytes {
   offset: number;
@@ -84,22 +83,6 @@ export default class Bytes {
     return result;
   }
 
-  assertByteCount(length: number) {
-    const startOffset = this.offset;
-    const endOffset = startOffset + length;
-    if (endOffset > this.uint8Array.length) throw new Error('Asserted byte count exceeds remaining data');
-    this.indent += 1;
-    this.indents[startOffset] = this.indent;
-    return [
-      () => {
-        this.indent -= 1;
-        this.indents[this.offset] = this.indent;
-        if (this.offset !== endOffset) throw new Error(`${length} bytes claimed but ${this.offset - startOffset} read`);
-      },
-      () => endOffset - this.offset,
-    ] as const;
-  }
-
   expectBytes(expected: Uint8Array | number[], comment?: string) {
     const actual = this.readBytes(expected.length);
     if (comment !== undefined) this.comment(comment);
@@ -122,6 +105,22 @@ export default class Bytes {
     const actualValue = this.readUint24();
     if (comment !== undefined) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
+
+  expectLength(length: number) {
+    const startOffset = this.offset;
+    const endOffset = startOffset + length;
+    if (endOffset > this.uint8Array.length) throw new Error('Asserted byte count exceeds remaining data');
+    this.indent += 1;
+    this.indents[startOffset] = this.indent;
+    return [
+      () => {
+        this.indent -= 1;
+        this.indents[this.offset] = this.indent;
+        if (this.offset !== endOffset) throw new Error(`${length} bytes claimed but ${this.offset - startOffset} read`);
+      },
+      () => endOffset - this.offset,
+    ] as const;
   }
 
   // writing

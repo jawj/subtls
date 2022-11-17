@@ -1,15 +1,15 @@
-import { equal } from './util/array';
-import Bytes from './util/bytes';
+import { equal } from '../util/array';
+import Bytes from '../util/bytes';
 
 export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
   let serverPublicKey;
   let tlsVersionSpecified;
 
-  const [endServerHelloMessage] = hello.assertByteCount(hello.remainingBytes());
+  const [endServerHelloMessage] = hello.expectLength(hello.remainingBytes());
 
   hello.expectUint8(0x02, 'handshake type: server hello');
   const helloLength = hello.readUint24('% bytes of server hello follow');
-  const [endServerHello] = hello.assertByteCount(helloLength);
+  const [endServerHello] = hello.expectLength(helloLength);
 
   hello.expectUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
   const serverRandom = hello.readBytes(32);
@@ -30,12 +30,12 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
   hello.expectUint8(0x00, 'no compression');
 
   const extensionsLength = hello.readUint16('extensions length');
-  const [endExtensions, extensionsRemainingBytes] = hello.assertByteCount(extensionsLength);
+  const [endExtensions, extensionsRemainingBytes] = hello.expectLength(extensionsLength);
 
   while (extensionsRemainingBytes() > 0) {
     const extensionType = hello.readUint16('extension type');
     const extensionLength = hello.readUint16('extension length');
-    const [endExtension] = hello.assertByteCount(extensionLength);
+    const [endExtension] = hello.expectLength(extensionLength);
 
     if (extensionType === 0x002b) {
       if (extensionLength !== 2) throw new Error(`Unexpected extension length: ${extensionLength} (expected 2)`);

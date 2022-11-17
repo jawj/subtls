@@ -1,16 +1,16 @@
 
-import highlightCommented from './util/highlightCommented';
-import makeClientHello from './clientHello';
+import highlightCommented from './presentation/highlightCommented';
+import makeClientHello from './tls/makeClientHello';
 import { ReadQueue } from './util/readqueue';
-import { makeEncryptedTlsRecord, readEncryptedTlsRecord, readTlsRecord, RecordType } from './util/tlsrecord';
+import { makeEncryptedTlsRecord, readEncryptedTlsRecord, readTlsRecord, RecordType } from './tls/tlsrecord';
 import Bytes from './util/bytes';
-import parseServerHello from './parseServerHello';
-import { getApplicationKeys, getHandshakeKeys, hkdfExpandLabel } from './keyscalc';
+import parseServerHello from './tls/parseServerHello';
+import { getApplicationKeys, getHandshakeKeys, hkdfExpandLabel } from './tls/getKeys';
 import { hexFromU8 } from './util/hex';
-import { Crypter } from './aesgcm';
+import { Crypter } from './tls/aesgcm';
 import { concat } from './util/array';
-import { Colours } from './colours';
-import { parseEncryptedHandshake } from './parseEncryptedHandshake';
+import { LogColours } from './presentation/appearance';
+import { parseEncryptedHandshake } from './tls/parseEncryptedHandshake';
 
 async function startTls(host: string, port: number) {
   const ecdhKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true /* extractable */, ['deriveKey', 'deriveBits']);
@@ -26,7 +26,7 @@ async function startTls(host: string, port: number) {
 
   // client hello
   const { clientHello, sessionId } = makeClientHello(host, rawPublicKey);
-  console.log(...highlightCommented(clientHello.commentedString(), Colours.client));
+  console.log(...highlightCommented(clientHello.commentedString(), LogColours.client));
   const clientHelloData = clientHello.array();
   ws.send(clientHelloData);
 
@@ -34,18 +34,18 @@ async function startTls(host: string, port: number) {
   const serverHelloRecord = await readTlsRecord(reader, RecordType.Handshake);
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
-  console.log(...highlightCommented(serverHelloRecord.header.commentedString() + serverHello.commentedString(), Colours.server));
+  console.log(...highlightCommented(serverHelloRecord.header.commentedString() + serverHello.commentedString(), LogColours.server));
 
   // dummy cipher change
   const changeCipherRecord = await readTlsRecord(reader, RecordType.ChangeCipherSpec);
   const ccipher = new Bytes(changeCipherRecord.content);
-  const [endCipherPayload] = ccipher.assertByteCount(1);
+  const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(0x01, 'dummy ChangeCipherSpec payload (middlebox compatibility)');
   endCipherPayload();
-  console.log(...highlightCommented(changeCipherRecord.header.commentedString() + ccipher.commentedString(), Colours.server));
+  console.log(...highlightCommented(changeCipherRecord.header.commentedString() + ccipher.commentedString(), LogColours.server));
 
   // keys
-  console.log('%c%s', `color: ${Colours.header}`, 'handshake key computations');
+  console.log('%c%s', `color: ${LogColours.header}`, 'handshake key computations');
   const clientHelloContent = clientHelloData.subarray(5);  // cut off the 5-byte record header
   const serverHelloContent = serverHelloRecord.content;    // 5-byte record header is already excluded
   const hellos = concat(clientHelloContent, serverHelloContent);  // we could slightly improve efficiency with Cloudflare's DigestStream by avoiding a concat
@@ -66,7 +66,7 @@ async function startTls(host: string, port: number) {
   const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
   clientCipherChange.writeUint8(0x01, 'dummy ChangeCipherSpec payload (middlebox compatibility)');
   endClientCipherChangePayload();
-  console.log(...highlightCommented(clientCipherChange.commentedString(), Colours.client));
+  console.log(...highlightCommented(clientCipherChange.commentedString(), LogColours.client));
   const clientCipherChangeData = clientCipherChange.array();
   // ws.send(clientCipherChangeData);  // no: we'll batch this up and send below
 
@@ -90,13 +90,13 @@ async function startTls(host: string, port: number) {
   clientFinishedRecord.comment('verify data');
   clientFinishedRecordEnd();
   clientFinishedRecord.writeUint8(RecordType.Handshake, 'record type: Handshake');
-  console.log(...highlightCommented(clientFinishedRecord.commentedString(), Colours.client));
+  console.log(...highlightCommented(clientFinishedRecord.commentedString(), LogColours.client));
 
   const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);
   // ws.send(encryptedClientFinished);  // no: we'll batch this up and send below
 
   // application keys
-  console.log('%c%s', `color: ${Colours.header}`, 'application key computations');
+  console.log('%c%s', `color: ${LogColours.header}`, 'application key computations');
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
   const clientApplicationKey = await crypto.subtle.importKey('raw', applicationKeys.clientApplicationKey, { name: 'AES-GCM' }, false, ['encrypt']);
   const applicationEncrypter = new Crypter('encrypt', clientApplicationKey, applicationKeys.clientApplicationIV);
@@ -107,7 +107,7 @@ async function startTls(host: string, port: number) {
   const requestDataRecord = new Bytes(1024);
   requestDataRecord.writeUTF8String(`GET / HTTP/1.1\r\nHost:${host}\r\nConnection: close\r\n\r\n`);
   requestDataRecord.writeUint8(RecordType.Application, 'record type: Application');
-  console.log(...highlightCommented(requestDataRecord.commentedString(), Colours.client));
+  console.log(...highlightCommented(requestDataRecord.commentedString(), LogColours.client));
 
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
   // ws.send(encryptedRequest);  // no: we'll batch this up and send below

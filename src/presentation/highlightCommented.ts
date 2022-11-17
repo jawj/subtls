@@ -1,5 +1,5 @@
 
-import { indentChars } from './bytes';
+import { indentChars } from './appearance';
 
 const regex = new RegExp(`  .+|^(${indentChars})+`, 'gm');
 

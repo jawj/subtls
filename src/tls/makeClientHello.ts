@@ -1,4 +1,4 @@
-import Bytes from './util/bytes';
+import Bytes from '../util/bytes';
 
 export default function makeClientHello(host: string, publicKey: ArrayBuffer) {
   const h = new Bytes(1024);

@@ -1,9 +1,9 @@
 import * as pkijs from 'pkijs';
 
-import { base64Decode } from './base64';
-import Bytes from './bytes';
-import highlightCommented from './highlightCommented';
-import { Colours } from '../colours';
+import { base64Decode } from '../util/base64';
+import Bytes from '../util/bytes';
+import highlightCommented from '../presentation/highlightCommented';
+import { LogColours } from '../presentation/appearance';
 
 // @ts-ignore
 import isrgrootx1 from '../roots/isrg-root-x1.pem';
@@ -105,7 +105,7 @@ export function parseCert(certData: Uint8Array) {
     throw new Error(`Unexpected ASN.1 type value 0x${algoParamType.toString(16).padStart(2, '0')}`);
   }
 
-  console.log(...highlightCommented(cb.commentedString(true), Colours.server));
+  console.log(...highlightCommented(cb.commentedString(true), LogColours.server));
 }
 
 export function decodePEM(pem: string, tag = "[A-Z0-9 ]+") {
