@@ -29,7 +29,19 @@ const universalTypeNull = 0x05;
 const universalTypeOctetString = 0x04;
 const universalTypeBitString = 0x03;
 const constructedContextSpecificType = 0xa3;
-const dNSName = 0x82;
+const contextSpecificType = 0x80;
+
+enum GeneralName {
+  otherName = 0x00,                  // [0] OTHER NAME
+  rfc822Name = 0x01,                 // [1] IA5String
+  dNSName = 0x02,                    // [2] IA5String
+  x400Address = 0x03,                // [3] ORAddress
+  directoryName = 0x04,              // [4] Name
+  ediPartyName = 0x05,               // [5] EDIPartyName
+  uniformResourceIdentifier = 0x06,  // [6] IA5String
+  iPAddress = 0x07,                  // [7] OCTET STRING
+  registeredID = 0x08,               // [8] OBJECT IDENTIFIER
+}
 
 const DNOIDMap: Record<string, string> = {
   "2.5.4.6": "C",
@@ -140,6 +152,27 @@ function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for issuer
   return result;
 }
 
+function readNamesSeq(cb: ASN1Bytes, typeUnionBits = 0x00) {
+  const names = [];
+  const [endNamesSeq, namesSeqRemaining] = cb.expectASN1Length('names sequence');
+  while (namesSeqRemaining() > 0) {
+    const type = cb.readUint8('GeneralNames type');
+    const [endName, nameRemaining] = cb.expectASN1Length('name');
+    let name;
+    if (type === (typeUnionBits | GeneralName.dNSName)) {
+      name = cb.readUTF8String(nameRemaining());
+      cb.comment('= DNS name');
+    } else {
+      name = cb.readBytes(nameRemaining());
+      cb.comment(`= name (type 0x${hexFromU8([type])})`)
+    }
+    names.push({ name, type });
+    endName();
+  }
+  endNamesSeq();
+  return names;
+}
+
 export function parseCert(certData: Uint8Array) {
   const cb = new ASN1Bytes(certData);
   const cert: Record<string, any> = {};
@@ -230,30 +263,17 @@ export function parseCert(certData: Uint8Array) {
     cb.comment(`= ${extOIDMap[extOID]}`);
 
     if (extOID === "2.5.29.17") {  // subjectAltName
-      cert.subjectAltNames = [];
-
       cb.expectUint8(universalTypeOctetString, 'octet string');
       const [endSanDerDoc] = cb.expectASN1Length('DER document');
       cb.expectUint8(constructedUniversalTypeSequence, 'sequence (names)');
-      const [endSanSeq, sanSeqRemaining] = cb.expectASN1Length('names sequence');
-      while (sanSeqRemaining() > 0) {
-        const nameType = cb.readUint8('GeneralName type');
-        const [endSanName, sanNameRemaining] = cb.expectASN1Length('name');
-        if (nameType === dNSName) {
-          const sanName = cb.readUTF8String(sanNameRemaining());
-          cert.subjectAltNames.push(sanName);
-          cb.comment('= DNS name');
-        } else {
-          cb.skip(sanNameRemaining(), 'unparsed name data');
-        }
-        endSanName();
-      }
-      endSanSeq();
+      cert.subjectAltNames = readNamesSeq(cb, contextSpecificType);
+      cert.subjectAltNamesDNSOnly = cert.subjectAltNames
+        .filter((san: any) => san.type === (GeneralName.dNSName | contextSpecificType))
+        .map((san: any) => san.name);
       endSanDerDoc();
 
     } else if (extOID === '2.5.29.15') {  // keyUsage
       cert.keyUsage = {};
-
       cb.expectUint8(universalTypeBoolean, 'boolean');
       cert.keyUsage.critical = cb.readASN1Boolean();
       cb.comment('<- critical');
@@ -282,7 +302,6 @@ export function parseCert(certData: Uint8Array) {
 
     } else if (extOID === '2.5.29.37') {  // extKeyUsage
       cert.extKeyUsage = { OIDs: [] };
-
       cb.expectUint8(universalTypeOctetString, 'octet string');
       const [endExtKeyUsageDer] = cb.expectASN1Length('DER document');
       cb.expectUint8(constructedUniversalTypeSequence, 'sequence');
@@ -298,9 +317,81 @@ export function parseCert(certData: Uint8Array) {
       endExtKeyUsage();
       endExtKeyUsageDer();
 
-    } else {
+    } else if (extOID === '2.5.29.35') {  // authorityKeyIdentifier
+      while (extRemaining() > 0) {
+        let nextType = cb.readUint8();
 
-      cb.skip(extRemaining(), 'unparsed extension data');
+        if (nextType === universalTypeOctetString) {
+          const [endAuthKeyId, authKeyIdRemaining] = cb.expectASN1Length('authority key identifier');
+          cert.authorityKeyIdentifier = cb.readBytes(authKeyIdRemaining());
+          cb.comment('authority key identifier');
+          endAuthKeyId();
+
+        } else {
+          const [endAuthKeyField, authKeyFieldRemaining] = cb.expectASN1Length('unsupported authorityKeyIdentifier field');
+          cb.skip(authKeyFieldRemaining(), 'unsupported authorityKeyIdentifier field');
+          endAuthKeyField();
+        }
+      }
+
+    } else if (extOID === '2.5.29.14') {  // subjectKeyIdentifier
+      while (extRemaining() > 0) {
+        let nextType = cb.readUint8();
+
+        if (nextType === universalTypeOctetString) {
+          const [endSubjectKeyId, subjectKeyIdRemaining] = cb.expectASN1Length('subject key identifier');
+          cert.subjectKeyIdentifier = cb.readBytes(subjectKeyIdRemaining());
+          cb.comment('subject key identifier');
+          endSubjectKeyId();
+
+        } else {
+          const [endSubjectKeyField, subjectKeyFieldRemaining] = cb.expectASN1Length('unsupported subjectKeyIdentifier field');
+          cb.skip(subjectKeyFieldRemaining(), 'unsupported subjectKeyIdentifier field');
+          endSubjectKeyField();
+        }
+      }
+
+
+    } else if (extOID === '2.5.29.19') {  // basicConstraints
+      cert.basicConstraints = {};
+      cb.expectUint8(universalTypeBoolean, 'boolean');
+      cert.basicConstraints.critical = cb.readASN1Boolean();
+      cb.comment('<- critical');
+      cb.expectUint8(universalTypeOctetString, 'octet string');
+      const [endBasicConstraintsDer] = cb.expectASN1Length('DER document');
+      cb.expectUint8(constructedUniversalTypeSequence, 'sequence');
+      const [endConstraintsSeq, constraintsSeqRemaining] = cb.expectASN1Length();
+
+      if (constraintsSeqRemaining() > 0) {
+        cb.expectUint8(universalTypeBoolean, 'boolean');
+        cert.basicConstraints.isCA = cb.readASN1Boolean();
+      }
+
+      if (constraintsSeqRemaining() > 0) {
+        cb.expectUint8(universalTypeInteger, 'integer');
+        const maxPathLengthLength = cb.readASN1Length('max path length');
+        const maxPathLength =
+          maxPathLengthLength === 1 ? cb.readUint8() :
+            maxPathLengthLength === 2 ? cb.readUint16() :
+              maxPathLengthLength === 3 ? cb.readUint24() :
+                undefined;
+        cb.comment('max path length');
+        if (maxPathLength === undefined) throw new Error('Too many bytes in max path length in certificate basicConstraints');
+        cert.basicConstraints.maxPathLength = maxPathLength
+      }
+
+      endConstraintsSeq();
+      endBasicConstraintsDer();
+
+    } else {
+      /**
+       * ignored extensions include:
+       * - CRL Distribution Points
+       * - Certificate Policies
+       * - Authority Information Access
+       * - Signed Certificate Timestamp (SCT) List
+       */
+      cb.skip(extRemaining(), 'ignored extension data');
     }
 
     endExt();
@@ -309,12 +400,26 @@ export function parseCert(certData: Uint8Array) {
   endExts();
   endExtsData();
 
-
   endCertInfoSeq();
 
-  // ... signature stuff ...
+  // signature algorithm
+  cb.expectUint8(constructedUniversalTypeSequence, 'sequence (signature algorithm)');
+  const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length('signature algorithm sequence');
+  cb.expectUint8(universalTypeOID, 'OID');
+  const sigAlgoOID = cb.readASN1OID();
+  if (sigAlgoRemaining() > 0) {
+    cb.expectUint8(universalTypeNull, 'null');
+    cb.expectUint8(0x00, 'null length');
+  }
+  endSigAlgo();
+  if (sigAlgoOID !== cert.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${cert.algorithm}) and out (${sigAlgoOID})`);
 
-  // endCertSeq();
+  // signature
+  cb.expectUint8(universalTypeBitString, 'bitstring (signature)');
+  cert.signature = cb.readASN1BitString();
+  cb.comment('signature');
+
+  endCertSeq();
 
   chatty && log(...highlightCommented(cb.commentedString(true), LogColours.server));
   return cert;

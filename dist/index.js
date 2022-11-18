@@ -24105,7 +24105,7 @@ var universalTypeNull = 5;
 var universalTypeOctetString = 4;
 var universalTypeBitString = 3;
 var constructedContextSpecificType = 163;
-var dNSName = 130;
+var contextSpecificType = 128;
 var DNOIDMap = {
   "2.5.4.6": "C",
   "2.5.4.10": "O",
@@ -24199,6 +24199,26 @@ function readSeqOfSetOfSeq(cb, seqType) {
   endSeq();
   return result;
 }
+function readNamesSeq(cb, typeUnionBits = 0) {
+  const names = [];
+  const [endNamesSeq, namesSeqRemaining] = cb.expectASN1Length("names sequence");
+  while (namesSeqRemaining() > 0) {
+    const type = cb.readUint8("GeneralNames type");
+    const [endName, nameRemaining] = cb.expectASN1Length("name");
+    let name;
+    if (type === (typeUnionBits | 2 /* dNSName */)) {
+      name = cb.readUTF8String(nameRemaining());
+      cb.comment("= DNS name");
+    } else {
+      name = cb.readBytes(nameRemaining());
+      cb.comment(`= name (type 0x${hexFromU8([type])})`);
+    }
+    names.push({ name, type });
+    endName();
+  }
+  endNamesSeq();
+  return names;
+}
 function parseCert(certData) {
   const cb = new ASN1Bytes(certData);
   const cert = {};
@@ -24265,24 +24285,11 @@ function parseCert(certData) {
     const extOID = cb.readASN1OID();
     cb.comment(`= ${extOIDMap[extOID]}`);
     if (extOID === "2.5.29.17") {
-      cert.subjectAltNames = [];
       cb.expectUint8(universalTypeOctetString, "octet string");
       const [endSanDerDoc] = cb.expectASN1Length("DER document");
       cb.expectUint8(constructedUniversalTypeSequence, "sequence (names)");
-      const [endSanSeq, sanSeqRemaining] = cb.expectASN1Length("names sequence");
-      while (sanSeqRemaining() > 0) {
-        const nameType = cb.readUint8("GeneralName type");
-        const [endSanName, sanNameRemaining] = cb.expectASN1Length("name");
-        if (nameType === dNSName) {
-          const sanName = cb.readUTF8String(sanNameRemaining());
-          cert.subjectAltNames.push(sanName);
-          cb.comment("= DNS name");
-        } else {
-          cb.skip(sanNameRemaining(), "unparsed name data");
-        }
-        endSanName();
-      }
-      endSanSeq();
+      cert.subjectAltNames = readNamesSeq(cb, contextSpecificType);
+      cert.subjectAltNamesDNSOnly = cert.subjectAltNames.filter((san) => san.type === (2 /* dNSName */ | contextSpecificType)).map((san) => san.name);
       endSanDerDoc();
     } else if (extOID === "2.5.29.15") {
       cert.keyUsage = {};
@@ -24328,14 +24335,81 @@ function parseCert(certData) {
       }
       endExtKeyUsage();
       endExtKeyUsageDer();
+    } else if (extOID === "2.5.29.35") {
+      while (extRemaining() > 0) {
+        let nextType = cb.readUint8();
+        if (nextType === universalTypeOctetString) {
+          const [endAuthKeyId, authKeyIdRemaining] = cb.expectASN1Length("authority key identifier");
+          cert.authorityKeyIdentifier = cb.readBytes(authKeyIdRemaining());
+          cb.comment("authority key identifier");
+          endAuthKeyId();
+        } else {
+          const [endAuthKeyField, authKeyFieldRemaining] = cb.expectASN1Length("unsupported authorityKeyIdentifier field");
+          cb.skip(authKeyFieldRemaining(), "unsupported authorityKeyIdentifier field");
+          endAuthKeyField();
+        }
+      }
+    } else if (extOID === "2.5.29.14") {
+      while (extRemaining() > 0) {
+        let nextType = cb.readUint8();
+        if (nextType === universalTypeOctetString) {
+          const [endSubjectKeyId, subjectKeyIdRemaining] = cb.expectASN1Length("subject key identifier");
+          cert.subjectKeyIdentifier = cb.readBytes(subjectKeyIdRemaining());
+          cb.comment("subject key identifier");
+          endSubjectKeyId();
+        } else {
+          const [endSubjectKeyField, subjectKeyFieldRemaining] = cb.expectASN1Length("unsupported subjectKeyIdentifier field");
+          cb.skip(subjectKeyFieldRemaining(), "unsupported subjectKeyIdentifier field");
+          endSubjectKeyField();
+        }
+      }
+    } else if (extOID === "2.5.29.19") {
+      cert.basicConstraints = {};
+      cb.expectUint8(universalTypeBoolean, "boolean");
+      cert.basicConstraints.critical = cb.readASN1Boolean();
+      cb.comment("<- critical");
+      cb.expectUint8(universalTypeOctetString, "octet string");
+      const [endBasicConstraintsDer] = cb.expectASN1Length("DER document");
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+      const [endConstraintsSeq, constraintsSeqRemaining] = cb.expectASN1Length();
+      if (constraintsSeqRemaining() > 0) {
+        cb.expectUint8(universalTypeBoolean, "boolean");
+        cert.basicConstraints.isCA = cb.readASN1Boolean();
+      }
+      if (constraintsSeqRemaining() > 0) {
+        cb.expectUint8(universalTypeInteger, "integer");
+        const maxPathLengthLength = cb.readASN1Length("max path length");
+        const maxPathLength = maxPathLengthLength === 1 ? cb.readUint8() : maxPathLengthLength === 2 ? cb.readUint16() : maxPathLengthLength === 3 ? cb.readUint24() : void 0;
+        cb.comment("max path length");
+        if (maxPathLength === void 0)
+          throw new Error("Too many bytes in max path length in certificate basicConstraints");
+        cert.basicConstraints.maxPathLength = maxPathLength;
+      }
+      endConstraintsSeq();
+      endBasicConstraintsDer();
     } else {
-      cb.skip(extRemaining(), "unparsed extension data");
+      cb.skip(extRemaining(), "ignored extension data");
     }
     endExt();
   }
   endExts();
   endExtsData();
   endCertInfoSeq();
+  cb.expectUint8(constructedUniversalTypeSequence, "sequence (signature algorithm)");
+  const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length("signature algorithm sequence");
+  cb.expectUint8(universalTypeOID, "OID");
+  const sigAlgoOID = cb.readASN1OID();
+  if (sigAlgoRemaining() > 0) {
+    cb.expectUint8(universalTypeNull, "null");
+    cb.expectUint8(0, "null length");
+  }
+  endSigAlgo();
+  if (sigAlgoOID !== cert.algorithm)
+    throw new Error(`Certificate specifies different signature algorithms inside (${cert.algorithm}) and out (${sigAlgoOID})`);
+  cb.expectUint8(universalTypeBitString, "bitstring (signature)");
+  cert.signature = cb.readASN1BitString();
+  cb.comment("signature");
+  endCertSeq();
   log(...highlightCommented_default(cb.commentedString(true), "#88c" /* server */));
   return cert;
 }
