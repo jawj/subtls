@@ -31,7 +31,7 @@ const universalTypeBitString = 0x03;
 const constructedContextSpecificType = 0xa3;
 const dNSName = 0x82;
 
-const rdnmap: Record<string, string> = {
+const DNOIDMap: Record<string, string> = {
   "2.5.4.6": "C",
   "2.5.4.10": "O",
   "2.5.4.11": "OU",
@@ -45,14 +45,14 @@ const rdnmap: Record<string, string> = {
   "1.2.840.113549.1.9.1": "E-mail",
 };
 
-const keymap: Record<string, string> = {
+const keyOIDMap: Record<string, string> = {
   "1.2.840.10045.2.1": "ECPublicKey",
   "1.2.840.10045.3.1.7": "secp256r1",
   "1.3.132.0.34": "secp384r1",
   "1.2.840.113549.1.1.1": "RSAES-PKCS1-v1_5",
 };
 
-const algomap: Record<string, string> = {
+const algoOIDMap: Record<string, string> = {
   "1.2.840.10040.4.3": "SHA1 with DSA",
   "1.2.840.10045.4.1": "SHA1 with ECDSA",
   "1.2.840.10045.4.3.2": "SHA256 with ECDSA",
@@ -66,7 +66,7 @@ const algomap: Record<string, string> = {
   "1.2.840.113549.1.1.13": "SHA512 with RSA",
 };
 
-const extmap: Record<string, string> = {
+const extOIDMap: Record<string, string> = {
   "2.5.29.15": "KeyUsage",
   "2.5.29.37": "ExtKeyUsage",
   "2.5.29.19": "BasicConstraints",
@@ -79,7 +79,7 @@ const extmap: Record<string, string> = {
   "2.5.29.31": "CRLDistributionPoints",
 };
 
-const extKeyUsageMap: Record<string, string> = {
+const extKeyUsageOIDMap: Record<string, string> = {
   "1.3.6.1.5.5.7.3.2": "TLSCLientAuth",
   "1.3.6.1.5.5.7.3.1": "TLSServerAuth",
 };
@@ -114,7 +114,8 @@ function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for issuer
 
     cb.expectUint8(universalTypeOID, 'OID');
     const itemOID = cb.readASN1OID();
-    cb.comment(`= ${rdnmap[itemOID]}`);
+    const itemName = DNOIDMap[itemOID] ?? itemOID;
+    cb.comment(`= ${itemName}`);
 
     const valueType = cb.readUint8();
     if (valueType === universalTypePrintableString) {
@@ -131,8 +132,8 @@ function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for issuer
     endItemSeq();
     endItemSet();
 
-    if (result[itemOID] !== undefined) throw new Error(`Duplicate OID ${itemOID} in certificate ${seqType}`);
-    result[itemOID] = itemValue;
+    if (result[itemName] !== undefined) throw new Error(`Duplicate OID ${itemName} in certificate ${seqType}`);
+    result[itemName] = itemValue;
   }
 
   endSeq();
@@ -163,7 +164,7 @@ export function parseCert(certData: Uint8Array) {
   const [endAlgo, algoRemaining] = cb.expectASN1Length('algorithm sequence');
   cb.expectUint8(universalTypeOID, 'OID');
   cert.algorithm = cb.readASN1OID();
-  cb.comment(`= ${algomap[cert.algorithm]}`);
+  cb.comment(`= ${algoOIDMap[cert.algorithm]}`);
   if (algoRemaining() > 0) {  // null parameters
     cb.expectUint8(universalTypeNull, 'null');
     cb.expectUint8(0x00, 'null length');
@@ -200,7 +201,7 @@ export function parseCert(certData: Uint8Array) {
       cb.comment('OID');
       const keyOID = cb.readASN1OID();
       cert.publicKey.OIDs.push(keyOID);
-      cb.comment(`= ${keymap[keyOID]}`)
+      cb.comment(`= ${keyOIDMap[keyOID]}`)
 
     } else if (keyParamRecordType === universalTypeNull) {
       cb.comment('null');
@@ -226,7 +227,7 @@ export function parseCert(certData: Uint8Array) {
     const [endExt, extRemaining] = cb.expectASN1Length();
     cb.expectUint8(universalTypeOID, 'OID (extension type)');
     const extOID = cb.readASN1OID();
-    cb.comment(`= ${extmap[extOID]}`);
+    cb.comment(`= ${extOIDMap[extOID]}`);
 
     if (extOID === "2.5.29.17") {  // subjectAltName
       cert.subjectAltNames = [];
@@ -280,7 +281,7 @@ export function parseCert(certData: Uint8Array) {
       endKeyUsageDer();
 
     } else if (extOID === '2.5.29.37') {  // extKeyUsage
-      cert.extKeyUsages = [];
+      cert.extKeyUsage = { OIDs: [] };
 
       cb.expectUint8(universalTypeOctetString, 'octet string');
       const [endExtKeyUsageDer] = cb.expectASN1Length('DER document');
@@ -289,8 +290,10 @@ export function parseCert(certData: Uint8Array) {
       while (extKeyUsageRemaining() > 0) {
         cb.expectUint8(universalTypeOID, 'OID');
         const extKeyUsageOID = cb.readASN1OID();
-        cert.extKeyUsages.push(extKeyUsageOID);
-        cb.comment(`= ${extKeyUsageMap[extKeyUsageOID]}`)
+        cert.extKeyUsage.OIDs.push(extKeyUsageOID);
+        if (extKeyUsageOID === '1.3.6.1.5.5.7.3.1') cert.extKeyUsage.TLSServerCert = true;
+        if (extKeyUsageOID === '1.3.6.1.5.5.7.3.2') cert.extKeyUsage.TLSClientCert = true;
+        cb.comment(`= ${extKeyUsageOIDMap[extKeyUsageOID]}`)
       }
       endExtKeyUsage();
       endExtKeyUsageDer();
@@ -368,17 +371,17 @@ export function certNamesMatch(host: string, certNames: string[]) {
 export function describeCert(cert: pkijs.Certificate) {
   const validity = `${cert.notBefore.value.toISOString()} — ${cert.notAfter.value.toISOString()}`;
   const issuer = cert.issuer.typesAndValues.map(typeAndValue => {
-    const typeval = rdnmap[typeAndValue.type] ?? typeAndValue.type;
+    const typeval = DNOIDMap[typeAndValue.type] ?? typeAndValue.type;
     const subjval = typeAndValue.value.valueBlock.value;
     return `${typeval}=${subjval}`;
   }).join(' ');
   const subject = cert.subject.typesAndValues.map(typeAndValue => {
-    const typeval = rdnmap[typeAndValue.type] ?? typeAndValue.type;
+    const typeval = DNOIDMap[typeAndValue.type] ?? typeAndValue.type;
     const subjval = typeAndValue.value.valueBlock.value;
     return `${typeval}=${subjval}`;
   }).join(' ');
   const altNames = getSubjectAltNamesDNSNames(cert);
   const altNameField = altNames.length === 0 ? '' : `subjectAltNames: ${altNames.join(', ')}\n`;
-  const signatureAlgorithm = algomap[cert.signatureAlgorithm.algorithmId] ?? cert.signatureAlgorithm.algorithmId;
+  const signatureAlgorithm = algoOIDMap[cert.signatureAlgorithm.algorithmId] ?? cert.signatureAlgorithm.algorithmId;
   return `subject: ${subject}\n${altNameField}issuer: ${issuer}\nvalidity: ${validity}\nsignature algorithm: ${signatureAlgorithm}`;
 }
