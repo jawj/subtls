@@ -1,5 +1,6 @@
 import { equal } from '../util/array';
 import Bytes from '../util/bytes';
+import { hexFromU8 } from '../util/hex';
 
 export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
   let serverPublicKey;
@@ -8,8 +9,7 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
   const [endServerHelloMessage] = hello.expectLength(hello.remainingBytes());
 
   hello.expectUint8(0x02, 'handshake type: server hello');
-  const helloLength = hello.readUint24('% bytes of server hello follow');
-  const [endServerHello] = hello.expectLength(helloLength);
+  const [endServerHello] = hello.expectLengthUint24('server hello');
 
   hello.expectUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
   const serverRandom = hello.readBytes(32);
@@ -29,16 +29,12 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
   hello.expectUint16(0x1301, 'cipher (matches client hello)');
   hello.expectUint8(0x00, 'no compression');
 
-  const extensionsLength = hello.readUint16('extensions length');
-  const [endExtensions, extensionsRemainingBytes] = hello.expectLength(extensionsLength);
-
+  const [endExtensions, extensionsRemainingBytes] = hello.expectLengthUint16('extensions');
   while (extensionsRemainingBytes() > 0) {
     const extensionType = hello.readUint16('extension type');
-    const extensionLength = hello.readUint16('extension length');
-    const [endExtension] = hello.expectLength(extensionLength);
+    const [endExtension] = hello.expectLengthUint16('extension');
 
     if (extensionType === 0x002b) {
-      if (extensionLength !== 2) throw new Error(`Unexpected extension length: ${extensionLength} (expected 2)`);
       hello.expectUint16(0x0304, 'TLS version 1.3');
       tlsVersionSpecified = true;
 
@@ -52,8 +48,9 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
       hello.comment('key');
 
     } else {
-      throw new Error(`Unexpected extension 0x${extensionType.toString(16).padStart(4, '0')}, length ${extensionLength}`)
+      throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`)
     }
+
     endExtension();
   }
 

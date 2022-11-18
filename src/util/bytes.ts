@@ -125,6 +125,24 @@ export default class Bytes {
     ] as const;
   }
 
+  expectLengthUint8(comment?: string) {
+    const length = this.readUint8();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    return this.expectLength(length);
+  }
+
+  expectLengthUint16(comment?: string) {
+    const length = this.readUint16();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    return this.expectLength(length);
+  }
+
+  expectLengthUint24(comment?: string) {
+    const length = this.readUint24();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    return this.expectLength(length);
+  }
+
   // writing
 
   writeBytes(bytes: number[] | Uint8Array) {

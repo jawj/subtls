@@ -72,7 +72,7 @@ export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypte
   encryptedRecord.writeUint8(0x17, 'record type: Application (middlebox compatibility)');
   encryptedRecord.writeUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
   encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
-  const [endEncryptedRecord] = encryptedRecord.expectLength(payloadLength);  // unusual but useful when writing
+  const [endEncryptedRecord] = encryptedRecord.expectLength(payloadLength);  // unusual (but still useful) when writing
 
   const header = encryptedRecord.array();
   const encryptedData = await encrypter.process(data, 16, header);
