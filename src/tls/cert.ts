@@ -100,6 +100,8 @@ function intFromBitString(bs: Uint8Array) {
 }
 
 function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for issuer and subject
+  const result: Record<string, string> = {};
+
   cb.expectUint8(constructedUniversalTypeSequence, `sequence (${seqType})`);
   const [endSeq, seqRemaining] = cb.expectASN1Length('sequence');
 
@@ -123,17 +125,23 @@ function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for issuer
       throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
     }
     const [endItemString, itemStringRemaining] = cb.expectASN1Length('UTF8 string');
-    const itemString = cb.readUTF8String(itemStringRemaining());
+    const itemValue = cb.readUTF8String(itemStringRemaining());
     endItemString();
 
     endItemSeq();
     endItemSet();
+
+    if (result[itemOID] !== undefined) throw new Error(`Duplicate OID ${itemOID} in certificate ${seqType}`);
+    result[itemOID] = itemValue;
   }
+
   endSeq();
+  return result;
 }
 
 export function parseCert(certData: Uint8Array) {
   const cb = new ASN1Bytes(certData);
+  const cert: Record<string, any> = {};
 
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (certificate)');
   const [endCertSeq] = cb.expectASN1Length('certificate sequence');
@@ -146,7 +154,7 @@ export function parseCert(certData: Uint8Array) {
   // serial number
   cb.expectUint8(universalTypeInteger, 'integer');
   const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length('serial number');
-  const serialNumber = cb.subarray(serialNumberRemaining());
+  cert.serialNumber = cb.subarray(serialNumberRemaining());
   cb.comment('serial number');
   endSerialNumber();
 
@@ -154,8 +162,8 @@ export function parseCert(certData: Uint8Array) {
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (algorithm)');
   const [endAlgo, algoRemaining] = cb.expectASN1Length('algorithm sequence');
   cb.expectUint8(universalTypeOID, 'OID');
-  const algoOID = cb.readASN1OID();
-  cb.comment(`= ${algomap[algoOID]}`);
+  cert.algorithm = cb.readASN1OID();
+  cb.comment(`= ${algomap[cert.algorithm]}`);
   if (algoRemaining() > 0) {  // null parameters
     cb.expectUint8(universalTypeNull, 'null');
     cb.expectUint8(0x00, 'null length');
@@ -163,19 +171,20 @@ export function parseCert(certData: Uint8Array) {
   endAlgo();
 
   // issuer
-  readSeqOfSetOfSeq(cb, 'issuer');
+  cert.issuer = readSeqOfSetOfSeq(cb, 'issuer');
 
   // validity
+  cert.validityPeriod = {};
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (validity)');
   const [endValiditySeq] = cb.expectASN1Length('validity sequence');
   cb.expectUint8(universalTypeUTCTime, 'UTC time (not before)');
-  const notBeforeTime = cb.readASN1UTCTime();
+  cert.validityPeriod.notBefore = cb.readASN1UTCTime();
   cb.expectUint8(universalTypeUTCTime, 'UTC time (not after)');
-  const notAfterTime = cb.readASN1UTCTime();
+  cert.validityPeriod.notAfter = cb.readASN1UTCTime();
   endValiditySeq();
 
   // subject
-  readSeqOfSetOfSeq(cb, 'subject');
+  cert.subject = readSeqOfSetOfSeq(cb, 'subject');
 
   // public key
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (public key)');
@@ -184,11 +193,13 @@ export function parseCert(certData: Uint8Array) {
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (public key params)');
   const [endKeyOID, keyOIDRemaining] = cb.expectASN1Length('public key params sequence');
 
+  cert.publicKey = { OIDs: [] };
   while (keyOIDRemaining() > 0) {
     const keyParamRecordType = cb.readUint8();
     if (keyParamRecordType === universalTypeOID) {
       cb.comment('OID');
       const keyOID = cb.readASN1OID();
+      cert.publicKey.OIDs.push(keyOID);
       cb.comment(`= ${keymap[keyOID]}`)
 
     } else if (keyParamRecordType === universalTypeNull) {
@@ -199,7 +210,7 @@ export function parseCert(certData: Uint8Array) {
   endKeyOID();
 
   cb.expectUint8(universalTypeBitString, 'bit string');
-  const publicKey = cb.readASN1BitString();
+  cert.publicKey.data = cb.readASN1BitString();
   cb.comment('public key');
 
   endPublicKeySeq();
@@ -218,6 +229,8 @@ export function parseCert(certData: Uint8Array) {
     cb.comment(`= ${extmap[extOID]}`);
 
     if (extOID === "2.5.29.17") {  // subjectAltName
+      cert.subjectAltNames = [];
+
       cb.expectUint8(universalTypeOctetString, 'octet string');
       const [endSanDerDoc] = cb.expectASN1Length('DER document');
       cb.expectUint8(constructedUniversalTypeSequence, 'sequence (names)');
@@ -227,6 +240,7 @@ export function parseCert(certData: Uint8Array) {
         const [endSanName, sanNameRemaining] = cb.expectASN1Length('name');
         if (nameType === dNSName) {
           const sanName = cb.readUTF8String(sanNameRemaining());
+          cert.subjectAltNames.push(sanName);
           cb.comment('= DNS name');
         } else {
           cb.skip(sanNameRemaining(), 'unparsed name data');
@@ -237,14 +251,17 @@ export function parseCert(certData: Uint8Array) {
       endSanDerDoc();
 
     } else if (extOID === '2.5.29.15') {  // keyUsage
+      cert.keyUsage = {};
+
       cb.expectUint8(universalTypeBoolean, 'boolean');
-      const critical = cb.readASN1Boolean();
+      cert.keyUsage.critical = cb.readASN1Boolean();
       cb.comment('<- critical');
       cb.expectUint8(universalTypeOctetString, 'octet string');
       const [endKeyUsageDer] = cb.expectASN1Length('DER document');
       cb.expectUint8(universalTypeBitString, 'bit string');
       const keyUsage = cb.readASN1BitString();
       const keyUsageInt = intFromBitString(keyUsage);
+      cert.keyUsage.bitmask = keyUsageInt;
       const allKeyUsages = [
         // https://www.rfc-editor.org/rfc/rfc3280#section-4.2.1.3
         'digitalSignature', // (0)
@@ -258,10 +275,13 @@ export function parseCert(certData: Uint8Array) {
         'decipherOnly',     // (8)
       ];
       const keyUsages = new Set(allKeyUsages.filter((u, i) => keyUsageInt & (1 << i)));
+      cert.keyUsage.names = keyUsages;
       cb.comment(`key usage: ${keyUsage} = ${[...keyUsages]}`);
       endKeyUsageDer();
 
     } else if (extOID === '2.5.29.37') {  // extKeyUsage
+      cert.extKeyUsages = [];
+
       cb.expectUint8(universalTypeOctetString, 'octet string');
       const [endExtKeyUsageDer] = cb.expectASN1Length('DER document');
       cb.expectUint8(constructedUniversalTypeSequence, 'sequence');
@@ -269,6 +289,7 @@ export function parseCert(certData: Uint8Array) {
       while (extKeyUsageRemaining() > 0) {
         cb.expectUint8(universalTypeOID, 'OID');
         const extKeyUsageOID = cb.readASN1OID();
+        cert.extKeyUsages.push(extKeyUsageOID);
         cb.comment(`= ${extKeyUsageMap[extKeyUsageOID]}`)
       }
       endExtKeyUsage();
@@ -293,6 +314,7 @@ export function parseCert(certData: Uint8Array) {
   // endCertSeq();
 
   chatty && log(...highlightCommented(cb.commentedString(true), LogColours.server));
+  return cert;
 }
 
 export function decodePEM(pem: string, tag = "[A-Z0-9 ]+") {

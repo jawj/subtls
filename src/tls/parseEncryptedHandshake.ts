@@ -52,7 +52,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
     const cert = pkijs.Certificate.fromBER(certData);
     certEntries.push({ certData, certExtData, cert });
 
-    parseCert(certData);
+    const mycert = parseCert(certData);
+    console.log(mycert);
   }
   endCerts();
   endCertPayload();
