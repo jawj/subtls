@@ -21,7 +21,7 @@ export default class Bytes {
     this.indent = 0;
   }
 
-  remainingBytes() {
+  remaining() {
     return this.uint8Array.length - this.offset;
   }
 

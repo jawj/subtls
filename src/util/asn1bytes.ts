@@ -24,11 +24,10 @@ export class ASN1Bytes extends Bytes {
   }
 
   readASN1OID() {  // starting with length (i.e. after OID type value)
-    const OIDLength = this.readASN1Length();
-    const [endOID, OIDRemainingBytes] = this.expectLength(OIDLength);
+    const [endOID, OIDRemaining] = this.expectASN1Length('OID');
     const byte1 = this.readUint8();
     let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
-    while (OIDRemainingBytes() > 0) {  // loop over numbers in OID
+    while (OIDRemaining() > 0) {  // loop over numbers in OID
       let value = 0;
       while (true) {  // loop over bytes in number
         const nextByte = this.readUint8();
@@ -44,9 +43,8 @@ export class ASN1Bytes extends Bytes {
   }
 
   readASN1Boolean() {
-    const length = this.readUint8('length of boolean');
-    if (length !== 1) throw new Error(`Boolean has weird length: ${length}`);
-    const [endBoolean] = this.expectLength(length);
+    const [endBoolean, booleanRemaining] = this.expectASN1Length('boolean');
+    if (booleanRemaining() !== 1) throw new Error(`Boolean has weird length: ${length}`);
     const byte = this.readUint8();
     let result;
     if (byte === 0xff) result = true;
@@ -58,9 +56,8 @@ export class ASN1Bytes extends Bytes {
   }
 
   readASN1UTCTime() {
-    const timeLength = this.readASN1Length();
-    const [endTime] = this.expectLength(timeLength);
-    const timeStr = this.readUTF8String(timeLength);
+    const [endTime, timeRemaining] = this.expectASN1Length('UTC time');
+    const timeStr = this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
     if (!parts) throw new Error('Unrecognised UTC time format in certificate validity');
     const [, yr2dstr, mth, dy, hr, min, sec] = parts;
@@ -73,10 +70,9 @@ export class ASN1Bytes extends Bytes {
   }
 
   readASN1BitString() {
-    const bitStringLength = this.readASN1Length();
-    const [endBitString, bitStringBytesRemaining] = this.expectLength(bitStringLength);
+    const [endBitString, bitStringRemaining] = this.expectASN1Length('bit string');
     const rightPadBits = this.readUint8('right-padding bits');
-    const bytesLength = bitStringBytesRemaining()
+    const bytesLength = bitStringRemaining()
     const bitString = this.readBytes(bytesLength);
     if (rightPadBits > 7) throw new Error(`Invalid right pad value: ${rightPadBits}`);
     if (rightPadBits > 0) {  // (this was surprisingly hard to get right)

@@ -45,7 +45,7 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   const encryptedRecord = await readTlsRecord(read, RecordType.Application);
 
   const encryptedBytes = new Bytes(encryptedRecord.content);
-  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remainingBytes());
+  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remaining());
   encryptedBytes.skip(encryptedRecord.length - 16, 'encrypted payload');
   encryptedBytes.skip(16, 'auth tag');
   endEncrypted();
@@ -72,6 +72,7 @@ export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypte
   encryptedRecord.writeUint8(0x17, 'record type: Application (middlebox compatibility)');
   encryptedRecord.writeUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
   encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
+
   const [endEncryptedRecord] = encryptedRecord.expectLength(payloadLength);  // unusual (but still useful) when writing
 
   const header = encryptedRecord.array();

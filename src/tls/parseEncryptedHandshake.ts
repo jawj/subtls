@@ -15,7 +15,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   hs.expectUint8(0x08, 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
   const [eeMessageEnd] = hs.expectLengthUint24();
-  const [extEnd, extBytesRemaining] = hs.expectLengthUint16('extensions');
+  const [extEnd, extRemaining] = hs.expectLengthUint16('extensions');
   /* 
    "A server that receives a client hello containing the "server_name"
    extension MAY use the information contained in the extension to guide
@@ -25,7 +25,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
    server hello. The "extension_data" field of this extension SHALL be empty.
    - https://datatracker.ietf.org/doc/html/rfc6066#section-3
   */
-  if (extBytesRemaining() > 0) {
+  if (extRemaining() > 0) {
     hs.expectUint16(0x00, 'extension type: SNI');
     hs.expectUint16(0x00, 'no extension data');
   }
@@ -36,17 +36,17 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const [endCertPayload] = hs.expectLengthUint24('certificate payload');
 
   hs.expectUint8(0x00, '0 bytes of request context follow');
-  const [endCerts, certsRemainingBytes] = hs.expectLengthUint24('certificates');
+  const [endCerts, certsRemaining] = hs.expectLengthUint24('certificates');
 
   const certEntries = [];
-  while (certsRemainingBytes() > 0) {
-    const [endCert, certRemainingBytes] = hs.expectLengthUint24('certificate');
-    const certData = hs.readBytes(certRemainingBytes());
+  while (certsRemaining() > 0) {
+    const [endCert, certRemaining] = hs.expectLengthUint24('certificate');
+    const certData = hs.readBytes(certRemaining());
     hs.comment('server certificate');
     endCert();
 
-    const [endCertExt, certExtRemainingBytes] = hs.expectLengthUint16();
-    const certExtData = hs.readBytes(certExtRemainingBytes());
+    const [endCertExt, certExtRemaining] = hs.expectLengthUint16();
+    const certExtData = hs.readBytes(certExtRemaining());
     endCertExt();
 
     const cert = pkijs.Certificate.fromBER(certData);
@@ -87,8 +87,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   hs.expectUint8(0x0f, 'handshake message type: certificate verify');
   const [endCertVerifyPayload] = hs.expectLengthUint24('handshake message data');
   const signatureType = hs.readUint16('signature type');
-  const [endSignature, signatureBytesRemaining] = hs.expectLengthUint16();
-  const signature = hs.readBytes(signatureBytesRemaining());
+  const [endSignature, signatureRemaining] = hs.expectLengthUint16();
+  const signature = hs.readBytes(signatureRemaining());
   hs.comment('signature');
   endSignature();
   endCertVerifyPayload();
@@ -102,8 +102,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
 
   hs.expectUint8(0x14, 'handshake message type: finished');
-  const [endHsFinishedPayload, hsFinishedPayloadBytesRemaining] = hs.expectLengthUint24('verify hash');
-  const verifyHash = hs.readBytes(hsFinishedPayloadBytesRemaining());
+  const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24('verify hash');
+  const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
   hs.comment('verify hash');
   endHsFinishedPayload();
 

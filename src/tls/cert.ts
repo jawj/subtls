@@ -101,16 +101,14 @@ function intFromBitString(bs: Uint8Array) {
 
 function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for issuer and subject
   cb.expectUint8(constructedUniversalTypeSequence, `sequence (${seqType})`);
-  const [endSeq, seqRemainingBytes] = cb.expectASN1Length('sequence');
+  const [endSeq, seqRemaining] = cb.expectASN1Length('sequence');
 
-  while (seqRemainingBytes() > 0) {
+  while (seqRemaining() > 0) {
     cb.expectUint8(constructedUniversalTypeSet, 'set');
-    const itemSetLength = cb.readASN1Length();
-    const [endItemSet] = cb.expectLength(itemSetLength);
+    const [endItemSet] = cb.expectASN1Length('set');
 
     cb.expectUint8(constructedUniversalTypeSequence, 'sequence');
-    const itemSeqLength = cb.readASN1Length();
-    const [endItemSeq] = cb.expectLength(itemSeqLength);
+    const [endItemSeq] = cb.expectASN1Length('sequence');
 
     cb.expectUint8(universalTypeOID, 'OID');
     const itemOID = cb.readASN1OID();
@@ -124,9 +122,8 @@ function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for issuer
     } else {
       throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
     }
-    const itemStringLength = cb.readASN1Length();
-    const [endItemString] = cb.expectLength(itemStringLength);
-    const itemString = cb.readUTF8String(itemStringLength);
+    const [endItemString, itemStringRemaining] = cb.expectASN1Length('UTF8 string');
+    const itemString = cb.readUTF8String(itemStringRemaining());
     endItemString();
 
     endItemSeq();
@@ -139,62 +136,55 @@ export function parseCert(certData: Uint8Array) {
   const cb = new ASN1Bytes(certData);
 
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (certificate)');
-  const certSeqLength = cb.readASN1Length();
-  const [endCertSeq] = cb.expectLength(certSeqLength);
+  const [endCertSeq] = cb.expectASN1Length('certificate sequence');
 
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (certificate info)');
-  const certInfoSeqLength = cb.readASN1Length();
-  const [endCertInfoSeq] = cb.expectLength(certInfoSeqLength);
+  const [endCertInfoSeq] = cb.expectASN1Length('certificate info');
 
   cb.expectBytes([0xa0, 0x03, 0x02, 0x01, 0x02], 'certificate version v3');  // must be v3 to have extensions
 
-
+  // serial number
   cb.expectUint8(universalTypeInteger, 'integer');
-  const serialNumberLength = cb.readASN1Length();
-  const [endSerialNumber] = cb.expectLength(serialNumberLength);
-  const serialNumber = cb.subarray(serialNumberLength);
+  const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length('serial number');
+  const serialNumber = cb.subarray(serialNumberRemaining());
   cb.comment('serial number');
   endSerialNumber();
 
-
+  // algorithm
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (algorithm)');
-  const algoLength = cb.readASN1Length();
-  const [endAlgo, algoRemainingBytes] = cb.expectLength(algoLength);
+  const [endAlgo, algoRemaining] = cb.expectASN1Length('algorithm sequence');
   cb.expectUint8(universalTypeOID, 'OID');
   const algoOID = cb.readASN1OID();
   cb.comment(`= ${algomap[algoOID]}`);
-  if (algoRemainingBytes() > 0) {  // null parameters
+  if (algoRemaining() > 0) {  // null parameters
     cb.expectUint8(universalTypeNull, 'null');
     cb.expectUint8(0x00, 'null length');
   }
   endAlgo();
 
-
+  // issuer
   readSeqOfSetOfSeq(cb, 'issuer');
 
-
+  // validity
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (validity)');
-  const validitySeqLength = cb.readASN1Length();
-  const [endValiditySeq] = cb.expectLength(validitySeqLength);
+  const [endValiditySeq] = cb.expectASN1Length('validity sequence');
   cb.expectUint8(universalTypeUTCTime, 'UTC time (not before)');
   const notBeforeTime = cb.readASN1UTCTime();
   cb.expectUint8(universalTypeUTCTime, 'UTC time (not after)');
   const notAfterTime = cb.readASN1UTCTime();
   endValiditySeq();
 
-
+  // subject
   readSeqOfSetOfSeq(cb, 'subject');
 
-
+  // public key
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (public key)');
-  const publicKeySeqLength = cb.readASN1Length();
-  const [endPublicKeySeq] = cb.expectLength(publicKeySeqLength);
+  const [endPublicKeySeq] = cb.expectASN1Length('public key sequence');
 
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (public key params)');
-  const keyParamsLength = cb.readASN1Length();
-  const [endKeyOID, keyOIDRemainingBytes] = cb.expectLength(keyParamsLength);
+  const [endKeyOID, keyOIDRemaining] = cb.expectASN1Length('public key params sequence');
 
-  while (keyOIDRemainingBytes() > 0) {
+  while (keyOIDRemaining() > 0) {
     const keyParamRecordType = cb.readUint8();
     if (keyParamRecordType === universalTypeOID) {
       cb.comment('OID');
@@ -214,38 +204,32 @@ export function parseCert(certData: Uint8Array) {
 
   endPublicKeySeq();
 
-
+  // extensions
   cb.expectUint8(constructedContextSpecificType, 'constructed context-specific type');
-  const extsDataLength = cb.readASN1Length();
-  const [endExtsData] = cb.expectLength(extsDataLength);
+  const [endExtsData] = cb.expectASN1Length();
   cb.expectUint8(constructedUniversalTypeSequence, 'sequence (extensions)');
-  const extsLength = cb.readASN1Length();
-  const [endExts, extsBytesRemaining] = cb.expectLength(extsLength);
+  const [endExts, extsRemaining] = cb.expectASN1Length('extensions sequence');
 
-  while (extsBytesRemaining() > 0) {
+  while (extsRemaining() > 0) {
     cb.expectUint8(constructedUniversalTypeSequence, 'sequence');
-    const extLength = cb.readASN1Length();
-    const [endExt, extBytesRemaining] = cb.expectLength(extLength);
+    const [endExt, extRemaining] = cb.expectASN1Length();
     cb.expectUint8(universalTypeOID, 'OID (extension type)');
     const extOID = cb.readASN1OID();
     cb.comment(`= ${extmap[extOID]}`);
 
     if (extOID === "2.5.29.17") {  // subjectAltName
       cb.expectUint8(universalTypeOctetString, 'octet string');
-      const sanDerDocLength = cb.readASN1Length();
-      const [endSanDerDoc] = cb.expectLength(sanDerDocLength);
-      cb.expectUint8(constructedUniversalTypeSequence, 'sequence');
-      const sanSeqLength = cb.readASN1Length();
-      const [endSanSeq, sanSeqBytesRemaining] = cb.expectLength(sanSeqLength);
-      while (sanSeqBytesRemaining() > 0) {
+      const [endSanDerDoc] = cb.expectASN1Length('DER document');
+      cb.expectUint8(constructedUniversalTypeSequence, 'sequence (names)');
+      const [endSanSeq, sanSeqRemaining] = cb.expectASN1Length('names sequence');
+      while (sanSeqRemaining() > 0) {
         const nameType = cb.readUint8('GeneralName type');
-        const sanNameLength = cb.readASN1Length();
-        const [endSanName] = cb.expectLength(sanNameLength);
+        const [endSanName, sanNameRemaining] = cb.expectASN1Length('name');
         if (nameType === dNSName) {
-          const sanName = cb.readUTF8String(sanNameLength);
+          const sanName = cb.readUTF8String(sanNameRemaining());
           cb.comment('= DNS name');
         } else {
-          cb.skip(sanNameLength, 'unparsed name data');
+          cb.skip(sanNameRemaining(), 'unparsed name data');
         }
         endSanName();
       }
@@ -257,8 +241,7 @@ export function parseCert(certData: Uint8Array) {
       const critical = cb.readASN1Boolean();
       cb.comment('<- critical');
       cb.expectUint8(universalTypeOctetString, 'octet string');
-      const keyUsageDerLength = cb.readASN1Length();
-      const [endKeyUsageDer] = cb.expectLength(keyUsageDerLength);
+      const [endKeyUsageDer] = cb.expectASN1Length('DER document');
       cb.expectUint8(universalTypeBitString, 'bit string');
       const keyUsage = cb.readASN1BitString();
       const keyUsageInt = intFromBitString(keyUsage);
@@ -280,12 +263,10 @@ export function parseCert(certData: Uint8Array) {
 
     } else if (extOID === '2.5.29.37') {  // extKeyUsage
       cb.expectUint8(universalTypeOctetString, 'octet string');
-      const extKeyUsageDerLength = cb.readASN1Length();
-      const [endExtKeyUsageDer] = cb.expectLength(extKeyUsageDerLength);
+      const [endExtKeyUsageDer] = cb.expectASN1Length('DER document');
       cb.expectUint8(constructedUniversalTypeSequence, 'sequence');
-      const extKeyUsageLength = cb.readASN1Length();
-      const [endExtKeyUsage, extKeyUsageRemainingBytes] = cb.expectLength(extKeyUsageLength);
-      while (extKeyUsageRemainingBytes() > 0) {
+      const [endExtKeyUsage, extKeyUsageRemaining] = cb.expectASN1Length('key usage OIDs');
+      while (extKeyUsageRemaining() > 0) {
         cb.expectUint8(universalTypeOID, 'OID');
         const extKeyUsageOID = cb.readASN1OID();
         cb.comment(`= ${extKeyUsageMap[extKeyUsageOID]}`)
@@ -295,7 +276,7 @@ export function parseCert(certData: Uint8Array) {
 
     } else {
 
-      cb.skip(extBytesRemaining(), 'unparsed extension data');
+      cb.skip(extRemaining(), 'unparsed extension data');
     }
 
     endExt();

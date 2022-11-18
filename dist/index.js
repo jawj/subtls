@@ -411,7 +411,7 @@ var Bytes = class {
     this.indents = {};
     this.indent = 0;
   }
-  remainingBytes() {
+  remaining() {
     return this.uint8Array.length - this.offset;
   }
   subarray(length2) {
@@ -701,7 +701,7 @@ function hexFromU8(u8) {
 function parseServerHello(hello, sessionId) {
   let serverPublicKey;
   let tlsVersionSpecified;
-  const [endServerHelloMessage] = hello.expectLength(hello.remainingBytes());
+  const [endServerHelloMessage] = hello.expectLength(hello.remaining());
   hello.expectUint8(2, "handshake type: server hello");
   const [endServerHello] = hello.expectLengthUint24("server hello");
   hello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
@@ -746,8 +746,8 @@ function parseServerHello(hello, sessionId) {
   hello.expectBytes(sessionId, "session ID (matches client session ID)");
   hello.expectUint16(4865, "cipher (matches client hello)");
   hello.expectUint8(0, "no compression");
-  const [endExtensions, extensionsRemainingBytes] = hello.expectLengthUint16("extensions");
-  while (extensionsRemainingBytes() > 0) {
+  const [endExtensions, extensionsRemaining] = hello.expectLengthUint16("extensions");
+  while (extensionsRemaining() > 0) {
     const extensionType = hello.readUint16("extension type");
     const [endExtension] = hello.expectLengthUint16("extension");
     if (extensionType === 43) {
@@ -846,7 +846,7 @@ async function readTlsRecord(read, expectedType) {
 async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   const encryptedRecord = await readTlsRecord(read, 23 /* Application */);
   const encryptedBytes = new Bytes(encryptedRecord.content);
-  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remainingBytes());
+  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remaining());
   encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
   encryptedBytes.skip(16, "auth tag");
   endEncrypted();
@@ -24013,11 +24013,10 @@ var ASN1Bytes = class extends Bytes {
     return this.expectLength(length2);
   }
   readASN1OID() {
-    const OIDLength = this.readASN1Length();
-    const [endOID, OIDRemainingBytes] = this.expectLength(OIDLength);
+    const [endOID, OIDRemaining] = this.expectASN1Length("OID");
     const byte1 = this.readUint8();
     let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
-    while (OIDRemainingBytes() > 0) {
+    while (OIDRemaining() > 0) {
       let value = 0;
       while (true) {
         const nextByte = this.readUint8();
@@ -24033,10 +24032,9 @@ var ASN1Bytes = class extends Bytes {
     return oid;
   }
   readASN1Boolean() {
-    const length2 = this.readUint8("length of boolean");
-    if (length2 !== 1)
-      throw new Error(`Boolean has weird length: ${length2}`);
-    const [endBoolean] = this.expectLength(length2);
+    const [endBoolean, booleanRemaining] = this.expectASN1Length("boolean");
+    if (booleanRemaining() !== 1)
+      throw new Error(`Boolean has weird length: ${length}`);
     const byte = this.readUint8();
     let result;
     if (byte === 255)
@@ -24050,9 +24048,8 @@ var ASN1Bytes = class extends Bytes {
     return result;
   }
   readASN1UTCTime() {
-    const timeLength = this.readASN1Length();
-    const [endTime] = this.expectLength(timeLength);
-    const timeStr = this.readUTF8String(timeLength);
+    const [endTime, timeRemaining] = this.expectASN1Length("UTC time");
+    const timeStr = this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
     if (!parts)
       throw new Error("Unrecognised UTC time format in certificate validity");
@@ -24065,10 +24062,9 @@ var ASN1Bytes = class extends Bytes {
     return time;
   }
   readASN1BitString() {
-    const bitStringLength = this.readASN1Length();
-    const [endBitString, bitStringBytesRemaining] = this.expectLength(bitStringLength);
+    const [endBitString, bitStringRemaining] = this.expectASN1Length("bit string");
     const rightPadBits = this.readUint8("right-padding bits");
-    const bytesLength = bitStringBytesRemaining();
+    const bytesLength = bitStringRemaining();
     const bitString = this.readBytes(bytesLength);
     if (rightPadBits > 7)
       throw new Error(`Invalid right pad value: ${rightPadBits}`);
@@ -24172,14 +24168,12 @@ function intFromBitString(bs) {
 }
 function readSeqOfSetOfSeq(cb, seqType) {
   cb.expectUint8(constructedUniversalTypeSequence, `sequence (${seqType})`);
-  const [endSeq, seqRemainingBytes] = cb.expectASN1Length("sequence");
-  while (seqRemainingBytes() > 0) {
+  const [endSeq, seqRemaining] = cb.expectASN1Length("sequence");
+  while (seqRemaining() > 0) {
     cb.expectUint8(constructedUniversalTypeSet, "set");
-    const itemSetLength = cb.readASN1Length();
-    const [endItemSet] = cb.expectLength(itemSetLength);
+    const [endItemSet] = cb.expectASN1Length("set");
     cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-    const itemSeqLength = cb.readASN1Length();
-    const [endItemSeq] = cb.expectLength(itemSeqLength);
+    const [endItemSeq] = cb.expectASN1Length("sequence");
     cb.expectUint8(universalTypeOID, "OID");
     const itemOID = cb.readASN1OID();
     cb.comment(`= ${rdnmap[itemOID]}`);
@@ -24191,9 +24185,8 @@ function readSeqOfSetOfSeq(cb, seqType) {
     } else {
       throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
     }
-    const itemStringLength = cb.readASN1Length();
-    const [endItemString] = cb.expectLength(itemStringLength);
-    const itemString = cb.readUTF8String(itemStringLength);
+    const [endItemString, itemStringRemaining] = cb.expectASN1Length("UTF8 string");
+    const itemString = cb.readUTF8String(itemStringRemaining());
     endItemString();
     endItemSeq();
     endItemSet();
@@ -24203,33 +24196,28 @@ function readSeqOfSetOfSeq(cb, seqType) {
 function parseCert(certData) {
   const cb = new ASN1Bytes(certData);
   cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate)");
-  const certSeqLength = cb.readASN1Length();
-  const [endCertSeq] = cb.expectLength(certSeqLength);
+  const [endCertSeq] = cb.expectASN1Length("certificate sequence");
   cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate info)");
-  const certInfoSeqLength = cb.readASN1Length();
-  const [endCertInfoSeq] = cb.expectLength(certInfoSeqLength);
+  const [endCertInfoSeq] = cb.expectASN1Length("certificate info");
   cb.expectBytes([160, 3, 2, 1, 2], "certificate version v3");
   cb.expectUint8(universalTypeInteger, "integer");
-  const serialNumberLength = cb.readASN1Length();
-  const [endSerialNumber] = cb.expectLength(serialNumberLength);
-  const serialNumber = cb.subarray(serialNumberLength);
+  const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length("serial number");
+  const serialNumber = cb.subarray(serialNumberRemaining());
   cb.comment("serial number");
   endSerialNumber();
   cb.expectUint8(constructedUniversalTypeSequence, "sequence (algorithm)");
-  const algoLength = cb.readASN1Length();
-  const [endAlgo, algoRemainingBytes] = cb.expectLength(algoLength);
+  const [endAlgo, algoRemaining] = cb.expectASN1Length("algorithm sequence");
   cb.expectUint8(universalTypeOID, "OID");
   const algoOID = cb.readASN1OID();
   cb.comment(`= ${algomap[algoOID]}`);
-  if (algoRemainingBytes() > 0) {
+  if (algoRemaining() > 0) {
     cb.expectUint8(universalTypeNull, "null");
     cb.expectUint8(0, "null length");
   }
   endAlgo();
   readSeqOfSetOfSeq(cb, "issuer");
   cb.expectUint8(constructedUniversalTypeSequence, "sequence (validity)");
-  const validitySeqLength = cb.readASN1Length();
-  const [endValiditySeq] = cb.expectLength(validitySeqLength);
+  const [endValiditySeq] = cb.expectASN1Length("validity sequence");
   cb.expectUint8(universalTypeUTCTime, "UTC time (not before)");
   const notBeforeTime = cb.readASN1UTCTime();
   cb.expectUint8(universalTypeUTCTime, "UTC time (not after)");
@@ -24237,12 +24225,10 @@ function parseCert(certData) {
   endValiditySeq();
   readSeqOfSetOfSeq(cb, "subject");
   cb.expectUint8(constructedUniversalTypeSequence, "sequence (public key)");
-  const publicKeySeqLength = cb.readASN1Length();
-  const [endPublicKeySeq] = cb.expectLength(publicKeySeqLength);
+  const [endPublicKeySeq] = cb.expectASN1Length("public key sequence");
   cb.expectUint8(constructedUniversalTypeSequence, "sequence (public key params)");
-  const keyParamsLength = cb.readASN1Length();
-  const [endKeyOID, keyOIDRemainingBytes] = cb.expectLength(keyParamsLength);
-  while (keyOIDRemainingBytes() > 0) {
+  const [endKeyOID, keyOIDRemaining] = cb.expectASN1Length("public key params sequence");
+  while (keyOIDRemaining() > 0) {
     const keyParamRecordType = cb.readUint8();
     if (keyParamRecordType === universalTypeOID) {
       cb.comment("OID");
@@ -24259,34 +24245,28 @@ function parseCert(certData) {
   cb.comment("public key");
   endPublicKeySeq();
   cb.expectUint8(constructedContextSpecificType, "constructed context-specific type");
-  const extsDataLength = cb.readASN1Length();
-  const [endExtsData] = cb.expectLength(extsDataLength);
+  const [endExtsData] = cb.expectASN1Length();
   cb.expectUint8(constructedUniversalTypeSequence, "sequence (extensions)");
-  const extsLength = cb.readASN1Length();
-  const [endExts, extsBytesRemaining] = cb.expectLength(extsLength);
-  while (extsBytesRemaining() > 0) {
+  const [endExts, extsRemaining] = cb.expectASN1Length("extensions sequence");
+  while (extsRemaining() > 0) {
     cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-    const extLength = cb.readASN1Length();
-    const [endExt, extBytesRemaining] = cb.expectLength(extLength);
+    const [endExt, extRemaining] = cb.expectASN1Length();
     cb.expectUint8(universalTypeOID, "OID (extension type)");
     const extOID = cb.readASN1OID();
     cb.comment(`= ${extmap[extOID]}`);
     if (extOID === "2.5.29.17") {
       cb.expectUint8(universalTypeOctetString, "octet string");
-      const sanDerDocLength = cb.readASN1Length();
-      const [endSanDerDoc] = cb.expectLength(sanDerDocLength);
-      cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-      const sanSeqLength = cb.readASN1Length();
-      const [endSanSeq, sanSeqBytesRemaining] = cb.expectLength(sanSeqLength);
-      while (sanSeqBytesRemaining() > 0) {
+      const [endSanDerDoc] = cb.expectASN1Length("DER document");
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence (names)");
+      const [endSanSeq, sanSeqRemaining] = cb.expectASN1Length("names sequence");
+      while (sanSeqRemaining() > 0) {
         const nameType = cb.readUint8("GeneralName type");
-        const sanNameLength = cb.readASN1Length();
-        const [endSanName] = cb.expectLength(sanNameLength);
+        const [endSanName, sanNameRemaining] = cb.expectASN1Length("name");
         if (nameType === dNSName) {
-          const sanName = cb.readUTF8String(sanNameLength);
+          const sanName = cb.readUTF8String(sanNameRemaining());
           cb.comment("= DNS name");
         } else {
-          cb.skip(sanNameLength, "unparsed name data");
+          cb.skip(sanNameRemaining(), "unparsed name data");
         }
         endSanName();
       }
@@ -24297,8 +24277,7 @@ function parseCert(certData) {
       const critical = cb.readASN1Boolean();
       cb.comment("<- critical");
       cb.expectUint8(universalTypeOctetString, "octet string");
-      const keyUsageDerLength = cb.readASN1Length();
-      const [endKeyUsageDer] = cb.expectLength(keyUsageDerLength);
+      const [endKeyUsageDer] = cb.expectASN1Length("DER document");
       cb.expectUint8(universalTypeBitString, "bit string");
       const keyUsage = cb.readASN1BitString();
       const keyUsageInt = intFromBitString(keyUsage);
@@ -24318,12 +24297,10 @@ function parseCert(certData) {
       endKeyUsageDer();
     } else if (extOID === "2.5.29.37") {
       cb.expectUint8(universalTypeOctetString, "octet string");
-      const extKeyUsageDerLength = cb.readASN1Length();
-      const [endExtKeyUsageDer] = cb.expectLength(extKeyUsageDerLength);
+      const [endExtKeyUsageDer] = cb.expectASN1Length("DER document");
       cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-      const extKeyUsageLength = cb.readASN1Length();
-      const [endExtKeyUsage, extKeyUsageRemainingBytes] = cb.expectLength(extKeyUsageLength);
-      while (extKeyUsageRemainingBytes() > 0) {
+      const [endExtKeyUsage, extKeyUsageRemaining] = cb.expectASN1Length("key usage OIDs");
+      while (extKeyUsageRemaining() > 0) {
         cb.expectUint8(universalTypeOID, "OID");
         const extKeyUsageOID = cb.readASN1OID();
         cb.comment(`= ${extKeyUsageMap[extKeyUsageOID]}`);
@@ -24331,7 +24308,7 @@ function parseCert(certData) {
       endExtKeyUsage();
       endExtKeyUsageDer();
     } else {
-      cb.skip(extBytesRemaining(), "unparsed extension data");
+      cb.skip(extRemaining(), "unparsed extension data");
     }
     endExt();
   }
@@ -24404,8 +24381,8 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const [endHs] = hs.expectLength(record.length);
   hs.expectUint8(8, "handshake record type: encrypted extensions");
   const [eeMessageEnd] = hs.expectLengthUint24();
-  const [extEnd, extBytesRemaining] = hs.expectLengthUint16("extensions");
-  if (extBytesRemaining() > 0) {
+  const [extEnd, extRemaining] = hs.expectLengthUint16("extensions");
+  if (extRemaining() > 0) {
     hs.expectUint16(0, "extension type: SNI");
     hs.expectUint16(0, "no extension data");
   }
@@ -24414,15 +24391,15 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   hs.expectUint8(11, "handshake message type: server certificate");
   const [endCertPayload] = hs.expectLengthUint24("certificate payload");
   hs.expectUint8(0, "0 bytes of request context follow");
-  const [endCerts, certsRemainingBytes] = hs.expectLengthUint24("certificates");
+  const [endCerts, certsRemaining] = hs.expectLengthUint24("certificates");
   const certEntries = [];
-  while (certsRemainingBytes() > 0) {
-    const [endCert, certRemainingBytes] = hs.expectLengthUint24("certificate");
-    const certData = hs.readBytes(certRemainingBytes());
+  while (certsRemaining() > 0) {
+    const [endCert, certRemaining] = hs.expectLengthUint24("certificate");
+    const certData = hs.readBytes(certRemaining());
     hs.comment("server certificate");
     endCert();
-    const [endCertExt, certExtRemainingBytes] = hs.expectLengthUint16();
-    const certExtData = hs.readBytes(certExtRemainingBytes());
+    const [endCertExt, certExtRemaining] = hs.expectLengthUint16();
+    const certExtData = hs.readBytes(certExtRemaining());
     endCertExt();
     const cert = Certificate.fromBER(certData);
     certEntries.push({ certData, certExtData, cert });
@@ -24455,8 +24432,8 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   hs.expectUint8(15, "handshake message type: certificate verify");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   const signatureType = hs.readUint16("signature type");
-  const [endSignature, signatureBytesRemaining] = hs.expectLengthUint16();
-  const signature = hs.readBytes(signatureBytesRemaining());
+  const [endSignature, signatureRemaining] = hs.expectLengthUint16();
+  const signature = hs.readBytes(signatureRemaining());
   hs.comment("signature");
   endSignature();
   endCertVerifyPayload();
@@ -24468,8 +24445,8 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const correctVerifyHashBuffer = await crypto.subtle.sign("HMAC", hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
   hs.expectUint8(20, "handshake message type: finished");
-  const [endHsFinishedPayload, hsFinishedPayloadBytesRemaining] = hs.expectLengthUint24("verify hash");
-  const verifyHash = hs.readBytes(hsFinishedPayloadBytesRemaining());
+  const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24("verify hash");
+  const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
   hs.comment("verify hash");
   endHsFinishedPayload();
   endHs();

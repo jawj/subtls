@@ -6,7 +6,7 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
   let serverPublicKey;
   let tlsVersionSpecified;
 
-  const [endServerHelloMessage] = hello.expectLength(hello.remainingBytes());
+  const [endServerHelloMessage] = hello.expectLength(hello.remaining());
 
   hello.expectUint8(0x02, 'handshake type: server hello');
   const [endServerHello] = hello.expectLengthUint24('server hello');
@@ -29,8 +29,8 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
   hello.expectUint16(0x1301, 'cipher (matches client hello)');
   hello.expectUint8(0x00, 'no compression');
 
-  const [endExtensions, extensionsRemainingBytes] = hello.expectLengthUint16('extensions');
-  while (extensionsRemainingBytes() > 0) {
+  const [endExtensions, extensionsRemaining] = hello.expectLengthUint16('extensions');
+  while (extensionsRemaining() > 0) {
     const extensionType = hello.readUint16('extension type');
     const [endExtension] = hello.expectLengthUint16('extension');
 

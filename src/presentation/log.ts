@@ -1,3 +1,5 @@
+import { indentChars } from './appearance';
+
 const element = document.querySelector('#logs')!;
 
 function htmlFromLogArgs(...args: string[]) {
