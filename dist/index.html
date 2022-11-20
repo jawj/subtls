@@ -4,9 +4,25 @@
     white-space: pre-wrap;
   }
 
-  #logs div {
+  #logs input[type=checkbox] {
+    display: none;
+  }
+
+  #logs label {
+    display: block;
+  }
+
+  #logs .section {
     border-bottom: 1px solid #eee;
     padding: 0.5ex 3ex;
+    max-height: 6.5ex;
+    overflow-y: hidden;
+    background: #f4f4f4;
+  }
+
+  #logs input[type=checkbox]:checked+.section {
+    max-height: 10000em;
+    background: #fff;
   }
 </style>
 <div id="logs"></div>

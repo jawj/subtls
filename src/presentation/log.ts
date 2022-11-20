@@ -1,5 +1,3 @@
-import { indentChars } from './appearance';
-
 const element = document.querySelector('#logs')!;
 
 function htmlFromLogArgs(...args: string[]) {
@@ -38,5 +36,5 @@ function htmlFromLogArgs(...args: string[]) {
 
 export function log(...args: any[]) {
   console.log(...args);
-  element.innerHTML += '<div>' + htmlFromLogArgs(...args) + '</div>';
+  element.innerHTML += '<label><input type="checkbox"><div class="section">' + htmlFromLogArgs(...args) + '</div></label>';
 }

@@ -120,3 +120,5 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 }
 
 start('neon-cf-pg-test.jawj.workers.dev', 443);
+// start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: no common cipher?
+// start('cloudflare.com', 443);

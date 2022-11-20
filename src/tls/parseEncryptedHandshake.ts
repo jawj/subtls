@@ -1,12 +1,12 @@
-import * as pkijs from 'pkijs';
 import { LogColours } from '../presentation/appearance';
 import { hkdfExpandLabel } from './keys';
 import { concat, equal } from '../util/array';
 
 import Bytes from '../util/bytes';
-import { certNamesMatch, getRootCerts, describeCert, getSubjectAltNamesDNSNames, parseCert } from './cert';
+import { Cert } from './cert';
 import highlightCommented from '../presentation/highlightCommented';
 import { log } from '../presentation/log';
+import { getRootCerts } from './rootCerts';
 
 export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
   // parse encrypted handshake part
@@ -49,11 +49,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
     const certExtData = hs.readBytes(certExtRemaining());
     endCertExt();
 
-    const cert = pkijs.Certificate.fromBER(certData);
-    certEntries.push({ certData, certExtData, cert });
-
-    const mycert = parseCert(certData);
-    console.log(mycert);
+    const cert = new Cert(certData);
+    certEntries.push({ cert, certExtData });
   }
   endCerts();
   endCertPayload();
@@ -61,12 +58,10 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   if (certEntries.length === 0) throw new Error('No certificates supplied');
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates');
-  for (const entry of certEntries) chatty && log(describeCert(entry.cert));
+  for (const entry of certEntries) chatty && log(entry.cert.toString());
 
   const userCert = certEntries[0].cert;
-  const altNames = getSubjectAltNamesDNSNames(userCert);
-
-  const namesMatch = certNamesMatch(host, altNames);
+  const namesMatch = userCert.subjectAltNamesMatch(host);
   if (!namesMatch) throw new Error(`No matching subjectAltName for ${host}`);
 
   // TODO: trustidx3root makes neon-cf-pg-test.jawj.workers.dev work, even though it's expired.
@@ -74,17 +69,9 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const rootCerts = getRootCerts();
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
-  for (const cert of rootCerts) chatty && log(describeCert(cert));
+  for (const cert of rootCerts) chatty && log(cert.toString());
 
-  const chainEngine = new pkijs.CertificateChainValidationEngine({
-    certs: certEntries.map(entry => entry.cert).reverse(),  // end-user cert should be last
-    trustedCerts: rootCerts,
-  });
-
-  const chain = await chainEngine.verify();
-  chatty && log('cert verify result', chain);
-  if (chain.result !== true) throw new Error(chain.resultMessage);
-
+  // cert verify
   hs.expectUint8(0x0f, 'handshake message type: certificate verify');
   const [endCertVerifyPayload] = hs.expectLengthUint24('handshake message data');
   const signatureType = hs.readUint16('signature type');
