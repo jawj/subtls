@@ -34,7 +34,6 @@ type OID = string;
 export class Cert {
   serialNumber: Uint8Array;
   algorithm: OID;
-  algorithmName: string;
   issuer: Record<string, string>;
   validityPeriod: { notBefore: Date; notAfter: Date };
   subject: Record<string, string>;
@@ -70,8 +69,7 @@ export class Cert {
     const [endAlgo, algoRemaining] = cb.expectASN1Length('algorithm sequence');
     cb.expectUint8(universalTypeOID, 'OID');
     this.algorithm = cb.readASN1OID();
-    this.algorithmName = descriptionForAlgorithm((algorithmWithOID(this.algorithm)));
-    cb.comment(`= ${this.algorithmName}`);
+    cb.comment(`= ${descriptionForAlgorithm(algorithmWithOID(this.algorithm))}`);
     if (algoRemaining() > 0) {  // null parameters
       cb.expectUint8(universalTypeNull, 'null');
       cb.expectUint8(0x00, 'null length');
@@ -194,39 +192,43 @@ export class Cert {
         endExtKeyUsageDer();
 
       } else if (extOID === '2.5.29.35') {  // authorityKeyIdentifier
-        while (extRemaining() > 0) {
-          let nextType = cb.readUint8();
+        cb.expectUint8(universalTypeOctetString, 'octet string');
+        const [endAuthKeyIdDer] = cb.expectASN1Length('DER document');
+        cb.expectUint8(constructedUniversalTypeSequence, 'sequence');
+        const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = cb.expectASN1Length('sequence');
 
-          if (nextType === universalTypeOctetString) {
+        while (authKeyIdSeqRemaining() > 0) {
+          const authKeyIdDatumType = cb.readUint8();
+          if (authKeyIdDatumType === (contextSpecificType | 0)) {
+            cb.comment('context-specific type: key identifier');
             const [endAuthKeyId, authKeyIdRemaining] = cb.expectASN1Length('authority key identifier');
             this.authorityKeyIdentifier = cb.readBytes(authKeyIdRemaining());
             cb.comment('authority key identifier');
             endAuthKeyId();
 
+          } else if (authKeyIdDatumType === (contextSpecificType | 1) || authKeyIdDatumType === (contextSpecificType | 2)) {
+            cb.comment('context-specific type: authority cert issuer or authority cert serial number');
+            const [endAuthKeyIdExtra, authKeyIdExtraRemaining] = cb.expectASN1Length('authority cert issuer or authority cert serial number');
+            cb.skip(authKeyIdExtraRemaining(), 'ignored');
+            endAuthKeyIdExtra();
+
           } else {
-            const [endAuthKeyField, authKeyFieldRemaining] = cb.expectASN1Length('unsupported authorityKeyIdentifier field');
-            cb.skip(authKeyFieldRemaining(), 'unsupported authorityKeyIdentifier field');
-            endAuthKeyField();
+            throw new Error('Unexpected data type in authorityKeyIdentifier certificate extension');
           }
         }
+
+        endAuthKeyIdSeq();
+        endAuthKeyIdDer();
 
       } else if (extOID === '2.5.29.14') {  // subjectKeyIdentifier
-        while (extRemaining() > 0) {
-          let nextType = cb.readUint8();
-
-          if (nextType === universalTypeOctetString) {
-            const [endSubjectKeyId, subjectKeyIdRemaining] = cb.expectASN1Length('subject key identifier');
-            this.subjectKeyIdentifier = cb.readBytes(subjectKeyIdRemaining());
-            cb.comment('subject key identifier');
-            endSubjectKeyId();
-
-          } else {
-            const [endSubjectKeyField, subjectKeyFieldRemaining] = cb.expectASN1Length('unsupported subjectKeyIdentifier field');
-            cb.skip(subjectKeyFieldRemaining(), 'unsupported subjectKeyIdentifier field');
-            endSubjectKeyField();
-          }
-        }
-
+        cb.expectUint8(universalTypeOctetString, 'octet string');
+        const [endSubjectKeyIdDer] = cb.expectASN1Length('DER document');
+        cb.expectUint8(universalTypeOctetString, 'octet string');
+        const [endSubjectKeyId, subjectKeyIdRemaining] = cb.expectASN1Length('subject key identifier');
+        this.subjectKeyIdentifier = cb.readBytes(subjectKeyIdRemaining());
+        cb.comment('subject key identifier');
+        endSubjectKeyId();
+        endSubjectKeyIdDer();
 
       } else if (extOID === '2.5.29.19') {  // basicConstraints
         cb.expectUint8(universalTypeBoolean, 'boolean');
@@ -347,16 +349,16 @@ export class Cert {
   description() {
     return 'subject: ' + Object.entries(this.subject).map(x => x.join('=')).join(', ') +
       (this.subjectAltNames ? '\nsubject alt names: ' + this.subjectAltNames.join(', ') : '') +
-      (this.subjectKeyIdentifier ? `\nsubject key id: ${hexFromU8(this.subjectKeyIdentifier)}` : '') +
+      (this.subjectKeyIdentifier ? `\nsubject key id: ${hexFromU8(this.subjectKeyIdentifier, ' ')}` : '') +
       '\nissuer: ' + Object.entries(this.issuer).map(x => x.join('=')).join(', ') +
-      (this.authorityKeyIdentifier ? `\nauthority key id: ${hexFromU8(this.authorityKeyIdentifier)}` : '') +
+      (this.authorityKeyIdentifier ? `\nauthority key id: ${hexFromU8(this.authorityKeyIdentifier, ' ')}` : '') +
       '\nvalidity: ' + this.validityPeriod.notBefore.toISOString() + ' – ' + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? 'currently valid' : 'not valid'})` +
       (this.keyUsage ? `\nkey usage (${this.keyUsage.critical ? 'critical' : 'non-critical'}): ` +
         [...this.keyUsage.usages].join(', ') : '') +
       (this.extKeyUsage ? `\nextended key usage: TLS server — ${this.extKeyUsage.serverTls}, TLS client — ${this.extKeyUsage.clientTls}` : '') +
       (this.basicConstraints ? `\nbasic constraints (${this.basicConstraints.critical ? 'critical' : 'non-critical'}): ` +
         `CA — ${this.basicConstraints.ca}, path length — ${this.basicConstraints.pathLength}` : '') +
-      '\nsignature algorithm: ' + this.algorithmName;
+      '\nsignature algorithm: ' + descriptionForAlgorithm(algorithmWithOID(this.algorithm));
   }
 }
 
