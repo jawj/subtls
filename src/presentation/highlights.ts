@@ -12,11 +12,11 @@ export function highlightBytes(s: string, colour: string) {
   return [s, ...css];
 }
 
-export function highlightCert(s: string) {
+export function highlightColonList(s: string) {
   const css: string[] = [];
   s = s.replace(/^[^:]+:.*$/gm, m => {
     const colonIndex = m.indexOf(':');
-    css.push('color: #bbb', 'color: inherit');
+    css.push('color: #aaa', 'color: inherit');
     return `%c${m.slice(0, colonIndex + 1)}%c${m.slice(colonIndex + 1)}`;
   });
   return [s, ...css];

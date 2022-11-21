@@ -1,6 +1,7 @@
 import { hexFromU8 } from '../util/hex';
 import { concat } from '../util/array';
 import { log } from '../presentation/log';
+import { highlightColonList } from '../presentation/highlights';
 
 const txtEnc = new TextEncoder();
 
@@ -121,42 +122,42 @@ export async function getHandshakeKeys(serverPublicKey: Uint8Array, privateKey: 
   const publicKey = await crypto.subtle.importKey('raw', serverPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false /* extractable */, []);
   const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: 'ECDH', public: publicKey }, privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
-  chatty && log('shared secret', hexFromU8(sharedSecret));
+  chatty && log(...highlightColonList('shared secret: ' + hexFromU8(sharedSecret)));
 
   const hellosHashBuffer = await crypto.subtle.digest('SHA-256', hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
-  chatty && log('hellos hash', hexFromU8(hellosHash));
+  chatty && log(...highlightColonList('hellos hash: ' + hexFromU8(hellosHash)));
 
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
-  chatty && log('early secret', hexFromU8(new Uint8Array(earlySecret)));
+  chatty && log(...highlightColonList('early secret: ' + hexFromU8(new Uint8Array(earlySecret))));
 
   const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
-  chatty && log('empty hash', hexFromU8(emptyHash));
+  chatty && log(...highlightColonList('empty hash: ' + hexFromU8(emptyHash)));
 
   const derivedSecret = await hkdfExpandLabel(earlySecret, 'derived', emptyHash, hashBytes, hashBits);
-  chatty && log('derived secret', hexFromU8(derivedSecret));
+  chatty && log(...highlightColonList('derived secret: ' + hexFromU8(derivedSecret)));
 
   const handshakeSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
-  chatty && log('handshake secret', hexFromU8(handshakeSecret));
+  chatty && log(...highlightColonList('handshake secret: ' + hexFromU8(handshakeSecret)));
 
   const clientSecret = await hkdfExpandLabel(handshakeSecret, 'c hs traffic', hellosHash, hashBytes, hashBits);
-  chatty && log('client secret', hexFromU8(clientSecret));
+  chatty && log(...highlightColonList('client secret: ' + hexFromU8(clientSecret)));
 
   const serverSecret = await hkdfExpandLabel(handshakeSecret, 's hs traffic', hellosHash, hashBytes, hashBits);
-  chatty && log('server secret', hexFromU8(serverSecret));
+  chatty && log(...highlightColonList('server secret: ' + hexFromU8(serverSecret)));
 
   const clientHandshakeKey = await hkdfExpandLabel(clientSecret, 'key', new Uint8Array(0), keyLength, hashBits);
-  chatty && log('client handshake key', hexFromU8(clientHandshakeKey));
+  chatty && log(...highlightColonList('client handshake key: ' + hexFromU8(clientHandshakeKey)));
 
   const serverHandshakeKey = await hkdfExpandLabel(serverSecret, 'key', new Uint8Array(0), keyLength, hashBits);
-  chatty && log('server handshake key', hexFromU8(serverHandshakeKey));
+  chatty && log(...highlightColonList('server handshake key: ' + hexFromU8(serverHandshakeKey)));
 
   const clientHandshakeIV = await hkdfExpandLabel(clientSecret, 'iv', new Uint8Array(0), 12, hashBits);
-  chatty && log('client handshake iv', hexFromU8(clientHandshakeIV));
+  chatty && log(...highlightColonList('client handshake iv: ' + hexFromU8(clientHandshakeIV)));
 
   const serverHandshakeIV = await hkdfExpandLabel(serverSecret, 'iv', new Uint8Array(0), 12, hashBits);
-  chatty && log('server handshake iv', hexFromU8(serverHandshakeIV));
+  chatty && log(...highlightColonList('server handshake iv: ' + hexFromU8(serverHandshakeIV)));
 
   return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV, handshakeSecret, clientSecret, serverSecret };
 }
@@ -167,31 +168,31 @@ export async function getApplicationKeys(handshakeSecret: Uint8Array, handshakeH
 
   const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
-  chatty && log('empty hash', hexFromU8(emptyHash));
+  chatty && log(...highlightColonList('empty hash: ' + hexFromU8(emptyHash)));
 
   const derivedSecret = await hkdfExpandLabel(handshakeSecret, 'derived', emptyHash, hashBytes, hashBits);
-  chatty && log('derived secret', hexFromU8(derivedSecret));
+  chatty && log(...highlightColonList('derived secret: ' + hexFromU8(derivedSecret)));
 
   const masterSecret = await hkdfExtract(derivedSecret, zeroKey, hashBits);
-  chatty && log('master secret', hexFromU8(masterSecret));
+  chatty && log(...highlightColonList('master secret: ' + hexFromU8(masterSecret)));
 
   const clientSecret = await hkdfExpandLabel(masterSecret, 'c ap traffic', handshakeHash, hashBytes, hashBits);
-  chatty && log('client secret', hexFromU8(clientSecret));
+  chatty && log(...highlightColonList('client secret: ' + hexFromU8(clientSecret)));
 
   const serverSecret = await hkdfExpandLabel(masterSecret, 's ap traffic', handshakeHash, hashBytes, hashBits);
-  chatty && log('server secret', hexFromU8(serverSecret));
+  chatty && log(...highlightColonList('server secret: ' + hexFromU8(serverSecret)));
 
   const clientApplicationKey = await hkdfExpandLabel(clientSecret, 'key', new Uint8Array(0), keyLength, hashBits);
-  chatty && log('client application key', hexFromU8(clientApplicationKey));
+  chatty && log(...highlightColonList('client application key: ' + hexFromU8(clientApplicationKey)));
 
   const serverApplicationKey = await hkdfExpandLabel(serverSecret, 'key', new Uint8Array(0), keyLength, hashBits);
-  chatty && log('server application key', hexFromU8(serverApplicationKey));
+  chatty && log(...highlightColonList('server application key: ' + hexFromU8(serverApplicationKey)));
 
   const clientApplicationIV = await hkdfExpandLabel(clientSecret, 'iv', new Uint8Array(0), 12, hashBits);
-  chatty && log('client application iv', hexFromU8(clientApplicationIV));
+  chatty && log(...highlightColonList('client application iv: ' + hexFromU8(clientApplicationIV)));
 
   const serverApplicationIV = await hkdfExpandLabel(serverSecret, 'iv', new Uint8Array(0), 12, hashBits);
-  chatty && log('server application iv', hexFromU8(serverApplicationIV));
+  chatty && log(...highlightColonList('server application iv: ' + hexFromU8(serverApplicationIV)));
 
   return { serverApplicationKey, serverApplicationIV, clientApplicationKey, clientApplicationIV };
 }

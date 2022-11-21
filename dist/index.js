@@ -412,11 +412,11 @@ function highlightBytes(s, colour) {
   });
   return [s, ...css];
 }
-function highlightCert(s) {
+function highlightColonList(s) {
   const css = [];
   s = s.replace(/^[^:]+:.*$/gm, (m) => {
     const colonIndex = m.indexOf(":");
-    css.push("color: #bbb", "color: inherit");
+    css.push("color: #aaa", "color: inherit");
     return `%c${m.slice(0, colonIndex + 1)}%c${m.slice(colonIndex + 1)}`;
   });
   return [s, ...css];
@@ -438,7 +438,7 @@ function htmlEscape(s) {
 function htmlFromLogArgs(...args) {
   let result = "<span>", arg, matchArr;
   while ((arg = args.shift()) !== void 0) {
-    arg = htmlEscape(arg);
+    arg = htmlEscape(arg) + " ";
     const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;
     while ((matchArr = formatRegExp.exec(arg)) !== null) {
       const [whole, literal, sub] = matchArr;
@@ -572,31 +572,31 @@ async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, k
   const publicKey = await crypto.subtle.importKey("raw", serverPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
   const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: "ECDH", public: publicKey }, privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
-  log("shared secret", hexFromU8(sharedSecret));
+  log(...highlightColonList("shared secret: " + hexFromU8(sharedSecret)));
   const hellosHashBuffer = await crypto.subtle.digest("SHA-256", hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
-  log("hellos hash", hexFromU8(hellosHash));
+  log(...highlightColonList("hellos hash: " + hexFromU8(hellosHash)));
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
-  log("early secret", hexFromU8(new Uint8Array(earlySecret)));
+  log(...highlightColonList("early secret: " + hexFromU8(new Uint8Array(earlySecret))));
   const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
-  log("empty hash", hexFromU8(emptyHash));
+  log(...highlightColonList("empty hash: " + hexFromU8(emptyHash)));
   const derivedSecret = await hkdfExpandLabel(earlySecret, "derived", emptyHash, hashBytes, hashBits);
-  log("derived secret", hexFromU8(derivedSecret));
+  log(...highlightColonList("derived secret: " + hexFromU8(derivedSecret)));
   const handshakeSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
-  log("handshake secret", hexFromU8(handshakeSecret));
+  log(...highlightColonList("handshake secret: " + hexFromU8(handshakeSecret)));
   const clientSecret = await hkdfExpandLabel(handshakeSecret, "c hs traffic", hellosHash, hashBytes, hashBits);
-  log("client secret", hexFromU8(clientSecret));
+  log(...highlightColonList("client secret: " + hexFromU8(clientSecret)));
   const serverSecret = await hkdfExpandLabel(handshakeSecret, "s hs traffic", hellosHash, hashBytes, hashBits);
-  log("server secret", hexFromU8(serverSecret));
+  log(...highlightColonList("server secret: " + hexFromU8(serverSecret)));
   const clientHandshakeKey = await hkdfExpandLabel(clientSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log("client handshake key", hexFromU8(clientHandshakeKey));
+  log(...highlightColonList("client handshake key: " + hexFromU8(clientHandshakeKey)));
   const serverHandshakeKey = await hkdfExpandLabel(serverSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log("server handshake key", hexFromU8(serverHandshakeKey));
+  log(...highlightColonList("server handshake key: " + hexFromU8(serverHandshakeKey)));
   const clientHandshakeIV = await hkdfExpandLabel(clientSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log("client handshake iv", hexFromU8(clientHandshakeIV));
+  log(...highlightColonList("client handshake iv: " + hexFromU8(clientHandshakeIV)));
   const serverHandshakeIV = await hkdfExpandLabel(serverSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log("server handshake iv", hexFromU8(serverHandshakeIV));
+  log(...highlightColonList("server handshake iv: " + hexFromU8(serverHandshakeIV)));
   return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV, handshakeSecret, clientSecret, serverSecret };
 }
 async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyLength) {
@@ -604,23 +604,23 @@ async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyL
   const zeroKey = new Uint8Array(hashBytes);
   const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
-  log("empty hash", hexFromU8(emptyHash));
+  log(...highlightColonList("empty hash: " + hexFromU8(emptyHash)));
   const derivedSecret = await hkdfExpandLabel(handshakeSecret, "derived", emptyHash, hashBytes, hashBits);
-  log("derived secret", hexFromU8(derivedSecret));
+  log(...highlightColonList("derived secret: " + hexFromU8(derivedSecret)));
   const masterSecret = await hkdfExtract(derivedSecret, zeroKey, hashBits);
-  log("master secret", hexFromU8(masterSecret));
+  log(...highlightColonList("master secret: " + hexFromU8(masterSecret)));
   const clientSecret = await hkdfExpandLabel(masterSecret, "c ap traffic", handshakeHash, hashBytes, hashBits);
-  log("client secret", hexFromU8(clientSecret));
+  log(...highlightColonList("client secret: " + hexFromU8(clientSecret)));
   const serverSecret = await hkdfExpandLabel(masterSecret, "s ap traffic", handshakeHash, hashBytes, hashBits);
-  log("server secret", hexFromU8(serverSecret));
+  log(...highlightColonList("server secret: " + hexFromU8(serverSecret)));
   const clientApplicationKey = await hkdfExpandLabel(clientSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log("client application key", hexFromU8(clientApplicationKey));
+  log(...highlightColonList("client application key: " + hexFromU8(clientApplicationKey)));
   const serverApplicationKey = await hkdfExpandLabel(serverSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log("server application key", hexFromU8(serverApplicationKey));
+  log(...highlightColonList("server application key: " + hexFromU8(serverApplicationKey)));
   const clientApplicationIV = await hkdfExpandLabel(clientSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log("client application iv", hexFromU8(clientApplicationIV));
+  log(...highlightColonList("client application iv: " + hexFromU8(clientApplicationIV)));
   const serverApplicationIV = await hkdfExpandLabel(serverSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log("server application iv", hexFromU8(serverApplicationIV));
+  log(...highlightColonList("server application iv: " + hexFromU8(serverApplicationIV)));
   return { serverApplicationKey, serverApplicationIV, clientApplicationKey, clientApplicationIV };
 }
 
@@ -1395,7 +1395,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
     throw new Error("No certificates supplied");
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
   for (const entry of certEntries)
-    log(...highlightCert(entry.cert.description()));
+    log(...highlightColonList(entry.cert.description()));
   const userCert = certEntries[0].cert;
   const namesMatch = userCert.subjectAltNamesMatch(host);
   if (!namesMatch)
@@ -1403,7 +1403,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const rootCerts = getRootCerts();
   log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
   for (const cert of rootCerts)
-    log(...highlightCert(cert.description()));
+    log(...highlightColonList(cert.description()));
   hs.expectUint8(15, "handshake message type: certificate verify");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   const signatureType = hs.readUint16("signature type");
@@ -1593,4 +1593,4 @@ Host:${host}\r
     log(new TextDecoder().decode(serverResponse));
   }
 }
-start("www.google.com", 443);
+start("neon-cf-pg-test.jawj.workers.dev", 443);
