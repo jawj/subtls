@@ -424,9 +424,21 @@ function highlightCert(s) {
 
 // src/presentation/log.ts
 var element = document.querySelector("#logs");
+var escapes = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&apos;"
+};
+var regexp = new RegExp("[" + Object.keys(escapes).join("") + "]", "g");
+function htmlEscape(s) {
+  return s.replace(regexp, (match) => escapes[match]);
+}
 function htmlFromLogArgs(...args) {
   let result = "<span>", arg, matchArr;
   while ((arg = args.shift()) !== void 0) {
+    arg = htmlEscape(arg);
     const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;
     while ((matchArr = formatRegExp.exec(arg)) !== null) {
       const [whole, literal, sub] = matchArr;
@@ -616,23 +628,27 @@ async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyL
 var Crypter = class {
   mode;
   key;
-  iv;
-  ivDataView;
+  initialIv;
+  ivLength;
+  currentIv;
+  currentIvDataView;
+  initialIvLast32;
   recordsDecrypted = 0;
   constructor(mode, key, initialIv) {
     this.mode = mode;
     this.key = key;
-    this.iv = initialIv;
-    this.ivDataView = new DataView(this.iv.buffer, this.iv.byteOffset, this.iv.byteLength);
+    this.initialIv = initialIv;
+    this.ivLength = initialIv.length;
+    this.currentIv = initialIv.slice();
+    this.currentIvDataView = new DataView(this.currentIv.buffer, this.currentIv.byteOffset, this.currentIv.byteLength);
+    this.initialIvLast32 = this.currentIvDataView.getUint32(this.ivLength - 4);
   }
   async process(data, authTagLength, additionalData) {
-    const ivLength = this.iv.length;
     const authTagBits = authTagLength << 3;
-    let ivLast32 = this.ivDataView.getUint32(ivLength - 4);
-    ivLast32 ^= this.recordsDecrypted;
-    this.ivDataView.setUint32(ivLength - 4, ivLast32);
+    const currentIvLast32 = this.initialIvLast32 ^ this.recordsDecrypted;
+    this.currentIvDataView.setUint32(this.ivLength - 4, currentIvLast32);
     this.recordsDecrypted += 1;
-    const algorithm = { name: "AES-GCM", iv: this.iv, tagLength: authTagBits, additionalData };
+    const algorithm = { name: "AES-GCM", iv: this.currentIv, tagLength: authTagBits, additionalData };
     const resultBuffer = await crypto.subtle[this.mode](algorithm, this.key, data);
     const result = new Uint8Array(resultBuffer);
     return result;
@@ -1336,9 +1352,12 @@ var trustid_x3_root_default = "-----BEGIN CERTIFICATE-----\nMIIDSjCCAjKgAwIBAgIQ
 // src/roots/cloudflare.pem
 var cloudflare_default = "-----BEGIN CERTIFICATE-----\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\n-----END CERTIFICATE-----";
 
+// src/roots/globalsign.pem
+var globalsign_default = "-----BEGIN CERTIFICATE-----\r\nMIIDdTCCAl2gAwIBAgILBAAAAAABFUtaw5QwDQYJKoZIhvcNAQEFBQAwVzELMAkG\r\nA1UEBhMCQkUxGTAXBgNVBAoTEEdsb2JhbFNpZ24gbnYtc2ExEDAOBgNVBAsTB1Jv\r\nb3QgQ0ExGzAZBgNVBAMTEkdsb2JhbFNpZ24gUm9vdCBDQTAeFw05ODA5MDExMjAw\r\nMDBaFw0yODAxMjgxMjAwMDBaMFcxCzAJBgNVBAYTAkJFMRkwFwYDVQQKExBHbG9i\r\nYWxTaWduIG52LXNhMRAwDgYDVQQLEwdSb290IENBMRswGQYDVQQDExJHbG9iYWxT\r\naWduIFJvb3QgQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDaDuaZ\r\njc6j40+Kfvvxi4Mla+pIH/EqsLmVEQS98GPR4mdmzxzdzxtIK+6NiY6arymAZavp\r\nxy0Sy6scTHAHoT0KMM0VjU/43dSMUBUc71DuxC73/OlS8pF94G3VNTCOXkNz8kHp\r\n1Wrjsok6Vjk4bwY8iGlbKk3Fp1S4bInMm/k8yuX9ifUSPJJ4ltbcdG6TRGHRjcdG\r\nsnUOhugZitVtbNV4FpWi6cgKOOvyJBNPc1STE4U6G7weNLWLBYy5d4ux2x8gkasJ\r\nU26Qzns3dLlwR5EiUWMWea6xrkEmCMgZK9FGqkjWZCrXgzT/LCrBbBlDSgeF59N8\r\n9iFo7+ryUp9/k5DPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8E\r\nBTADAQH/MB0GA1UdDgQWBBRge2YaRQ2XyolQL30EzTSo//z9SzANBgkqhkiG9w0B\r\nAQUFAAOCAQEA1nPnfE920I2/7LqivjTFKDK1fPxsnCwrvQmeU79rXqoRSLblCKOz\r\nyj1hTdNGCbM+w6DjY1Ub8rrvrTnhQ7k4o+YviiY776BQVvnGCv04zcQLcFGUl5gE\r\n38NflNUVyRRBnMRddWQVDf9VMOyGj/8N7yy5Y0b2qvzfvGn9LhJIZJrglfCm7ymP\r\nAbEVtQwdpf5pLGkkeB6zpxxxYu7KyJesF12KwvhHhm4qxFYxldBniYUr+WymXUad\r\nDKqC5JlR3XC321Y9YeRq4VzW9v493kHMB65jUr9TU/Qr6cf9tveCX4XSQRjbgbME\r\nHMUfpIBvFSDJ3gyICh3WZlXi/EjJKSZp4A==\r\n-----END CERTIFICATE-----\r\n";
+
 // src/tls/rootCerts.ts
 function getRootCerts() {
-  return Cert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + trustid_x3_root_default + cloudflare_default);
+  return Cert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + trustid_x3_root_default + cloudflare_default + globalsign_default);
 }
 
 // src/tls/parseEncryptedHandshake.ts
@@ -1554,9 +1573,8 @@ async function startTls(host, read, write) {
   const serverApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
   const requestDataRecord = new Bytes(1024);
-  requestDataRecord.writeUTF8String(`GET / HTTP/1.1\r
+  requestDataRecord.writeUTF8String(`GET / HTTP/1.0\r
 Host:${host}\r
-Connection: close\r
 \r
 `);
   requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
@@ -1575,4 +1593,4 @@ Connection: close\r
     log(new TextDecoder().decode(serverResponse));
   }
 }
-start("neon-cf-pg-test.jawj.workers.dev", 443);
+start("www.google.com", 443);

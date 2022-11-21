@@ -1,5 +1,17 @@
 const element = document.querySelector('#logs')!;
 
+const escapes: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&apos;',
+};
+const regexp = new RegExp('[' + Object.keys(escapes).join('') + ']', 'g');
+function htmlEscape(s: string) {
+  return s.replace(regexp, match => escapes[match])
+};
+
 function htmlFromLogArgs(...args: string[]) {
   let
     result = '<span>',
@@ -7,6 +19,7 @@ function htmlFromLogArgs(...args: string[]) {
     matchArr: RegExpExecArray | null;
 
   while ((arg = args.shift()) !== undefined) {
+    arg = htmlEscape(arg);
 
     const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;  // define it here so lastIndex === 0
     while ((matchArr = formatRegExp.exec(arg)) !== null) {

@@ -8,7 +8,9 @@ import isrgrootx2 from '../roots/isrg-root-x2.pem';
 import trustidx3root from '../roots/trustid-x3-root.pem';
 // @ts-ignore
 import cloudflare from '../roots/cloudflare.pem';
+// @ts-ignore
+import globalsign from '../roots/globalsign.pem';  // google.com
 
 export function getRootCerts() {
-  return Cert.fromPEM(isrgrootx1 + isrgrootx2 + trustidx3root + cloudflare);
+  return Cert.fromPEM(isrgrootx1 + isrgrootx2 + trustidx3root + cloudflare + globalsign);
 }

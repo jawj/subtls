@@ -1,30 +1,34 @@
 export class Crypter {
   mode: 'encrypt' | 'decrypt';
   key: CryptoKey;
-  iv: any;
-  ivDataView: DataView;
+  initialIv: Uint8Array;
+  ivLength: number;
+  currentIv: Uint8Array;
+  currentIvDataView: DataView;
+  initialIvLast32: number;
   recordsDecrypted = 0;
 
   constructor(mode: 'encrypt' | 'decrypt', key: CryptoKey, initialIv: Uint8Array) {
     this.mode = mode;
     this.key = key;
-    this.iv = initialIv;
-    this.ivDataView = new DataView(this.iv.buffer, this.iv.byteOffset, this.iv.byteLength);
+    this.initialIv = initialIv;
+    this.ivLength = initialIv.length;
+    this.currentIv = initialIv.slice();
+    this.currentIvDataView = new DataView(this.currentIv.buffer, this.currentIv.byteOffset, this.currentIv.byteLength);
+    this.initialIvLast32 = this.currentIvDataView.getUint32(this.ivLength - 4);
   }
 
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
   async process(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
-    const ivLength = this.iv.length;
     const authTagBits = authTagLength << 3;
 
-    let ivLast32 = this.ivDataView.getUint32(ivLength - 4);
-    ivLast32 ^= this.recordsDecrypted;
-    this.ivDataView.setUint32(ivLength - 4, ivLast32);
+    const currentIvLast32 = this.initialIvLast32 ^ this.recordsDecrypted;
+    this.currentIvDataView.setUint32(this.ivLength - 4, currentIvLast32);
     this.recordsDecrypted += 1;
 
-    const algorithm = { name: 'AES-GCM', iv: this.iv, tagLength: authTagBits, additionalData };
-
+    const algorithm = { name: 'AES-GCM', iv: this.currentIv, tagLength: authTagBits, additionalData };
     const resultBuffer = await crypto.subtle[this.mode](algorithm, this.key, data);
+
     const result = new Uint8Array(resultBuffer);
     return result;
   }

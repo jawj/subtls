@@ -108,7 +108,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 
   // GET request
   const requestDataRecord = new Bytes(1024);
-  requestDataRecord.writeUTF8String(`GET / HTTP/1.1\r\nHost:${host}\r\nConnection: close\r\n\r\n`);
+  requestDataRecord.writeUTF8String(`GET / HTTP/1.0\r\nHost:${host}\r\n\r\n`);
   requestDataRecord.writeUint8(RecordType.Application, 'record type: Application');
   chatty && log(...highlightBytes(requestDataRecord.commentedString(), LogColours.client));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);  // to be sent below
@@ -125,6 +125,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   }
 }
 
-start('neon-cf-pg-test.jawj.workers.dev', 443);
+// start('neon-cf-pg-test.jawj.workers.dev', 443);
 // start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: no common cipher?
 // start('cloudflare.com', 443);
+start('www.google.com', 443);
