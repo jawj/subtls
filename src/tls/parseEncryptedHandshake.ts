@@ -7,6 +7,7 @@ import { Cert } from './cert';
 import { highlightBytes, highlightColonList } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { getRootCerts } from './rootCerts';
+import { algorithmWithOID } from './certUtils';
 
 export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
   // parse encrypted handshake part
@@ -71,16 +72,34 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
   for (const cert of rootCerts) chatty && log(...highlightColonList(cert.description()));
 
-  // cert verify
+
+
+  // certificate verify
+  const certVerifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
+  const certVerifyData = concat(hellos, certVerifyHandshakeData);
+  const certVerifyHashBuffer = await crypto.subtle.digest('SHA-256', certVerifyData);
+  const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
+  const TLSString = ' '.repeat(64) + 'TLS 1.3, server CertificateVerify';
+  const certVerifySignedBytes = new Bytes(TLSString.length + 1 + certVerifyHash.length);
+  certVerifySignedBytes.writeUTF8String(TLSString);
+  certVerifySignedBytes.writeUint8(0x00);
+  certVerifySignedBytes.writeBytes(certVerifyHash);
+
   hs.expectUint8(0x0f, 'handshake message type: certificate verify');
   const [endCertVerifyPayload] = hs.expectLengthUint24('handshake message data');
-  const signatureType = hs.readUint16('signature type');
+  hs.expectUint16(0x0403, 'signature type ecdsa_secp256r1_sha256');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3
   const [endSignature, signatureRemaining] = hs.expectLengthUint16();
   const signature = hs.readBytes(signatureRemaining());
   hs.comment('signature');
   endSignature();
   endCertVerifyPayload();
 
+  log('%O', userCert.publicKey.identifiers);
+  const signatureKey = await crypto.subtle.importKey('raw', userCert.publicKey.data, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+  const certVerifyResult = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, signatureKey, signature, certVerifySignedBytes.array());
+  log('result:', certVerifyResult);
+
+  // handshake finished and verify
   const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, 'finished', new Uint8Array(0), 32, 256);

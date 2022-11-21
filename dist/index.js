@@ -438,7 +438,7 @@ function htmlEscape(s) {
 function htmlFromLogArgs(...args) {
   let result = "<span>", arg, matchArr;
   while ((arg = args.shift()) !== void 0) {
-    arg = htmlEscape(arg) + " ";
+    arg = htmlEscape(String(arg)) + " ";
     const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;
     while ((matchArr = formatRegExp.exec(arg)) !== null) {
       const [whole, literal, sub] = matchArr;
@@ -1404,14 +1404,27 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
   for (const cert of rootCerts)
     log(...highlightColonList(cert.description()));
+  const certVerifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
+  const certVerifyData = concat(hellos, certVerifyHandshakeData);
+  const certVerifyHashBuffer = await crypto.subtle.digest("SHA-256", certVerifyData);
+  const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
+  const TLSString = " ".repeat(64) + "TLS 1.3, server CertificateVerify";
+  const certVerifySignedBytes = new Bytes(TLSString.length + 1 + certVerifyHash.length);
+  certVerifySignedBytes.writeUTF8String(TLSString);
+  certVerifySignedBytes.writeUint8(0);
+  certVerifySignedBytes.writeBytes(certVerifyHash);
   hs.expectUint8(15, "handshake message type: certificate verify");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
-  const signatureType = hs.readUint16("signature type");
+  hs.expectUint16(1027, "signature type ecdsa_secp256r1_sha256");
   const [endSignature, signatureRemaining] = hs.expectLengthUint16();
   const signature = hs.readBytes(signatureRemaining());
   hs.comment("signature");
   endSignature();
   endCertVerifyPayload();
+  log("%O", userCert.publicKey.identifiers);
+  const signatureKey = await crypto.subtle.importKey("raw", userCert.publicKey.data, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  const certVerifyResult = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, signatureKey, signature, certVerifySignedBytes.array());
+  log("result:", certVerifyResult);
   const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, "finished", new Uint8Array(0), 32, 256);
