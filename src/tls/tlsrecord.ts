@@ -1,7 +1,7 @@
 import { Crypter } from './aesgcm';
 import { LogColours } from '../presentation/appearance';
 import Bytes from '../util/bytes';
-import highlightCommented from '../presentation/highlightCommented';
+import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
 
 export enum RecordType {
@@ -49,7 +49,7 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   encryptedBytes.skip(encryptedRecord.length - 16, 'encrypted payload');
   encryptedBytes.skip(16, 'auth tag');
   endEncrypted();
-  chatty && log(...highlightCommented(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), LogColours.server));
+  chatty && log(...highlightBytes(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), LogColours.server));
 
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
 
@@ -84,6 +84,6 @@ export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypte
 
   endEncryptedRecord();
 
-  chatty && log(...highlightCommented(encryptedRecord.commentedString(), LogColours.client));
+  chatty && log(...highlightBytes(encryptedRecord.commentedString(), LogColours.client));
   return encryptedRecord.array();
 }

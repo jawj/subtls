@@ -402,13 +402,22 @@ function parseServerHello(hello, sessionId) {
   return serverPublicKey;
 }
 
-// src/presentation/highlightCommented.ts
+// src/presentation/highlights.ts
 var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
-function highlightCommented_default(s, colour) {
+function highlightBytes(s, colour) {
   const css = [];
   s = s.replace(regex, (m) => {
-    css.push(m.startsWith(indentChars) ? `color: #ddd` : `color: ${colour}`, "color: inherit");
+    css.push(m.startsWith(indentChars) ? "color: #ddd" : `color: ${colour}`, "color: inherit");
     return `%c${m}%c`;
+  });
+  return [s, ...css];
+}
+function highlightCert(s) {
+  const css = [];
+  s = s.replace(/^[^:]+:.*$/gm, (m) => {
+    const colonIndex = m.indexOf(":");
+    css.push("color: #bbb", "color: inherit");
+    return `%c${m.slice(0, colonIndex + 1)}%c${m.slice(colonIndex + 1)}`;
   });
   return [s, ...css];
 }
@@ -479,7 +488,7 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
   encryptedBytes.skip(16, "auth tag");
   endEncrypted();
-  log(...highlightCommented_default(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
+  log(...highlightBytes(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
   const lastByteIndex = decryptedRecord.length - 1;
   const record = decryptedRecord.subarray(0, lastByteIndex);
@@ -506,7 +515,7 @@ async function makeEncryptedTlsRecord(data, encrypter) {
   encryptedRecord.writeBytes(encryptedData.subarray(encryptedData.length - 16));
   encryptedRecord.comment("auth tag");
   endEncryptedRecord();
-  log(...highlightCommented_default(encryptedRecord.commentedString(), "#8c8" /* client */));
+  log(...highlightBytes(encryptedRecord.commentedString(), "#8c8" /* client */));
   return encryptedRecord.array();
 }
 
@@ -876,6 +885,7 @@ function readNamesSeq(cb, typeUnionBits = 0) {
 var Cert = class {
   serialNumber;
   algorithm;
+  algorithmName;
   issuer;
   validityPeriod;
   subject;
@@ -903,7 +913,8 @@ var Cert = class {
     const [endAlgo, algoRemaining] = cb.expectASN1Length("algorithm sequence");
     cb.expectUint8(universalTypeOID, "OID");
     this.algorithm = cb.readASN1OID();
-    cb.comment(`= ${algoOIDMap[this.algorithm]}`);
+    this.algorithmName = algoOIDMap[this.algorithm] ?? this.algorithm;
+    cb.comment(`= ${this.algorithmName}`);
     if (algoRemaining() > 0) {
       cb.expectUint8(universalTypeNull, "null");
       cb.expectUint8(0, "null length");
@@ -1083,7 +1094,7 @@ var Cert = class {
     this.signature = cb.readASN1BitString();
     cb.comment("signature");
     endCertSeq();
-    log(...highlightCommented_default(cb.commentedString(true), "#88c" /* server */));
+    log(...highlightBytes(cb.commentedString(true), "#88c" /* server */));
   }
   static fromPEM(pem) {
     const tag = "[A-Z0-9 ]+";
@@ -1116,10 +1127,10 @@ var Cert = class {
   toString() {
     return "subject: " + Object.entries(this.subject).map((x) => x.join("=")).join(", ") + (this.subjectAltNames ? "\nsubject alt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
 subject key id: ${hexFromU8(this.subjectKeyIdentifier)}` : "") + "\nissuer: " + Object.entries(this.issuer).map((x) => x.join("=")).join(", ") + (this.authorityKeyIdentifier ? `
-authority key id: ${hexFromU8(this.authorityKeyIdentifier)}` : "") + "\nvalidity:" + this.validityPeriod.notBefore.toISOString() + " \u2013 " + this.validityPeriod.notAfter.toISOString() + (this.keyUsage ? `
+authority key id: ${hexFromU8(this.authorityKeyIdentifier)}` : "") + "\nvalidity: " + this.validityPeriod.notBefore.toISOString() + " \u2013 " + this.validityPeriod.notAfter.toISOString() + (this.keyUsage ? `
 key usage (${this.keyUsage.critical ? "critical" : "non-critical"}): ` + [...this.keyUsage.usages].join(", ") : "") + (this.extKeyUsage ? `
 extended key usage: TLS server \u2014\xA0${this.extKeyUsage.serverTls}, TLS client \u2014\xA0${this.extKeyUsage.clientTls}` : "") + (this.basicConstraints ? `
-basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical"}): CA \u2014\xA0${this.basicConstraints.ca}, path length \u2014 ${this.basicConstraints.pathLength}` : "");
+basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical"}): CA \u2014\xA0${this.basicConstraints.ca}, path length \u2014 ${this.basicConstraints.pathLength}` : "") + "\nsignature algorithm: " + this.algorithmName;
   }
 };
 
@@ -1175,7 +1186,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
     throw new Error("No certificates supplied");
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
   for (const entry of certEntries)
-    log(entry.cert.toString());
+    log(...highlightCert(entry.cert.toString()));
   const userCert = certEntries[0].cert;
   const namesMatch = userCert.subjectAltNamesMatch(host);
   if (!namesMatch)
@@ -1183,7 +1194,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const rootCerts = getRootCerts();
   log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
   for (const cert of rootCerts)
-    log(cert.toString());
+    log(...highlightCert(cert.toString()));
   hs.expectUint8(15, "handshake message type: certificate verify");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   const signatureType = hs.readUint16("signature type");
@@ -1209,7 +1220,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
     log("server verify hash validated");
   else
     throw new Error("Invalid server verify hash");
-  log(...highlightCommented_default(hs.commentedString(true), "#88c" /* server */));
+  log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
 }
 
 // src/util/readqueue.ts
@@ -1297,19 +1308,19 @@ async function startTls(host, read, write) {
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId);
-  log(...highlightCommented_default(clientHello.commentedString(), "#8c8" /* client */));
+  log(...highlightBytes(clientHello.commentedString(), "#8c8" /* client */));
   const clientHelloData = clientHello.array();
   write(clientHelloData);
   const serverHelloRecord = await readTlsRecord(read, 22 /* Handshake */);
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
-  log(...highlightCommented_default(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
+  log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
   const changeCipherRecord = await readTlsRecord(read, 20 /* ChangeCipherSpec */);
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
   endCipherPayload();
-  log(...highlightCommented_default(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
+  log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
   log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations");
   const clientHelloContent = clientHelloData.subarray(5);
   const serverHelloContent = serverHelloRecord.content;
@@ -1327,7 +1338,7 @@ async function startTls(host, read, write) {
   const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
   clientCipherChange.writeUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
   endClientCipherChangePayload();
-  log(...highlightCommented_default(clientCipherChange.commentedString(), "#8c8" /* client */));
+  log(...highlightBytes(clientCipherChange.commentedString(), "#8c8" /* client */));
   const clientCipherChangeData = clientCipherChange.array();
   const wholeHandshake = concat(hellos, serverHandshake);
   const wholeHandshakeHashBuffer = await crypto.subtle.digest("SHA-256", wholeHandshake);
@@ -1344,7 +1355,7 @@ async function startTls(host, read, write) {
   clientFinishedRecord.comment("verify data");
   clientFinishedRecordEnd();
   clientFinishedRecord.writeUint8(22 /* Handshake */, "record type: Handshake");
-  log(...highlightCommented_default(clientFinishedRecord.commentedString(), "#8c8" /* client */));
+  log(...highlightBytes(clientFinishedRecord.commentedString(), "#8c8" /* client */));
   const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);
   log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
@@ -1359,7 +1370,7 @@ Connection: close\r
 \r
 `);
   requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
-  log(...highlightCommented_default(requestDataRecord.commentedString(), "#8c8" /* client */));
+  log(...highlightBytes(requestDataRecord.commentedString(), "#8c8" /* client */));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
   write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
   let done = false;

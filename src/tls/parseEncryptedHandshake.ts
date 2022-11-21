@@ -4,7 +4,7 @@ import { concat, equal } from '../util/array';
 
 import Bytes from '../util/bytes';
 import { Cert } from './cert';
-import highlightCommented from '../presentation/highlightCommented';
+import { highlightBytes, highlightCert } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { getRootCerts } from './rootCerts';
 
@@ -58,7 +58,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   if (certEntries.length === 0) throw new Error('No certificates supplied');
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates');
-  for (const entry of certEntries) chatty && log(entry.cert.toString());
+  for (const entry of certEntries) chatty && log(...highlightCert(entry.cert.toString()));
 
   const userCert = certEntries[0].cert;
   const namesMatch = userCert.subjectAltNamesMatch(host);
@@ -69,7 +69,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const rootCerts = getRootCerts();
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
-  for (const cert of rootCerts) chatty && log(cert.toString());
+  for (const cert of rootCerts) chatty && log(...highlightCert(cert.toString()));
 
   // cert verify
   hs.expectUint8(0x0f, 'handshake message type: certificate verify');
@@ -100,5 +100,5 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   if (equal(verifyHash, correctVerifyHash)) chatty && log('server verify hash validated');
   else throw new Error('Invalid server verify hash');
 
-  chatty && log(...highlightCommented(hs.commentedString(true), LogColours.server));
+  chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
 }

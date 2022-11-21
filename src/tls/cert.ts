@@ -2,7 +2,7 @@
 import { base64Decode } from '../util/base64';
 import { ASN1Bytes } from '../util/asn1bytes';
 
-import highlightCommented from '../presentation/highlightCommented';
+import { highlightBytes } from '../presentation/highlights';
 import { LogColours } from '../presentation/appearance';
 import { log } from '../presentation/log';
 
@@ -34,6 +34,7 @@ type OID = string;
 export class Cert {
   serialNumber: Uint8Array;
   algorithm: OID;
+  algorithmName: string;
   issuer: Record<string, string>;
   validityPeriod: { notBefore: Date; notAfter: Date };
   subject: Record<string, string>;
@@ -69,7 +70,8 @@ export class Cert {
     const [endAlgo, algoRemaining] = cb.expectASN1Length('algorithm sequence');
     cb.expectUint8(universalTypeOID, 'OID');
     this.algorithm = cb.readASN1OID();
-    cb.comment(`= ${algoOIDMap[this.algorithm]}`);
+    this.algorithmName = algoOIDMap[this.algorithm] ?? this.algorithm;
+    cb.comment(`= ${this.algorithmName}`);
     if (algoRemaining() > 0) {  // null parameters
       cb.expectUint8(universalTypeNull, 'null');
       cb.expectUint8(0x00, 'null length');
@@ -301,7 +303,7 @@ export class Cert {
 
     endCertSeq();
 
-    chatty && log(...highlightCommented(cb.commentedString(true), LogColours.server));
+    chatty && log(...highlightBytes(cb.commentedString(true), LogColours.server));
   }
 
   static fromPEM(pem: string) {
@@ -344,12 +346,13 @@ export class Cert {
       (this.subjectKeyIdentifier ? `\nsubject key id: ${hexFromU8(this.subjectKeyIdentifier)}` : '') +
       '\nissuer: ' + Object.entries(this.issuer).map(x => x.join('=')).join(', ') +
       (this.authorityKeyIdentifier ? `\nauthority key id: ${hexFromU8(this.authorityKeyIdentifier)}` : '') +
-      '\nvalidity:' + this.validityPeriod.notBefore.toISOString() + ' – ' + this.validityPeriod.notAfter.toISOString() +
+      '\nvalidity: ' + this.validityPeriod.notBefore.toISOString() + ' – ' + this.validityPeriod.notAfter.toISOString() +
       (this.keyUsage ? `\nkey usage (${this.keyUsage.critical ? 'critical' : 'non-critical'}): ` +
         [...this.keyUsage.usages].join(', ') : '') +
       (this.extKeyUsage ? `\nextended key usage: TLS server — ${this.extKeyUsage.serverTls}, TLS client — ${this.extKeyUsage.clientTls}` : '') +
       (this.basicConstraints ? `\nbasic constraints (${this.basicConstraints.critical ? 'critical' : 'non-critical'}): ` +
-        `CA — ${this.basicConstraints.ca}, path length — ${this.basicConstraints.pathLength}` : '');
+        `CA — ${this.basicConstraints.ca}, path length — ${this.basicConstraints.pathLength}` : '') +
+      '\nsignature algorithm: ' + this.algorithmName;
   }
 }
 

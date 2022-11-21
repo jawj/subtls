@@ -9,7 +9,7 @@ import Bytes from './util/bytes';
 import { concat } from './util/array';
 import { hexFromU8 } from './util/hex';
 import { LogColours } from './presentation/appearance';
-import highlightCommented from './presentation/highlightCommented';
+import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';
 
 async function start(host: string, port: number) {
@@ -32,7 +32,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId);
-  chatty && log(...highlightCommented(clientHello.commentedString(), LogColours.client));
+  chatty && log(...highlightBytes(clientHello.commentedString(), LogColours.client));
   const clientHelloData = clientHello.array();
 
   write(clientHelloData);
@@ -41,7 +41,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   const serverHelloRecord = await readTlsRecord(read, RecordType.Handshake);
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
-  chatty && log(...highlightCommented(serverHelloRecord.header.commentedString() + serverHello.commentedString(), LogColours.server));
+  chatty && log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), LogColours.server));
 
   // parse dummy cipher change
   const changeCipherRecord = await readTlsRecord(read, RecordType.ChangeCipherSpec);
@@ -49,7 +49,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(0x01, 'dummy ChangeCipherSpec payload (middlebox compatibility)');
   endCipherPayload();
-  chatty && log(...highlightCommented(changeCipherRecord.header.commentedString() + ccipher.commentedString(), LogColours.server));
+  chatty && log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), LogColours.server));
 
   // handshake keys, encryption/decryption instances
   chatty && log('%c%s', `color: ${LogColours.header}`, 'handshake key computations');
@@ -73,7 +73,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
   clientCipherChange.writeUint8(0x01, 'dummy ChangeCipherSpec payload (middlebox compatibility)');
   endClientCipherChangePayload();
-  chatty && log(...highlightCommented(clientCipherChange.commentedString(), LogColours.client));
+  chatty && log(...highlightBytes(clientCipherChange.commentedString(), LogColours.client));
   const clientCipherChangeData = clientCipherChange.array();  // to be sent below
 
   // hash of whole handshake (note: dummy cipher change is excluded)
@@ -95,7 +95,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   clientFinishedRecord.comment('verify data');
   clientFinishedRecordEnd();
   clientFinishedRecord.writeUint8(RecordType.Handshake, 'record type: Handshake');
-  chatty && log(...highlightCommented(clientFinishedRecord.commentedString(), LogColours.client));
+  chatty && log(...highlightBytes(clientFinishedRecord.commentedString(), LogColours.client));
   const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);  // to be sent below
 
   // application keys, encryption/decryption instances
@@ -110,7 +110,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   const requestDataRecord = new Bytes(1024);
   requestDataRecord.writeUTF8String(`GET / HTTP/1.1\r\nHost:${host}\r\nConnection: close\r\n\r\n`);
   requestDataRecord.writeUint8(RecordType.Application, 'record type: Application');
-  chatty && log(...highlightCommented(requestDataRecord.commentedString(), LogColours.client));
+  chatty && log(...highlightBytes(requestDataRecord.commentedString(), LogColours.client));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);  // to be sent below
 
   write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
