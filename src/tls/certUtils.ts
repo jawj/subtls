@@ -48,20 +48,6 @@ export const keyOIDMap: Record<string, string> = {
   "1.2.840.113549.1.1.1": "RSAES-PKCS1-v1_5",
 };
 
-export const algoOIDMap: Record<string, string> = {
-  "1.2.840.10040.4.3": "SHA1 with DSA",
-  "1.2.840.10045.4.1": "SHA1 with ECDSA",
-  "1.2.840.10045.4.3.2": "SHA256 with ECDSA",
-  "1.2.840.10045.4.3.3": "SHA384 with ECDSA",
-  "1.2.840.10045.4.3.4": "SHA512 with ECDSA",
-  "1.2.840.113549.1.1.10": "RSA-PSS",
-  "1.2.840.113549.1.1.5": "SHA1 with RSA",
-  "1.2.840.113549.1.1.14": "SHA224 with RSA",
-  "1.2.840.113549.1.1.11": "SHA256 with RSA",
-  "1.2.840.113549.1.1.12": "SHA384 with RSA",
-  "1.2.840.113549.1.1.13": "SHA512 with RSA",
-};
-
 export const extOIDMap: Record<string, string> = {
   "2.5.29.15": "KeyUsage",
   "2.5.29.37": "ExtKeyUsage",
@@ -153,4 +139,202 @@ export function readNamesSeq(cb: ASN1Bytes, typeUnionBits = 0x00) {
   }
   endNamesSeq();
   return names;
+}
+
+export function algorithmWithOID(oid: string): any {
+  const algo = {
+    "1.2.840.113549.1.1.1": {
+      name: "RSAES-PKCS1-v1_5"
+    },
+    "1.2.840.113549.1.1.5": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.113549.1.1.11": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-256"
+      }
+    },
+    "1.2.840.113549.1.1.12": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-384"
+      }
+    },
+    "1.2.840.113549.1.1.13": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-512"
+      }
+    },
+    "1.2.840.113549.1.1.10": {
+      name: "RSA-PSS"
+    },
+    "1.2.840.113549.1.1.7": {
+      name: "RSA-OAEP"
+    },
+    "1.2.840.10045.2.1": {  // dupes
+      name: "ECDSA",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.10045.4.1": {  // dupes
+      name: "ECDSA",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.10045.4.3.2": {
+      name: "ECDSA",
+      hash: {
+        name: "SHA-256"
+      }
+    },
+    "1.2.840.10045.4.3.3": {
+      name: "ECDSA", hash: {
+        name: "SHA-384"
+      }
+    },
+    "1.2.840.10045.4.3.4": {
+      name: "ECDSA",
+      hash: {
+        name: "SHA-512"
+      }
+    },
+    "1.3.133.16.840.63.0.2": {
+      name: "ECDH",
+      kdf: "SHA-1"
+    },
+    "1.3.132.1.11.1": {
+      name: "ECDH",
+      kdf: "SHA-256"
+    },
+    "1.3.132.1.11.2": {
+      name: "ECDH",
+      kdf: "SHA-384"
+    },
+    "1.3.132.1.11.3": {
+      name: "ECDH",
+      kdf: "SHA-512"
+    },
+    "2.16.840.1.101.3.4.1.2": {
+      name: "AES-CBC",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.22": {
+      name: "AES-CBC",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.42": {
+      name: "AES-CBC",
+      length: 256
+    },
+    "2.16.840.1.101.3.4.1.6": {
+      name: "AES-GCM",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.26": {
+      name: "AES-GCM",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.46": {
+      name: "AES-GCM",
+      length: 256
+    },
+    "2.16.840.1.101.3.4.1.4": {
+      name: "AES-CFB",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.24": {
+      name: "AES-CFB",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.44": {
+      name: "AES-CFB",
+      length: 256
+    },
+    "2.16.840.1.101.3.4.1.5": {
+      name: "AES-KW",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.25": {
+      name: "AES-KW",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.45": {
+      name: "AES-KW",
+      length: 256
+    },
+    "1.2.840.113549.2.7": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.113549.2.9": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-256"
+      }
+    },
+    "1.2.840.113549.2.10": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-384"
+      }
+    },
+    "1.2.840.113549.2.11": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-512"
+      }
+    },
+    "1.2.840.113549.1.9.16.3.5": {
+      name: "DH"
+    },
+    "1.3.14.3.2.26": {
+      name: "SHA-1"
+    },
+    "2.16.840.1.101.3.4.2.1": {
+      name: "SHA-256"
+    },
+    "2.16.840.1.101.3.4.2.2": {
+      name: "SHA-384"
+    },
+    "2.16.840.1.101.3.4.2.3": {
+      name: "SHA-512"
+    },
+    "1.2.840.113549.1.5.12": {
+      name: "PBKDF2"
+    },
+    // special case: OIDs for ECC curves
+    "1.2.840.10045.3.1.7": {
+      name: "P-256"
+    },
+    "1.3.132.0.34": {
+      name: "P-384"
+    },
+    "1.3.132.0.35": {
+      name: "P-521"
+    },
+  }[oid];
+
+  if (algo === undefined) throw new Error(`Unsupported algorithm identifier: ${oid}`);
+  return algo;
+}
+
+function _descriptionForAlgorithm(algo: any, desc: string[] = []) {
+  Object.values(algo).forEach(value => {
+    if (typeof value === 'string') desc = [...desc, value];
+    else desc = _descriptionForAlgorithm(value, desc);
+  });
+  return desc;
+}
+
+export function descriptionForAlgorithm(algo: any) {
+  return _descriptionForAlgorithm(algo).join(' / ');
 }

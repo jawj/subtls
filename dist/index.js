@@ -786,19 +786,6 @@ var keyOIDMap = {
   "1.3.132.0.34": "secp384r1",
   "1.2.840.113549.1.1.1": "RSAES-PKCS1-v1_5"
 };
-var algoOIDMap = {
-  "1.2.840.10040.4.3": "SHA1 with DSA",
-  "1.2.840.10045.4.1": "SHA1 with ECDSA",
-  "1.2.840.10045.4.3.2": "SHA256 with ECDSA",
-  "1.2.840.10045.4.3.3": "SHA384 with ECDSA",
-  "1.2.840.10045.4.3.4": "SHA512 with ECDSA",
-  "1.2.840.113549.1.1.10": "RSA-PSS",
-  "1.2.840.113549.1.1.5": "SHA1 with RSA",
-  "1.2.840.113549.1.1.14": "SHA224 with RSA",
-  "1.2.840.113549.1.1.11": "SHA256 with RSA",
-  "1.2.840.113549.1.1.12": "SHA384 with RSA",
-  "1.2.840.113549.1.1.13": "SHA512 with RSA"
-};
 var extOIDMap = {
   "2.5.29.15": "KeyUsage",
   "2.5.29.37": "ExtKeyUsage",
@@ -880,6 +867,203 @@ function readNamesSeq(cb, typeUnionBits = 0) {
   endNamesSeq();
   return names;
 }
+function algorithmWithOID(oid) {
+  const algo = {
+    "1.2.840.113549.1.1.1": {
+      name: "RSAES-PKCS1-v1_5"
+    },
+    "1.2.840.113549.1.1.5": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.113549.1.1.11": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-256"
+      }
+    },
+    "1.2.840.113549.1.1.12": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-384"
+      }
+    },
+    "1.2.840.113549.1.1.13": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-512"
+      }
+    },
+    "1.2.840.113549.1.1.10": {
+      name: "RSA-PSS"
+    },
+    "1.2.840.113549.1.1.7": {
+      name: "RSA-OAEP"
+    },
+    "1.2.840.10045.2.1": {
+      name: "ECDSA",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.10045.4.1": {
+      name: "ECDSA",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.10045.4.3.2": {
+      name: "ECDSA",
+      hash: {
+        name: "SHA-256"
+      }
+    },
+    "1.2.840.10045.4.3.3": {
+      name: "ECDSA",
+      hash: {
+        name: "SHA-384"
+      }
+    },
+    "1.2.840.10045.4.3.4": {
+      name: "ECDSA",
+      hash: {
+        name: "SHA-512"
+      }
+    },
+    "1.3.133.16.840.63.0.2": {
+      name: "ECDH",
+      kdf: "SHA-1"
+    },
+    "1.3.132.1.11.1": {
+      name: "ECDH",
+      kdf: "SHA-256"
+    },
+    "1.3.132.1.11.2": {
+      name: "ECDH",
+      kdf: "SHA-384"
+    },
+    "1.3.132.1.11.3": {
+      name: "ECDH",
+      kdf: "SHA-512"
+    },
+    "2.16.840.1.101.3.4.1.2": {
+      name: "AES-CBC",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.22": {
+      name: "AES-CBC",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.42": {
+      name: "AES-CBC",
+      length: 256
+    },
+    "2.16.840.1.101.3.4.1.6": {
+      name: "AES-GCM",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.26": {
+      name: "AES-GCM",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.46": {
+      name: "AES-GCM",
+      length: 256
+    },
+    "2.16.840.1.101.3.4.1.4": {
+      name: "AES-CFB",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.24": {
+      name: "AES-CFB",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.44": {
+      name: "AES-CFB",
+      length: 256
+    },
+    "2.16.840.1.101.3.4.1.5": {
+      name: "AES-KW",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.25": {
+      name: "AES-KW",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.45": {
+      name: "AES-KW",
+      length: 256
+    },
+    "1.2.840.113549.2.7": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.113549.2.9": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-256"
+      }
+    },
+    "1.2.840.113549.2.10": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-384"
+      }
+    },
+    "1.2.840.113549.2.11": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-512"
+      }
+    },
+    "1.2.840.113549.1.9.16.3.5": {
+      name: "DH"
+    },
+    "1.3.14.3.2.26": {
+      name: "SHA-1"
+    },
+    "2.16.840.1.101.3.4.2.1": {
+      name: "SHA-256"
+    },
+    "2.16.840.1.101.3.4.2.2": {
+      name: "SHA-384"
+    },
+    "2.16.840.1.101.3.4.2.3": {
+      name: "SHA-512"
+    },
+    "1.2.840.113549.1.5.12": {
+      name: "PBKDF2"
+    },
+    "1.2.840.10045.3.1.7": {
+      name: "P-256"
+    },
+    "1.3.132.0.34": {
+      name: "P-384"
+    },
+    "1.3.132.0.35": {
+      name: "P-521"
+    }
+  }[oid];
+  if (algo === void 0)
+    throw new Error(`Unsupported algorithm identifier: ${oid}`);
+  return algo;
+}
+function _descriptionForAlgorithm(algo, desc = []) {
+  Object.values(algo).forEach((value) => {
+    if (typeof value === "string")
+      desc = [...desc, value];
+    else
+      desc = _descriptionForAlgorithm(value, desc);
+  });
+  return desc;
+}
+function descriptionForAlgorithm(algo) {
+  return _descriptionForAlgorithm(algo).join(" / ");
+}
 
 // src/tls/cert.ts
 var Cert = class {
@@ -913,7 +1097,7 @@ var Cert = class {
     const [endAlgo, algoRemaining] = cb.expectASN1Length("algorithm sequence");
     cb.expectUint8(universalTypeOID, "OID");
     this.algorithm = cb.readASN1OID();
-    this.algorithmName = algoOIDMap[this.algorithm] ?? this.algorithm;
+    this.algorithmName = descriptionForAlgorithm(algorithmWithOID(this.algorithm));
     cb.comment(`= ${this.algorithmName}`);
     if (algoRemaining() > 0) {
       cb.expectUint8(universalTypeNull, "null");
@@ -1127,7 +1311,7 @@ var Cert = class {
   isValidAtMoment(moment = new Date()) {
     return moment >= this.validityPeriod.notBefore && moment <= this.validityPeriod.notAfter;
   }
-  toString() {
+  description() {
     return "subject: " + Object.entries(this.subject).map((x) => x.join("=")).join(", ") + (this.subjectAltNames ? "\nsubject alt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
 subject key id: ${hexFromU8(this.subjectKeyIdentifier)}` : "") + "\nissuer: " + Object.entries(this.issuer).map((x) => x.join("=")).join(", ") + (this.authorityKeyIdentifier ? `
 authority key id: ${hexFromU8(this.authorityKeyIdentifier)}` : "") + "\nvalidity: " + this.validityPeriod.notBefore.toISOString() + " \u2013 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? "currently valid" : "not valid"})` + (this.keyUsage ? `
@@ -1189,7 +1373,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
     throw new Error("No certificates supplied");
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
   for (const entry of certEntries)
-    log(...highlightCert(entry.cert.toString()));
+    log(...highlightCert(entry.cert.description()));
   const userCert = certEntries[0].cert;
   const namesMatch = userCert.subjectAltNamesMatch(host);
   if (!namesMatch)
@@ -1197,7 +1381,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const rootCerts = getRootCerts();
   log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
   for (const cert of rootCerts)
-    log(...highlightCert(cert.toString()));
+    log(...highlightCert(cert.description()));
   hs.expectUint8(15, "handshake message type: certificate verify");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   const signatureType = hs.readUint16("signature type");

@@ -1,7 +1,6 @@
 
 import { base64Decode } from '../util/base64';
 import { ASN1Bytes } from '../util/asn1bytes';
-
 import { highlightBytes } from '../presentation/highlights';
 import { LogColours } from '../presentation/appearance';
 import { log } from '../presentation/log';
@@ -18,13 +17,14 @@ import {
   constructedUniversalTypeSequence,
   contextSpecificType,
   GeneralName,
-  algoOIDMap,
   extKeyUsageOIDMap,
   extOIDMap,
   keyOIDMap,
+  algorithmWithOID,
   intFromBitString,
   readNamesSeq,
   readSeqOfSetOfSeq,
+  descriptionForAlgorithm,
 } from './certUtils';
 import { hexFromU8 } from '../util/hex';
 
@@ -70,7 +70,7 @@ export class Cert {
     const [endAlgo, algoRemaining] = cb.expectASN1Length('algorithm sequence');
     cb.expectUint8(universalTypeOID, 'OID');
     this.algorithm = cb.readASN1OID();
-    this.algorithmName = algoOIDMap[this.algorithm] ?? this.algorithm;
+    this.algorithmName = descriptionForAlgorithm((algorithmWithOID(this.algorithm)));
     cb.comment(`= ${this.algorithmName}`);
     if (algoRemaining() > 0) {  // null parameters
       cb.expectUint8(universalTypeNull, 'null');
@@ -344,7 +344,7 @@ export class Cert {
     return moment >= this.validityPeriod.notBefore && moment <= this.validityPeriod.notAfter;
   }
 
-  toString() {
+  description() {
     return 'subject: ' + Object.entries(this.subject).map(x => x.join('=')).join(', ') +
       (this.subjectAltNames ? '\nsubject alt names: ' + this.subjectAltNames.join(', ') : '') +
       (this.subjectKeyIdentifier ? `\nsubject key id: ${hexFromU8(this.subjectKeyIdentifier)}` : '') +

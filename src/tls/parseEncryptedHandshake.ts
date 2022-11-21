@@ -58,7 +58,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   if (certEntries.length === 0) throw new Error('No certificates supplied');
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates');
-  for (const entry of certEntries) chatty && log(...highlightCert(entry.cert.toString()));
+  for (const entry of certEntries) chatty && log(...highlightCert(entry.cert.description()));
 
   const userCert = certEntries[0].cert;
   const namesMatch = userCert.subjectAltNamesMatch(host);
@@ -69,7 +69,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const rootCerts = getRootCerts();
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
-  for (const cert of rootCerts) chatty && log(...highlightCert(cert.toString()));
+  for (const cert of rootCerts) chatty && log(...highlightCert(cert.description()));
 
   // cert verify
   hs.expectUint8(0x0f, 'handshake message type: certificate verify');
