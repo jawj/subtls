@@ -340,13 +340,17 @@ export class Cert {
     });
   }
 
+  isValidAtMoment(moment = new Date()) {
+    return moment >= this.validityPeriod.notBefore && moment <= this.validityPeriod.notAfter;
+  }
+
   toString() {
     return 'subject: ' + Object.entries(this.subject).map(x => x.join('=')).join(', ') +
       (this.subjectAltNames ? '\nsubject alt names: ' + this.subjectAltNames.join(', ') : '') +
       (this.subjectKeyIdentifier ? `\nsubject key id: ${hexFromU8(this.subjectKeyIdentifier)}` : '') +
       '\nissuer: ' + Object.entries(this.issuer).map(x => x.join('=')).join(', ') +
       (this.authorityKeyIdentifier ? `\nauthority key id: ${hexFromU8(this.authorityKeyIdentifier)}` : '') +
-      '\nvalidity: ' + this.validityPeriod.notBefore.toISOString() + ' – ' + this.validityPeriod.notAfter.toISOString() +
+      '\nvalidity: ' + this.validityPeriod.notBefore.toISOString() + ' – ' + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? 'currently valid' : 'not valid'})` +
       (this.keyUsage ? `\nkey usage (${this.keyUsage.critical ? 'critical' : 'non-critical'}): ` +
         [...this.keyUsage.usages].join(', ') : '') +
       (this.extKeyUsage ? `\nextended key usage: TLS server — ${this.extKeyUsage.serverTls}, TLS client — ${this.extKeyUsage.clientTls}` : '') +
