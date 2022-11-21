@@ -1,6 +1,9 @@
 <style>
-  #logs {
+  body {
     font: 400 11px/1.5 Monaco, Menlo, Consolas, 'Courier New', monospace;
+  }
+
+  #logs {
     white-space: pre-wrap;
   }
 
@@ -13,7 +16,7 @@
   }
 
   #logs .section {
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid #ccc;
     padding: 0.5ex 3ex;
     max-height: 6.5ex;
     overflow-y: hidden;
@@ -24,6 +27,52 @@
     max-height: 10000em;
     background: #fff;
   }
+
+  #controls {
+    position: fixed;
+    top: 0;
+    right: 0;
+    padding: 1ex 3ex;
+    border-bottom-left-radius: 2ex;
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(10px);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: .5px;
+  }
+
+  a {
+    text-decoration: none;
+    color: #000;
+  }
 </style>
+<div id="controls">
+  <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = true); return false;">Expand all</a> &nbsp;
+  <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = false); return false;">Collapse all</a> &nbsp;
+  <a href="#" onclick="document.body.scrollTop = 0; return false;">Top</a> &nbsp;
+  <a href="#" onclick="document.body.scrollTop = Number.MAX_SAFE_INTEGER; return false;">Bottom</a>
+</div>
+<script>
+  function saveState() {
+    const inputs = document.querySelectorAll('input');
+    const state = Array.from(document.querySelectorAll('input')).reduce((memo, item, i) => {
+      if (item.checked) memo.push(i);
+      return memo;
+    }, [document.body.scrollTop]).join(',');
+    window.name = state;
+  }
+  function restoreState() {
+    console.log('restoring page state');
+    const state = window.name;
+    if (!state) return;
+    const [y, ...checked] = state.split(',').map(x => parseFloat(x));
+    document.body.scrollTop = y;
+    const inputs = document.querySelectorAll('input');
+    checked.forEach(index => inputs[index].checked = true);
+  }
+  window.addEventListener('handshakedone', restoreState);
+  window.addEventListener('scroll', saveState);
+  window.addEventListener('click', saveState);
+</script>
 <div id="logs"></div>
 <script src="index.js"></script>

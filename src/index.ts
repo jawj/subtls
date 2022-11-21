@@ -17,6 +17,8 @@ async function start(host: string, port: number) {
     const ws = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
+    ws.addEventListener('close', () => { console.log("ws closed"); })
+    ws.addEventListener('error', (err) => { console.log("ws error:", err); })
   });
   const reader = new ReadQueue(ws);
   await startTls(host, reader.read.bind(reader), ws.send.bind(ws));
@@ -113,8 +115,12 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 
   write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
 
+
+  let done = false;
   while (true) {
+    const timeout = setTimeout(() => { if (!done) window.dispatchEvent(new Event('handshakedone')); done = true; }, 1000);
     const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, RecordType.Application);
+    clearTimeout(timeout);
     chatty && log(new TextDecoder().decode(serverResponse));
   }
 }

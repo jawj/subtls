@@ -1281,6 +1281,12 @@ async function start(host, port) {
     const ws2 = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
     ws2.addEventListener("open", () => resolve(ws2));
+    ws2.addEventListener("close", () => {
+      console.log("ws closed");
+    });
+    ws2.addEventListener("error", (err) => {
+      console.log("ws error:", err);
+    });
   });
   const reader = new ReadQueue(ws);
   await startTls(host, reader.read.bind(reader), ws.send.bind(ws));
@@ -1356,8 +1362,15 @@ Connection: close\r
   log(...highlightCommented_default(requestDataRecord.commentedString(), "#8c8" /* client */));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
   write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
+  let done = false;
   while (true) {
+    const timeout = setTimeout(() => {
+      if (!done)
+        window.dispatchEvent(new Event("handshakedone"));
+      done = true;
+    }, 1e3);
     const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, 23 /* Application */);
+    clearTimeout(timeout);
     log(new TextDecoder().decode(serverResponse));
   }
 }
