@@ -6,11 +6,11 @@ export class ASN1Bytes extends Bytes {
   readASN1Length(comment?: string) {
     const byte1 = this.readUint8();
     if (byte1 < 0x80) {
-      this.comment(`${byte1} bytes${comment ? ` of ${comment}` : ''} follow (ASN.1)`);
+      chatty && this.comment(`${byte1} bytes${comment ? ` of ${comment}` : ''} follow (ASN.1)`);
       return byte1;  // highest bit unset: simple one-byte value
     }
     const lengthBytes = byte1 & 0x7f;
-    const fullComment = `% bytes${comment ? ` of ${comment}` : ''} follow (ASN.1)`;
+    const fullComment = chatty && `% bytes${comment ? ` of ${comment}` : ''} follow (ASN.1)`;
     if (lengthBytes === 1) return this.readUint8(fullComment);
     if (lengthBytes === 2) return this.readUint16(fullComment);
     if (lengthBytes === 3) return this.readUint24(fullComment);
@@ -24,7 +24,7 @@ export class ASN1Bytes extends Bytes {
   }
 
   readASN1OID() {  // starting with length (i.e. after OID type value)
-    const [endOID, OIDRemaining] = this.expectASN1Length('OID');
+    const [endOID, OIDRemaining] = this.expectASN1Length(chatty && 'OID');
     const byte1 = this.readUint8();
     let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
     while (OIDRemaining() > 0) {  // loop over numbers in OID
@@ -37,13 +37,13 @@ export class ASN1Bytes extends Bytes {
       }
       oid += `.${value}`;
     }
-    this.comment(oid);
+    chatty && this.comment(oid);
     endOID();
     return oid;
   }
 
   readASN1Boolean() {
-    const [endBoolean, booleanRemaining] = this.expectASN1Length('boolean');
+    const [endBoolean, booleanRemaining] = this.expectASN1Length(chatty && 'boolean');
     const length = booleanRemaining();
     if (length !== 1) throw new Error(`Boolean has weird length: ${length}`);
     const byte = this.readUint8();
@@ -51,13 +51,13 @@ export class ASN1Bytes extends Bytes {
     if (byte === 0xff) result = true;
     else if (byte === 0x00) result = false;
     else throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
-    this.comment(result.toString());
+    chatty && this.comment(result.toString());
     endBoolean();
     return result;
   }
 
   readASN1UTCTime() {
-    const [endTime, timeRemaining] = this.expectASN1Length('UTC time');
+    const [endTime, timeRemaining] = this.expectASN1Length(chatty && 'UTC time');
     const timeStr = this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
     if (!parts) throw new Error('Unrecognised UTC time format in certificate validity');
@@ -65,14 +65,14 @@ export class ASN1Bytes extends Bytes {
     const yr2d = parseInt(yr2dstr, 10);
     const yr = yr2d + (yr2d >= 50 ? 1900 : 2000);  // range is 1950 – 2049
     const time = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);  // ISO8601 should be safe to parse
-    this.comment('= ' + time.toISOString());
+    chatty && this.comment('= ' + time.toISOString());
     endTime();
     return time;
   }
 
   readASN1BitString() {
-    const [endBitString, bitStringRemaining] = this.expectASN1Length('bit string');
-    const rightPadBits = this.readUint8('right-padding bits');
+    const [endBitString, bitStringRemaining] = this.expectASN1Length(chatty && 'bit string');
+    const rightPadBits = this.readUint8(chatty && 'right-padding bits');
     const bytesLength = bitStringRemaining()
     const bitString = this.readBytes(bytesLength);
     if (rightPadBits > 7) throw new Error(`Invalid right pad value: ${rightPadBits}`);

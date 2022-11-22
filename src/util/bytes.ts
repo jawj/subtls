@@ -32,11 +32,12 @@ export default class Bytes {
 
   skip(length: number, comment?: string) {
     this.offset += length;
-    if (comment !== undefined) this.comment(comment);
+    if (comment) this.comment(comment);
     return this;
   }
 
   comment(s: string, offset = this.offset) {
+    if (!chatty) throw new Error('No comments should be emitted outside of chatty mode');
     const existing = this.comments[offset];
     const result = (existing === undefined ? '' : existing + ' ') + s;
     this.comments[offset] = result;
@@ -59,14 +60,14 @@ export default class Bytes {
   readUint8(comment?: string) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
-    if (chatty && comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
+    if (chatty && comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
 
   readUint16(comment?: string) {
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
-    if (chatty && comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
+    if (chatty && comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
 
@@ -74,38 +75,38 @@ export default class Bytes {
     const msb = this.readUint8();
     const lsbs = this.readUint16();
     const result = (msb << 16) + lsbs;
-    if (chatty && comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
+    if (chatty && comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
 
   readUint32(comment?: string) {
     const result = this.dataView.getUint32(this.offset);
     this.offset += 4;
-    if (chatty && comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
+    if (chatty && comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
 
   expectBytes(expected: Uint8Array | number[], comment?: string) {
     const actual = this.readBytes(expected.length);
-    if (chatty && comment !== undefined) this.comment(comment);
+    if (chatty && comment) this.comment(comment);
     if (!equal(actual, expected)) throw new Error(`Unexpected bytes`);
   }
 
   expectUint8(expectedValue: number, comment?: string) {
     const actualValue = this.readUint8();
-    if (chatty && comment !== undefined) this.comment(comment);
+    if (chatty && comment) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
 
   expectUint16(expectedValue: number, comment?: string) {
     const actualValue = this.readUint16();
-    if (chatty && comment !== undefined) this.comment(comment);
+    if (chatty && comment) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
 
   expectUint24(expectedValue: number, comment?: string) {
     const actualValue = this.readUint24();
-    if (chatty && comment !== undefined) this.comment(comment);
+    if (chatty && comment) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
 
@@ -161,14 +162,14 @@ export default class Bytes {
   writeUint8(value: number, comment?: string): Bytes {
     this.dataView.setUint8(this.offset, value);
     this.offset += 1;
-    if (chatty && comment !== undefined) this.comment(comment);
+    if (chatty && comment) this.comment(comment);
     return this;
   }
 
   writeUint16(value: number, comment?: string): Bytes {
     this.dataView.setUint16(this.offset, value);
     this.offset += 2;
-    if (chatty && comment !== undefined) this.comment(comment);
+    if (chatty && comment) this.comment(comment);
     return this;
   }
 
@@ -221,7 +222,7 @@ export default class Bytes {
       s += this.uint8Array[i].toString(16).padStart(2, '0') + ' ';
       const comment = this.comments[i + 1];
       if (this.indents[i + 1] !== undefined) indent = this.indents[i + 1];
-      if (comment !== undefined) s += ` ${comment}\n${indentChars.repeat(indent)}`;
+      if (comment) s += ` ${comment}\n${indentChars.repeat(indent)}`;
     }
     return s;
   }
