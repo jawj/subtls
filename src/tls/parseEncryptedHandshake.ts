@@ -2,16 +2,19 @@ import { LogColours } from '../presentation/appearance';
 import { hkdfExpandLabel } from './keys';
 import { concat, equal } from '../util/array';
 
-import Bytes from '../util/bytes';
 import { Cert } from './cert';
 import { highlightBytes, highlightColonList } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { getRootCerts } from './rootCerts';
-import { algorithmWithOID } from './certUtils';
+import { hexFromU8 } from '../util/hex';
+import { constructedUniversalTypeSequence, universalTypeInteger, universalTypeOctetString } from './certUtils';
+import { ASN1Bytes } from '../util/asn1bytes';
+
+const txtEnc = new TextEncoder();
 
 export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
   // parse encrypted handshake part
-  const hs = new Bytes(record);
+  const hs = new ASN1Bytes(record);
   const [endHs] = hs.expectLength(record.length);
 
   hs.expectUint8(0x08, 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
@@ -39,7 +42,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   hs.expectUint8(0x00, '0 bytes of request context follow');
   const [endCerts, certsRemaining] = hs.expectLengthUint24('certificates');
 
-  const certEntries = [];
+  const certs: Cert[] = [];
   while (certsRemaining() > 0) {
     const [endCert, certRemaining] = hs.expectLengthUint24('certificate');
     const certData = hs.readBytes(certRemaining());
@@ -51,17 +54,17 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
     endCertExt();
 
     const cert = new Cert(certData);
-    certEntries.push({ cert, certExtData });
+    certs.push(cert);
   }
   endCerts();
   endCertPayload();
 
-  if (certEntries.length === 0) throw new Error('No certificates supplied');
+  if (certs.length === 0) throw new Error('No certificates supplied');
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates');
-  for (const entry of certEntries) chatty && log(...highlightColonList(entry.cert.description()));
+  for (const cert of certs) chatty && log(...highlightColonList(cert.description()));
 
-  const userCert = certEntries[0].cert;
+  const userCert = certs[0];
   const namesMatch = userCert.subjectAltNamesMatch(host);
   if (!namesMatch) throw new Error(`No matching subjectAltName for ${host}`);
 
@@ -72,32 +75,54 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
   for (const cert of rootCerts) chatty && log(...highlightColonList(cert.description()));
 
-
-
   // certificate verify
   const certVerifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
   const certVerifyData = concat(hellos, certVerifyHandshakeData);
   const certVerifyHashBuffer = await crypto.subtle.digest('SHA-256', certVerifyData);
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
-  const TLSString = ' '.repeat(64) + 'TLS 1.3, server CertificateVerify';
-  const certVerifySignedBytes = new Bytes(TLSString.length + 1 + certVerifyHash.length);
-  certVerifySignedBytes.writeUTF8String(TLSString);
-  certVerifySignedBytes.writeUint8(0x00);
-  certVerifySignedBytes.writeBytes(certVerifyHash);
+  const certVerifySignedData = concat(txtEnc.encode(' '.repeat(64) + 'TLS 1.3, server CertificateVerify'), [0x00], certVerifyHash);
 
   hs.expectUint8(0x0f, 'handshake message type: certificate verify');
   const [endCertVerifyPayload] = hs.expectLengthUint24('handshake message data');
   hs.expectUint16(0x0403, 'signature type ecdsa_secp256r1_sha256');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3
-  const [endSignature, signatureRemaining] = hs.expectLengthUint16();
-  const signature = hs.readBytes(signatureRemaining());
-  hs.comment('signature');
+  const [endSignature] = hs.expectLengthUint16();
+  hs.expectUint8(constructedUniversalTypeSequence, 'sequence');
+  const [endSigDer] = hs.expectASN1Length('sequence');
+
+  hs.expectUint8(universalTypeInteger, 'integer');
+  const [endSigRBytes, sigRBytesRemaining] = hs.expectASN1Length('integer');
+  let sigR = hs.readBytes(sigRBytesRemaining());
+  hs.comment('signature: r');
+  endSigRBytes();
+
+  hs.expectUint8(universalTypeInteger, 'integer');
+  const [endSigSBytes, sigSBytesRemaining] = hs.expectASN1Length('integer');
+  let sigS = hs.readBytes(sigSBytesRemaining());
+  hs.comment('signature: s');
+  endSigSBytes();
+
+  endSigDer();
   endSignature();
   endCertVerifyPayload();
 
-  log('%O', userCert.publicKey.identifiers);
+  // it seems WebCrypto expects a 64-byte P1363 signature, which sometimes discards a leading zero on r and s that's added to indicate positive sign
+  // https://crypto.stackexchange.com/questions/57731/ecdsa-signature-rs-to-asn1-der-encoding-question
+  // https://crypto.stackexchange.com/questions/1795/how-can-i-convert-a-der-ecdsa-signature-to-asn-1/1797#1797
+  // https://stackoverflow.com/a/65403229
+
+  const clampToLength = (x: Uint8Array, clampLength: number) =>
+    // if longer, cut off leftmost bytes (most significant on Big Endian)
+    x.length > clampLength ? x.subarray(x.length - clampLength) :
+      // if shorter, left pad with zero bytes
+      x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) :
+        // if neither, nothing to do!
+        x;
+
+  const signature = concat(clampToLength(sigR, 32), clampToLength(sigS, 32));
   const signatureKey = await crypto.subtle.importKey('raw', userCert.publicKey.data, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-  const certVerifyResult = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, signatureKey, signature, certVerifySignedBytes.array());
-  log('result:', certVerifyResult);
+  const certVerifyResult = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, signatureKey, signature, certVerifySignedData);
+  if (certVerifyResult) chatty && log('end-user certificate verified: server has private key');
+  else throw new Error('Certificate verify failed');
 
   // handshake finished and verify
   const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);

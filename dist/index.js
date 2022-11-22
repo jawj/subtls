@@ -1361,8 +1361,9 @@ function getRootCerts() {
 }
 
 // src/tls/parseEncryptedHandshake.ts
+var txtEnc3 = new TextEncoder();
 async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
-  const hs = new Bytes(record);
+  const hs = new ASN1Bytes(record);
   const [endHs] = hs.expectLength(record.length);
   hs.expectUint8(8, "handshake record type: encrypted extensions");
   const [eeMessageEnd] = hs.expectLengthUint24();
@@ -1377,7 +1378,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const [endCertPayload] = hs.expectLengthUint24("certificate payload");
   hs.expectUint8(0, "0 bytes of request context follow");
   const [endCerts, certsRemaining] = hs.expectLengthUint24("certificates");
-  const certEntries = [];
+  const certs = [];
   while (certsRemaining() > 0) {
     const [endCert, certRemaining] = hs.expectLengthUint24("certificate");
     const certData = hs.readBytes(certRemaining());
@@ -1387,16 +1388,16 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
     const certExtData = hs.readBytes(certExtRemaining());
     endCertExt();
     const cert = new Cert(certData);
-    certEntries.push({ cert, certExtData });
+    certs.push(cert);
   }
   endCerts();
   endCertPayload();
-  if (certEntries.length === 0)
+  if (certs.length === 0)
     throw new Error("No certificates supplied");
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
-  for (const entry of certEntries)
-    log(...highlightColonList(entry.cert.description()));
-  const userCert = certEntries[0].cert;
+  for (const cert of certs)
+    log(...highlightColonList(cert.description()));
+  const userCert = certs[0];
   const namesMatch = userCert.subjectAltNamesMatch(host);
   if (!namesMatch)
     throw new Error(`No matching subjectAltName for ${host}`);
@@ -1408,23 +1409,34 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const certVerifyData = concat(hellos, certVerifyHandshakeData);
   const certVerifyHashBuffer = await crypto.subtle.digest("SHA-256", certVerifyData);
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
-  const TLSString = " ".repeat(64) + "TLS 1.3, server CertificateVerify";
-  const certVerifySignedBytes = new Bytes(TLSString.length + 1 + certVerifyHash.length);
-  certVerifySignedBytes.writeUTF8String(TLSString);
-  certVerifySignedBytes.writeUint8(0);
-  certVerifySignedBytes.writeBytes(certVerifyHash);
+  const certVerifySignedData = concat(txtEnc3.encode(" ".repeat(64) + "TLS 1.3, server CertificateVerify"), [0], certVerifyHash);
   hs.expectUint8(15, "handshake message type: certificate verify");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   hs.expectUint16(1027, "signature type ecdsa_secp256r1_sha256");
-  const [endSignature, signatureRemaining] = hs.expectLengthUint16();
-  const signature = hs.readBytes(signatureRemaining());
-  hs.comment("signature");
+  const [endSignature] = hs.expectLengthUint16();
+  hs.expectUint8(constructedUniversalTypeSequence, "sequence");
+  const [endSigDer] = hs.expectASN1Length("sequence");
+  hs.expectUint8(universalTypeInteger, "integer");
+  const [endSigRBytes, sigRBytesRemaining] = hs.expectASN1Length("integer");
+  let sigR = hs.readBytes(sigRBytesRemaining());
+  hs.comment("signature: r");
+  endSigRBytes();
+  hs.expectUint8(universalTypeInteger, "integer");
+  const [endSigSBytes, sigSBytesRemaining] = hs.expectASN1Length("integer");
+  let sigS = hs.readBytes(sigSBytesRemaining());
+  hs.comment("signature: s");
+  endSigSBytes();
+  endSigDer();
   endSignature();
   endCertVerifyPayload();
-  log("%O", userCert.publicKey.identifiers);
+  const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : x;
+  const signature = concat(clampToLength(sigR, 32), clampToLength(sigS, 32));
   const signatureKey = await crypto.subtle.importKey("raw", userCert.publicKey.data, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-  const certVerifyResult = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, signatureKey, signature, certVerifySignedBytes.array());
-  log("result:", certVerifyResult);
+  const certVerifyResult = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, signatureKey, signature, certVerifySignedData);
+  if (certVerifyResult)
+    log("end-user certificate verified: server has private key");
+  else
+    throw new Error("Certificate verify failed");
   const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, "finished", new Uint8Array(0), 32, 256);
@@ -1606,4 +1618,4 @@ Host:${host}\r
     log(new TextDecoder().decode(serverResponse));
   }
 }
-start("neon-cf-pg-test.jawj.workers.dev", 443);
+start("google.com", 443);
