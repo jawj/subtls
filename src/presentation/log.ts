@@ -19,7 +19,7 @@ function htmlFromLogArgs(...args: string[]) {
     matchArr: RegExpExecArray | null;
 
   while ((arg = args.shift()) !== undefined) {
-    arg = htmlEscape(String(arg)) + ' ';
+    arg = htmlEscape(String(arg));
 
     const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;  // define it here so lastIndex === 0
     while ((matchArr = formatRegExp.exec(arg)) !== null) {
@@ -40,6 +40,7 @@ function htmlFromLogArgs(...args: string[]) {
           // TODO: stop ignoring number formatting for i/d/f
           result += String(args.shift());
         }
+        result += ' ';
       }
     }
   }

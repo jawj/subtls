@@ -438,7 +438,7 @@ function htmlEscape(s) {
 function htmlFromLogArgs(...args) {
   let result = "<span>", arg, matchArr;
   while ((arg = args.shift()) !== void 0) {
-    arg = htmlEscape(String(arg)) + " ";
+    arg = htmlEscape(String(arg));
     const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;
     while ((matchArr = formatRegExp.exec(arg)) !== null) {
       const [whole, literal, sub] = matchArr;
@@ -455,6 +455,7 @@ function htmlFromLogArgs(...args) {
         } else if (sub === "i" || sub === "d" || sub === "f") {
           result += String(args.shift());
         }
+        result += " ";
       }
     }
   }
@@ -1534,6 +1535,7 @@ async function start(host, port) {
   await startTls(host, reader.read.bind(reader), ws.send.bind(ws));
 }
 async function startTls(host, read, write) {
+  const t0 = Date.now();
   const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
   const sessionId = new Uint8Array(32);
@@ -1611,6 +1613,7 @@ Host:${host}\r
       done = true;
     }, 1e3);
     const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, 23 /* Application */);
+    console.log(`time to first decrypted record: ${Date.now() - t0}ms`);
     clearTimeout(timeout);
     log(new TextDecoder().decode(serverResponse));
   }

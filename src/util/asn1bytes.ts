@@ -62,7 +62,7 @@ export class ASN1Bytes extends Bytes {
     if (!parts) throw new Error('Unrecognised UTC time format in certificate validity');
     const [, yr2dstr, mth, dy, hr, min, sec] = parts;
     const yr2d = parseInt(yr2dstr, 10);
-    const yr = yr2d + (yr2d >= 50 ? 1900 : 2000);
+    const yr = yr2d + (yr2d >= 50 ? 1900 : 2000);  // range is 1950 – 2049
     const time = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);  // ISO8601 should be safe to parse
     this.comment('= ' + time.toISOString());
     endTime();

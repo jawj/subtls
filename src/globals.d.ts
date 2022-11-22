@@ -1,6 +1,6 @@
 
 declare global {
-  const chatty: boolean;
+  const chatty: true | undefined;
 }
 
 export { };

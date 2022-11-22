@@ -25,6 +25,7 @@ async function start(host: string, port: number) {
 }
 
 async function startTls(host: string, read: (bytes: number) => Promise<Uint8Array>, write: (data: Uint8Array) => void) {
+  const t0 = Date.now();
   const ecdhKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true /* extractable */, ['deriveKey', 'deriveBits']);
   const rawPublicKey = await crypto.subtle.exportKey('raw', ecdhKeys.publicKey);
 
@@ -47,7 +48,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   const changeCipherRecord = await readTlsRecord(read, RecordType.ChangeCipherSpec);
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
-  ccipher.expectUint8(0x01, 'dummy ChangeCipherSpec payload (middlebox compatibility)');
+  ccipher.expectUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
   endCipherPayload();
   chatty && log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), LogColours.server));
 
@@ -68,10 +69,10 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 
   // dummy cipher change
   const clientCipherChange = new Bytes(6);
-  clientCipherChange.writeUint8(0x14, 'record type: ChangeCipherSpec');
-  clientCipherChange.writeUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
+  clientCipherChange.writeUint8(0x14, chatty && 'record type: ChangeCipherSpec');
+  clientCipherChange.writeUint16(0x0303, chatty && 'TLS version 1.2 (middlebox compatibility)');
   const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
-  clientCipherChange.writeUint8(0x01, 'dummy ChangeCipherSpec payload (middlebox compatibility)');
+  clientCipherChange.writeUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
   endClientCipherChangePayload();
   chatty && log(...highlightBytes(clientCipherChange.commentedString(), LogColours.client));
   const clientCipherChangeData = clientCipherChange.array();  // to be sent below
@@ -89,12 +90,12 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   const verifyData = new Uint8Array(verifyDataBuffer);
 
   const clientFinishedRecord = new Bytes(37);
-  clientFinishedRecord.writeUint8(0x14, 'handshake message type: finished');
-  const clientFinishedRecordEnd = clientFinishedRecord.writeLengthUint24('handshake finished data');
+  clientFinishedRecord.writeUint8(0x14, chatty && 'handshake message type: finished');
+  const clientFinishedRecordEnd = clientFinishedRecord.writeLengthUint24(chatty && 'handshake finished data');
   clientFinishedRecord.writeBytes(verifyData);
-  clientFinishedRecord.comment('verify data');
+  chatty && clientFinishedRecord.comment('verify data');
   clientFinishedRecordEnd();
-  clientFinishedRecord.writeUint8(RecordType.Handshake, 'record type: Handshake');
+  clientFinishedRecord.writeUint8(RecordType.Handshake, chatty && 'record type: Handshake');
   chatty && log(...highlightBytes(clientFinishedRecord.commentedString(), LogColours.client));
   const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);  // to be sent below
 
@@ -109,7 +110,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   // GET request
   const requestDataRecord = new Bytes(1024);
   requestDataRecord.writeUTF8String(`GET / HTTP/1.0\r\nHost:${host}\r\n\r\n`);
-  requestDataRecord.writeUint8(RecordType.Application, 'record type: Application');
+  requestDataRecord.writeUint8(RecordType.Application, chatty && 'record type: Application');
   chatty && log(...highlightBytes(requestDataRecord.commentedString(), LogColours.client));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);  // to be sent below
 
@@ -120,8 +121,9 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   while (true) {
     const timeout = setTimeout(() => { if (!done) window.dispatchEvent(new Event('handshakedone')); done = true; }, 1000);
     const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, RecordType.Application);
+    console.log(`time to first decrypted record: ${Date.now() - t0}ms`);
     clearTimeout(timeout);
-    chatty && log(new TextDecoder().decode(serverResponse));
+    log(new TextDecoder().decode(serverResponse));
   }
 }
 

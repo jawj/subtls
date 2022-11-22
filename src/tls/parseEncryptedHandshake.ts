@@ -16,9 +16,9 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const hs = new ASN1Bytes(record);
   const [endHs] = hs.expectLength(record.length, 0);
 
-  hs.expectUint8(0x08, 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
+  hs.expectUint8(0x08, chatty && 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
   const [eeMessageEnd] = hs.expectLengthUint24();
-  const [extEnd, extRemaining] = hs.expectLengthUint16('extensions');
+  const [extEnd, extRemaining] = hs.expectLengthUint16(chatty && 'extensions');
   /* 
    "A server that receives a client hello containing the "server_name"
    extension MAY use the information contained in the extension to guide
@@ -29,26 +29,26 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
    - https://datatracker.ietf.org/doc/html/rfc6066#section-3
   */
   if (extRemaining() > 0) {
-    hs.expectUint16(0x00, 'extension type: SNI');
-    hs.expectUint16(0x00, 'no extension data');
+    hs.expectUint16(0x00, chatty && 'extension type: SNI');
+    hs.expectUint16(0x00, chatty && 'no extension data');
   }
   extEnd();
   eeMessageEnd();
 
-  hs.expectUint8(0x0b, 'handshake message type: server certificate');
-  const [endCertPayload] = hs.expectLengthUint24('certificate payload');
+  hs.expectUint8(0x0b, chatty && 'handshake message type: server certificate');
+  const [endCertPayload] = hs.expectLengthUint24(chatty && 'certificate payload');
 
-  hs.expectUint8(0x00, '0 bytes of request context follow');
-  const [endCerts, certsRemaining] = hs.expectLengthUint24('certificates');
+  hs.expectUint8(0x00, chatty && '0 bytes of request context follow');
+  const [endCerts, certsRemaining] = hs.expectLengthUint24(chatty && 'certificates');
 
   const certs: Cert[] = [];
   while (certsRemaining() > 0) {
-    const [endCert] = hs.expectLengthUint24('certificate');
+    const [endCert] = hs.expectLengthUint24(chatty && 'certificate');
 
     const cert = new Cert(hs);  // this parses the cert and advances the offset
     certs.push(cert);
 
-    hs.comment('server certificate');
+    chatty && hs.comment('server certificate');
     endCert();
 
     const [endCertExt, certExtRemaining] = hs.expectLengthUint16();
@@ -68,23 +68,23 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
   const certVerifySignedData = concat(txtEnc.encode(' '.repeat(64) + 'TLS 1.3, server CertificateVerify'), [0x00], certVerifyHash);
 
-  hs.expectUint8(0x0f, 'handshake message type: certificate verify');
-  const [endCertVerifyPayload] = hs.expectLengthUint24('handshake message data');
-  hs.expectUint16(0x0403, 'signature type ecdsa_secp256r1_sha256');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3
+  hs.expectUint8(0x0f, chatty && 'handshake message type: certificate verify');
+  const [endCertVerifyPayload] = hs.expectLengthUint24(chatty && 'handshake message data');
+  hs.expectUint16(0x0403, chatty && 'signature type ecdsa_secp256r1_sha256');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3
   const [endSignature] = hs.expectLengthUint16();
-  hs.expectUint8(constructedUniversalTypeSequence, 'sequence');
-  const [endSigDer] = hs.expectASN1Length('sequence');
+  hs.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+  const [endSigDer] = hs.expectASN1Length(chatty && 'sequence');
 
-  hs.expectUint8(universalTypeInteger, 'integer');
-  const [endSigRBytes, sigRBytesRemaining] = hs.expectASN1Length('integer');
+  hs.expectUint8(universalTypeInteger, chatty && 'integer');
+  const [endSigRBytes, sigRBytesRemaining] = hs.expectASN1Length(chatty && 'integer');
   let sigR = hs.readBytes(sigRBytesRemaining());
-  hs.comment('signature: r');
+  chatty && hs.comment('signature: r');
   endSigRBytes();
 
-  hs.expectUint8(universalTypeInteger, 'integer');
-  const [endSigSBytes, sigSBytesRemaining] = hs.expectASN1Length('integer');
+  hs.expectUint8(universalTypeInteger, chatty && 'integer');
+  const [endSigSBytes, sigSBytesRemaining] = hs.expectASN1Length(chatty && 'integer');
   let sigS = hs.readBytes(sigSBytesRemaining());
-  hs.comment('signature: s');
+  chatty && hs.comment('signature: s');
   endSigSBytes();
 
   endSigDer();
@@ -118,10 +118,10 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const correctVerifyHashBuffer = await crypto.subtle.sign('HMAC', hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
 
-  hs.expectUint8(0x14, 'handshake message type: finished');
-  const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24('verify hash');
+  hs.expectUint8(0x14, chatty && 'handshake message type: finished');
+  const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24(chatty && 'verify hash');
   const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
-  hs.comment('verify hash');
+  chatty && hs.comment('verify hash');
   endHsFinishedPayload();
 
   endHs();

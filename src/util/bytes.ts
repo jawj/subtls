@@ -52,21 +52,21 @@ export default class Bytes {
   readUTF8String(length: number) {
     const bytes = this.subarray(length);
     const s = txtDec.decode(bytes);
-    this.comment('"' + s.replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"');
+    chatty && this.comment('"' + s.replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"');
     return s;
   }
 
   readUint8(comment?: string) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
-    if (comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
+    if (chatty && comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
 
   readUint16(comment?: string) {
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
-    if (comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
+    if (chatty && comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
 
@@ -74,38 +74,38 @@ export default class Bytes {
     const msb = this.readUint8();
     const lsbs = this.readUint16();
     const result = (msb << 16) + lsbs;
-    if (comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
+    if (chatty && comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
 
   readUint32(comment?: string) {
     const result = this.dataView.getUint32(this.offset);
     this.offset += 4;
-    if (comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
+    if (chatty && comment !== undefined) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
 
   expectBytes(expected: Uint8Array | number[], comment?: string) {
     const actual = this.readBytes(expected.length);
-    if (comment !== undefined) this.comment(comment);
+    if (chatty && comment !== undefined) this.comment(comment);
     if (!equal(actual, expected)) throw new Error(`Unexpected bytes`);
   }
 
   expectUint8(expectedValue: number, comment?: string) {
     const actualValue = this.readUint8();
-    if (comment !== undefined) this.comment(comment);
+    if (chatty && comment !== undefined) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
 
   expectUint16(expectedValue: number, comment?: string) {
     const actualValue = this.readUint16();
-    if (comment !== undefined) this.comment(comment);
+    if (chatty && comment !== undefined) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
 
   expectUint24(expectedValue: number, comment?: string) {
     const actualValue = this.readUint24();
-    if (comment !== undefined) this.comment(comment);
+    if (chatty && comment !== undefined) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
 
@@ -127,19 +127,19 @@ export default class Bytes {
 
   expectLengthUint8(comment?: string) {
     const length = this.readUint8();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
     return this.expectLength(length);
   }
 
   expectLengthUint16(comment?: string) {
     const length = this.readUint16();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
     return this.expectLength(length);
   }
 
   expectLengthUint24(comment?: string) {
     const length = this.readUint24();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
     return this.expectLength(length);
   }
 
@@ -154,21 +154,21 @@ export default class Bytes {
   writeUTF8String(s: string) {
     const bytes = txtEnc.encode(s);
     this.writeBytes(bytes);
-    this.comment('"' + s.replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"');
+    chatty && this.comment('"' + s.replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"');
     return this;
   }
 
   writeUint8(value: number, comment?: string): Bytes {
     this.dataView.setUint8(this.offset, value);
     this.offset += 1;
-    if (comment !== undefined) this.comment(comment);
+    if (chatty && comment !== undefined) this.comment(comment);
     return this;
   }
 
   writeUint16(value: number, comment?: string): Bytes {
     this.dataView.setUint16(this.offset, value);
     this.offset += 2;
-    if (comment !== undefined) this.comment(comment);
+    if (chatty && comment !== undefined) this.comment(comment);
     return this;
   }
 
@@ -189,7 +189,7 @@ export default class Bytes {
         this.dataView.setUint16(startOffset + 1, length & 0xffff);
       }
       else throw new Error(`Invalid length for length field: ${lengthBytes}`);
-      this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, endOffset);
+      chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, endOffset);
       this.indent -= 1;
       this.indents[this.offset] = this.indent;
     };

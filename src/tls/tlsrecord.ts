@@ -29,12 +29,12 @@ export async function readTlsRecord(read: (length: number) => Promise<Uint8Array
   const type = header.readUint8() as keyof typeof RecordTypeName;
   if (type < 0x14 || type > 0x18) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
-  header.comment(`record type: ${RecordTypeName[type]}`);
+  chatty && header.comment(`record type: ${RecordTypeName[type]}`);
 
-  const version = header.readUint16('TLS version');
+  const version = header.readUint16(chatty && 'TLS version');
   if ([0x0301, 0x0302, 0x0303].indexOf(version) < 0) throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, '0')}`);
 
-  const length = header.readUint16('% bytes of TLS record follow');
+  const length = header.readUint16(chatty && '% bytes of TLS record follow');
   if (length > maxRecordLength) throw new Error(`Record too long: ${length} bytes`)
 
   const content = await read(length);
@@ -46,8 +46,8 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
 
   const encryptedBytes = new Bytes(encryptedRecord.content);
   const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remaining());
-  encryptedBytes.skip(encryptedRecord.length - 16, 'encrypted payload');
-  encryptedBytes.skip(16, 'auth tag');
+  encryptedBytes.skip(encryptedRecord.length - 16, chatty && 'encrypted payload');
+  encryptedBytes.skip(16, chatty && 'auth tag');
   endEncrypted();
   chatty && log(...highlightBytes(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), LogColours.server));
 
@@ -69,8 +69,8 @@ export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypte
   const payloadLength = dataLength + authTagLength;
 
   const encryptedRecord = new Bytes(headerLength + payloadLength);
-  encryptedRecord.writeUint8(0x17, 'record type: Application (middlebox compatibility)');
-  encryptedRecord.writeUint16(0x0303, 'TLS version 1.2 (middlebox compatibility)');
+  encryptedRecord.writeUint8(0x17, chatty && 'record type: Application (middlebox compatibility)');
+  encryptedRecord.writeUint16(0x0303, chatty && 'TLS version 1.2 (middlebox compatibility)');
   encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
 
   const [endEncryptedRecord] = encryptedRecord.expectLength(payloadLength);  // unusual (but still useful) when writing
@@ -78,9 +78,9 @@ export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypte
   const header = encryptedRecord.array();
   const encryptedData = await encrypter.process(data, 16, header);
   encryptedRecord.writeBytes(encryptedData.subarray(0, encryptedData.length - 16));
-  encryptedRecord.comment('encrypted data');
+  chatty && encryptedRecord.comment('encrypted data');
   encryptedRecord.writeBytes(encryptedData.subarray(encryptedData.length - 16));
-  encryptedRecord.comment('auth tag');
+  chatty && encryptedRecord.comment('auth tag');
 
   endEncryptedRecord();
 

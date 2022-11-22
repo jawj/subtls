@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "esbuild --define:chatty=true src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.js --minify",
+    "unvoid": "sed -i.orig -e 's/,void 0[)]/)/g' -e 's/[(]void 0[)]/()/g' dist/index.js",
+    "build": "esbuild --define:chatty=undefined src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.js --minify && npm run unvoid",
     "watch": "esbuild --define:chatty=true src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.js --watch",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
