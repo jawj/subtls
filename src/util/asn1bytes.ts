@@ -44,7 +44,8 @@ export class ASN1Bytes extends Bytes {
 
   readASN1Boolean() {
     const [endBoolean, booleanRemaining] = this.expectASN1Length('boolean');
-    if (booleanRemaining() !== 1) throw new Error(`Boolean has weird length: ${length}`);
+    const length = booleanRemaining();
+    if (length !== 1) throw new Error(`Boolean has weird length: ${length}`);
     const byte = this.readUint8();
     let result;
     if (byte === 0xff) result = true;

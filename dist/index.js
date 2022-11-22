@@ -1,6 +1,6 @@
 // src/util/array.ts
 function concat(...arrs) {
-  length = arrs.reduce((memo, arr) => memo + arr.length, 0);
+  const length = arrs.reduce((memo, arr) => memo + arr.length, 0);
   const result = new Uint8Array(length);
   let offset = 0;
   for (const arr of arrs) {
@@ -43,11 +43,11 @@ var Bytes = class {
   remaining() {
     return this.uint8Array.length - this.offset;
   }
-  subarray(length2) {
-    return this.uint8Array.subarray(this.offset, this.offset += length2);
+  subarray(length) {
+    return this.uint8Array.subarray(this.offset, this.offset += length);
   }
-  skip(length2, comment) {
-    this.offset += length2;
+  skip(length, comment) {
+    this.offset += length;
     if (comment !== void 0)
       this.comment(comment);
     return this;
@@ -58,11 +58,11 @@ var Bytes = class {
     this.comments[offset] = result;
     return this;
   }
-  readBytes(length2) {
-    return this.uint8Array.slice(this.offset, this.offset += length2);
+  readBytes(length) {
+    return this.uint8Array.slice(this.offset, this.offset += length);
   }
-  readUTF8String(length2) {
-    const bytes = this.subarray(length2);
+  readUTF8String(length) {
+    const bytes = this.subarray(length);
     const s = txtDec.decode(bytes);
     this.comment('"' + s.replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"');
     return s;
@@ -124,9 +124,9 @@ var Bytes = class {
     if (actualValue !== expectedValue)
       throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
-  expectLength(length2, indentDelta = 1) {
+  expectLength(length, indentDelta = 1) {
     const startOffset = this.offset;
-    const endOffset = startOffset + length2;
+    const endOffset = startOffset + length;
     if (endOffset > this.uint8Array.length)
       throw new Error("Expected length exceeds remaining data length");
     this.indent += indentDelta;
@@ -136,25 +136,25 @@ var Bytes = class {
         this.indent -= indentDelta;
         this.indents[this.offset] = this.indent;
         if (this.offset !== endOffset)
-          throw new Error(`${length2} bytes expected but ${this.offset - startOffset} read`);
+          throw new Error(`${length} bytes expected but ${this.offset - startOffset} read`);
       },
       () => endOffset - this.offset
     ];
   }
   expectLengthUint8(comment) {
-    const length2 = this.readUint8();
-    this.comment(`${length2} bytes${comment ? ` of ${comment}` : ""} follow`);
-    return this.expectLength(length2);
+    const length = this.readUint8();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
+    return this.expectLength(length);
   }
   expectLengthUint16(comment) {
-    const length2 = this.readUint16();
-    this.comment(`${length2} bytes${comment ? ` of ${comment}` : ""} follow`);
-    return this.expectLength(length2);
+    const length = this.readUint16();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
+    return this.expectLength(length);
   }
   expectLengthUint24(comment) {
-    const length2 = this.readUint24();
-    this.comment(`${length2} bytes${comment ? ` of ${comment}` : ""} follow`);
-    return this.expectLength(length2);
+    const length = this.readUint24();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
+    return this.expectLength(length);
   }
   writeBytes(bytes) {
     this.uint8Array.set(bytes, this.offset);
@@ -188,17 +188,17 @@ var Bytes = class {
     this.indent += 1;
     this.indents[endOffset] = this.indent;
     return () => {
-      const length2 = this.offset - endOffset;
+      const length = this.offset - endOffset;
       if (lengthBytes === 1)
-        this.dataView.setUint8(startOffset, length2);
+        this.dataView.setUint8(startOffset, length);
       else if (lengthBytes === 2)
-        this.dataView.setUint16(startOffset, length2);
+        this.dataView.setUint16(startOffset, length);
       else if (lengthBytes === 3) {
-        this.dataView.setUint8(startOffset, (length2 & 16711680) >> 16);
-        this.dataView.setUint16(startOffset + 1, length2 & 65535);
+        this.dataView.setUint8(startOffset, (length & 16711680) >> 16);
+        this.dataView.setUint16(startOffset + 1, length & 65535);
       } else
         throw new Error(`Invalid length for length field: ${lengthBytes}`);
-      this.comment(`${length2} bytes${comment ? ` of ${comment}` : ""} follow`, endOffset);
+      this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`, endOffset);
       this.indent -= 1;
       this.indents[this.offset] = this.indent;
     };
@@ -488,11 +488,11 @@ async function readTlsRecord(read, expectedType) {
   const version = header.readUint16("TLS version");
   if ([769, 770, 771].indexOf(version) < 0)
     throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
-  const length2 = header.readUint16("% bytes of TLS record follow");
-  if (length2 > maxRecordLength)
-    throw new Error(`Record too long: ${length2} bytes`);
-  const content = await read(length2);
-  return { headerData, header, type, version, length: length2, content };
+  const length = header.readUint16("% bytes of TLS record follow");
+  if (length > maxRecordLength)
+    throw new Error(`Record too long: ${length} bytes`);
+  const content = await read(length);
+  return { headerData, header, type, version, length, content };
 }
 async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   const encryptedRecord = await readTlsRecord(read, 23 /* Application */);
@@ -539,9 +539,9 @@ async function hkdfExtract(salt, keyMaterial, hashBits) {
   var prk = new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey, keyMaterial));
   return prk;
 }
-async function hkdfExpand(key, info, length2, hashBits) {
+async function hkdfExpand(key, info, length, hashBits) {
   const hashBytes = hashBits >> 3;
-  const n = Math.ceil(length2 / hashBytes);
+  const n = Math.ceil(length / hashBytes);
   const okm = new Uint8Array(n * hashBytes);
   const hmacKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
   let tPrev = new Uint8Array(0);
@@ -552,20 +552,20 @@ async function hkdfExpand(key, info, length2, hashBits) {
     okm.set(ti, hashBytes * i);
     tPrev = ti;
   }
-  return okm.subarray(0, length2);
+  return okm.subarray(0, length);
 }
 var tls13_Bytes = txtEnc2.encode("tls13 ");
-async function hkdfExpandLabel(key, label, context, length2, hashBits) {
+async function hkdfExpandLabel(key, label, context, length, hashBits) {
   const labelData = txtEnc2.encode(label);
   const hkdfLabel = concat(
-    [(length2 & 65280) >> 8, length2 & 255],
+    [(length & 65280) >> 8, length & 255],
     [tls13_Bytes.length + labelData.length],
     tls13_Bytes,
     labelData,
     [context.length],
     context
   );
-  return hkdfExpand(key, hkdfLabel, length2, hashBits);
+  return hkdfExpand(key, hkdfLabel, length, hashBits);
 }
 async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, keyLength) {
   const hashBytes = hashBits >> 3;
@@ -699,8 +699,8 @@ var ASN1Bytes = class extends Bytes {
     throw new Error(`ASN.1 length fields are only supported up to 4 bytes (this one is ${lengthBytes} bytes)`);
   }
   expectASN1Length(comment) {
-    const length2 = this.readASN1Length(comment);
-    return this.expectLength(length2);
+    const length = this.readASN1Length(comment);
+    return this.expectLength(length);
   }
   readASN1OID() {
     const [endOID, OIDRemaining] = this.expectASN1Length("OID");
@@ -723,7 +723,8 @@ var ASN1Bytes = class extends Bytes {
   }
   readASN1Boolean() {
     const [endBoolean, booleanRemaining] = this.expectASN1Length("boolean");
-    if (booleanRemaining() !== 1)
+    const length = booleanRemaining();
+    if (length !== 1)
       throw new Error(`Boolean has weird length: ${length}`);
     const byte = this.readUint8();
     let result;
@@ -820,9 +821,9 @@ var extKeyUsageOIDMap = {
   "1.3.6.1.5.5.7.3.1": "TLSServerAuth"
 };
 function intFromBitString(bs) {
-  const { length: length2 } = bs;
-  if (length2 > 4)
-    throw new Error(`Bit string length ${length2} would overflow JS bit operators`);
+  const { length } = bs;
+  if (length > 4)
+    throw new Error(`Bit string length ${length} would overflow JS bit operators`);
   let result = 0;
   let leftShift = 0;
   for (let i = bs.length - 1; i >= 0; i--) {
