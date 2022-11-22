@@ -109,15 +109,15 @@ export default class Bytes {
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
 
-  expectLength(length: number) {
+  expectLength(length: number, indentDelta = 1) {
     const startOffset = this.offset;
     const endOffset = startOffset + length;
     if (endOffset > this.uint8Array.length) throw new Error('Expected length exceeds remaining data length');
-    this.indent += 1;
+    this.indent += indentDelta;
     this.indents[startOffset] = this.indent;
     return [
       () => {
-        this.indent -= 1;
+        this.indent -= indentDelta;
         this.indents[this.offset] = this.indent;
         if (this.offset !== endOffset) throw new Error(`${length} bytes expected but ${this.offset - startOffset} read`);
       },

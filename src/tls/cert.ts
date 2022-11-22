@@ -46,8 +46,8 @@ export class Cert {
   subjectKeyIdentifier?: Uint8Array;
   basicConstraints?: { critical: boolean; ca?: boolean; pathLength?: number } | undefined;
 
-  constructor(certData: Uint8Array) {
-    const cb = new ASN1Bytes(certData);
+  constructor(certData: Uint8Array | ASN1Bytes) {
+    const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
 
     cb.expectUint8(constructedUniversalTypeSequence, 'sequence (certificate)');
     const [endCertSeq] = cb.expectASN1Length('certificate sequence');
@@ -304,8 +304,7 @@ export class Cert {
     cb.comment('signature');
 
     endCertSeq();
-
-    chatty && log(...highlightBytes(cb.commentedString(true), LogColours.server));
+    // chatty && log(...highlightBytes(cb.commentedString(true), LogColours.server));
   }
 
   static fromPEM(pem: string) {
@@ -336,7 +335,7 @@ export class Cert {
 
       // test
       if (certName === hostName) {
-        chatty && log(`matched "${host}" to subjectAltName "${cert}"`);
+        chatty && log(`%c✓ matched "${host}" to subjectAltName "${cert}"`, 'color: #8c8');
         return true;
       }
     });

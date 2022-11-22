@@ -124,16 +124,16 @@ var Bytes = class {
     if (actualValue !== expectedValue)
       throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
-  expectLength(length2) {
+  expectLength(length2, indentDelta = 1) {
     const startOffset = this.offset;
     const endOffset = startOffset + length2;
     if (endOffset > this.uint8Array.length)
       throw new Error("Expected length exceeds remaining data length");
-    this.indent += 1;
+    this.indent += indentDelta;
     this.indents[startOffset] = this.indent;
     return [
       () => {
-        this.indent -= 1;
+        this.indent -= indentDelta;
         this.indents[this.offset] = this.indent;
         if (this.offset !== endOffset)
           throw new Error(`${length2} bytes expected but ${this.offset - startOffset} read`);
@@ -527,7 +527,7 @@ async function makeEncryptedTlsRecord(data, encrypter) {
   encryptedRecord.writeBytes(encryptedData.subarray(encryptedData.length - 16));
   encryptedRecord.comment("auth tag");
   endEncryptedRecord();
-  log(...highlightBytes(encryptedRecord.commentedString(), "#8c8" /* client */));
+  log(...highlightBytes(encryptedRecord.commentedString(), "#8cc" /* client */));
   return encryptedRecord.array();
 }
 
@@ -1097,7 +1097,7 @@ var Cert = class {
   subjectKeyIdentifier;
   basicConstraints;
   constructor(certData) {
-    const cb = new ASN1Bytes(certData);
+    const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate)");
     const [endCertSeq] = cb.expectASN1Length("certificate sequence");
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate info)");
@@ -1297,7 +1297,6 @@ var Cert = class {
     this.signature = cb.readASN1BitString();
     cb.comment("signature");
     endCertSeq();
-    log(...highlightBytes(cb.commentedString(true), "#88c" /* server */));
   }
   static fromPEM(pem) {
     const tag = "[A-Z0-9 ]+";
@@ -1322,7 +1321,7 @@ var Cert = class {
         hostName = hostName.slice(hostName.indexOf("."));
       }
       if (certName === hostName) {
-        log(`matched "${host}" to subjectAltName "${cert}"`);
+        log(`%c\u2713 matched "${host}" to subjectAltName "${cert}"`, "color: #8c8");
         return true;
       }
     });
@@ -1364,7 +1363,7 @@ function getRootCerts() {
 var txtEnc3 = new TextEncoder();
 async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const hs = new ASN1Bytes(record);
-  const [endHs] = hs.expectLength(record.length);
+  const [endHs] = hs.expectLength(record.length, 0);
   hs.expectUint8(8, "handshake record type: encrypted extensions");
   const [eeMessageEnd] = hs.expectLengthUint24();
   const [extEnd, extRemaining] = hs.expectLengthUint16("extensions");
@@ -1380,31 +1379,20 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const [endCerts, certsRemaining] = hs.expectLengthUint24("certificates");
   const certs = [];
   while (certsRemaining() > 0) {
-    const [endCert, certRemaining] = hs.expectLengthUint24("certificate");
-    const certData = hs.readBytes(certRemaining());
+    const [endCert] = hs.expectLengthUint24("certificate");
+    const cert = new Cert(hs);
+    certs.push(cert);
     hs.comment("server certificate");
     endCert();
     const [endCertExt, certExtRemaining] = hs.expectLengthUint16();
-    const certExtData = hs.readBytes(certExtRemaining());
+    const certExtData = hs.subarray(certExtRemaining());
     endCertExt();
-    const cert = new Cert(certData);
-    certs.push(cert);
   }
   endCerts();
   endCertPayload();
   if (certs.length === 0)
     throw new Error("No certificates supplied");
-  log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
-  for (const cert of certs)
-    log(...highlightColonList(cert.description()));
   const userCert = certs[0];
-  const namesMatch = userCert.subjectAltNamesMatch(host);
-  if (!namesMatch)
-    throw new Error(`No matching subjectAltName for ${host}`);
-  const rootCerts = getRootCerts();
-  log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
-  for (const cert of rootCerts)
-    log(...highlightColonList(cert.description()));
   const certVerifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
   const certVerifyData = concat(hellos, certVerifyHandshakeData);
   const certVerifyHashBuffer = await crypto.subtle.digest("SHA-256", certVerifyData);
@@ -1433,9 +1421,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const signature = concat(clampToLength(sigR, 32), clampToLength(sigS, 32));
   const signatureKey = await crypto.subtle.importKey("raw", userCert.publicKey.data, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
   const certVerifyResult = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, signatureKey, signature, certVerifySignedData);
-  if (certVerifyResult)
-    log("end-user certificate verified: server has private key");
-  else
+  if (certVerifyResult !== true)
     throw new Error("Certificate verify failed");
   const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
@@ -1450,11 +1436,22 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   hs.comment("verify hash");
   endHsFinishedPayload();
   endHs();
-  if (equal(verifyHash, correctVerifyHash))
-    log("server verify hash validated");
-  else
+  const verifyHashVerified = equal(verifyHash, correctVerifyHash);
+  if (verifyHashVerified !== true)
     throw new Error("Invalid server verify hash");
   log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
+  log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
+  for (const cert of certs)
+    log(...highlightColonList(cert.description()));
+  log("%c\u2713 end-user certificate verified: server has private key", "color: #8c8;");
+  const namesMatch = userCert.subjectAltNamesMatch(host);
+  if (!namesMatch)
+    throw new Error(`No matching subjectAltName for ${host}`);
+  log("%c\u2713 server verify hash validated", "color: #8c8;");
+  const rootCerts = getRootCerts();
+  log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
+  for (const cert of rootCerts)
+    log(...highlightColonList(cert.description()));
 }
 
 // src/util/readqueue.ts
@@ -1542,7 +1539,7 @@ async function startTls(host, read, write) {
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId);
-  log(...highlightBytes(clientHello.commentedString(), "#8c8" /* client */));
+  log(...highlightBytes(clientHello.commentedString(), "#8cc" /* client */));
   const clientHelloData = clientHello.array();
   write(clientHelloData);
   const serverHelloRecord = await readTlsRecord(read, 22 /* Handshake */);
@@ -1572,7 +1569,7 @@ async function startTls(host, read, write) {
   const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
   clientCipherChange.writeUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
   endClientCipherChangePayload();
-  log(...highlightBytes(clientCipherChange.commentedString(), "#8c8" /* client */));
+  log(...highlightBytes(clientCipherChange.commentedString(), "#8cc" /* client */));
   const clientCipherChangeData = clientCipherChange.array();
   const wholeHandshake = concat(hellos, serverHandshake);
   const wholeHandshakeHashBuffer = await crypto.subtle.digest("SHA-256", wholeHandshake);
@@ -1589,7 +1586,7 @@ async function startTls(host, read, write) {
   clientFinishedRecord.comment("verify data");
   clientFinishedRecordEnd();
   clientFinishedRecord.writeUint8(22 /* Handshake */, "record type: Handshake");
-  log(...highlightBytes(clientFinishedRecord.commentedString(), "#8c8" /* client */));
+  log(...highlightBytes(clientFinishedRecord.commentedString(), "#8cc" /* client */));
   const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);
   log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
@@ -1603,7 +1600,7 @@ Host:${host}\r
 \r
 `);
   requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
-  log(...highlightBytes(requestDataRecord.commentedString(), "#8c8" /* client */));
+  log(...highlightBytes(requestDataRecord.commentedString(), "#8cc" /* client */));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
   write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
   let done = false;

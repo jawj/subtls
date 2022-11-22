@@ -1,6 +1,6 @@
 
 export enum LogColours {
-  client = '#8c8',
+  client = '#8cc',
   server = '#88c',
   header = '#c88',
 }

@@ -6,8 +6,7 @@ import { Cert } from './cert';
 import { highlightBytes, highlightColonList } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { getRootCerts } from './rootCerts';
-import { hexFromU8 } from '../util/hex';
-import { constructedUniversalTypeSequence, universalTypeInteger, universalTypeOctetString } from './certUtils';
+import { constructedUniversalTypeSequence, universalTypeInteger } from './certUtils';
 import { ASN1Bytes } from '../util/asn1bytes';
 
 const txtEnc = new TextEncoder();
@@ -15,7 +14,7 @@ const txtEnc = new TextEncoder();
 export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
   // parse encrypted handshake part
   const hs = new ASN1Bytes(record);
-  const [endHs] = hs.expectLength(record.length);
+  const [endHs] = hs.expectLength(record.length, 0);
 
   hs.expectUint8(0x08, 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
   const [eeMessageEnd] = hs.expectLengthUint24();
@@ -44,36 +43,23 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   const certs: Cert[] = [];
   while (certsRemaining() > 0) {
-    const [endCert, certRemaining] = hs.expectLengthUint24('certificate');
-    const certData = hs.readBytes(certRemaining());
+    const [endCert] = hs.expectLengthUint24('certificate');
+
+    const cert = new Cert(hs);  // this parses the cert and advances the offset
+    certs.push(cert);
+
     hs.comment('server certificate');
     endCert();
 
     const [endCertExt, certExtRemaining] = hs.expectLengthUint16();
-    const certExtData = hs.readBytes(certExtRemaining());
+    const certExtData = hs.subarray(certExtRemaining());  // TODO: use this for anything?
     endCertExt();
-
-    const cert = new Cert(certData);
-    certs.push(cert);
   }
   endCerts();
   endCertPayload();
 
   if (certs.length === 0) throw new Error('No certificates supplied');
-
-  chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates');
-  for (const cert of certs) chatty && log(...highlightColonList(cert.description()));
-
   const userCert = certs[0];
-  const namesMatch = userCert.subjectAltNamesMatch(host);
-  if (!namesMatch) throw new Error(`No matching subjectAltName for ${host}`);
-
-  // TODO: trustidx3root makes neon-cf-pg-test.jawj.workers.dev work, even though it's expired.
-  // Is this OK? https://scotthelme.co.uk/should-clients-care-about-the-expiration-of-a-root-certificate/
-  const rootCerts = getRootCerts();
-
-  chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
-  for (const cert of rootCerts) chatty && log(...highlightColonList(cert.description()));
 
   // certificate verify
   const certVerifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
@@ -121,8 +107,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const signature = concat(clampToLength(sigR, 32), clampToLength(sigS, 32));
   const signatureKey = await crypto.subtle.importKey('raw', userCert.publicKey.data, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
   const certVerifyResult = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, signatureKey, signature, certVerifySignedData);
-  if (certVerifyResult) chatty && log('end-user certificate verified: server has private key');
-  else throw new Error('Certificate verify failed');
+  if (certVerifyResult !== true) throw new Error('Certificate verify failed');
 
   // handshake finished and verify
   const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
@@ -141,8 +126,28 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   endHs();
 
-  if (equal(verifyHash, correctVerifyHash)) chatty && log('server verify hash validated');
-  else throw new Error('Invalid server verify hash');
+  const verifyHashVerified = equal(verifyHash, correctVerifyHash);
+  if (verifyHashVerified !== true) throw new Error('Invalid server verify hash');
 
+  // logging
   chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
+
+  chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates');
+  for (const cert of certs) chatty && log(...highlightColonList(cert.description()));
+
+  chatty && log('%c✓ end-user certificate verified: server has private key', 'color: #8c8;');  // if not, we'd have thrown by now
+
+  const namesMatch = userCert.subjectAltNamesMatch(host);
+  if (!namesMatch) throw new Error(`No matching subjectAltName for ${host}`);
+
+  chatty && log('%c✓ server verify hash validated', 'color: #8c8;');  // if not, we'd have thrown by now
+
+  // TODO: trustidx3root makes neon-cf-pg-test.jawj.workers.dev work, even though it's expired.
+  // Is this OK? https://scotthelme.co.uk/should-clients-care-about-the-expiration-of-a-root-certificate/
+  const rootCerts = getRootCerts();
+
+  chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
+  for (const cert of rootCerts) chatty && log(...highlightColonList(cert.description()));
+
+  // TODO: build and verify certificate chain
 }
