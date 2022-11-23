@@ -8,12 +8,14 @@ import { log } from '../presentation/log';
 import { getRootCerts } from './rootCerts';
 import { constructedUniversalTypeSequence, universalTypeInteger } from './certUtils';
 import { ASN1Bytes } from '../util/asn1bytes';
+import { hexFromU8 } from '../util/hex';
 
 const txtEnc = new TextEncoder();
 
 export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
-  // parse encrypted handshake part
   const hs = new ASN1Bytes(record);
+
+  // parse encrypted handshake part
   const [endHs] = hs.expectLength(record.length, 0);
 
   hs.expectUint8(0x08, chatty && 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
@@ -35,6 +37,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   extEnd();
   eeMessageEnd();
 
+  // certificates
   hs.expectUint8(0x0b, chatty && 'handshake message type: server certificate');
   const [endCertPayload] = hs.expectLengthUint24(chatty && 'certificate payload');
 
@@ -44,11 +47,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const certs: Cert[] = [];
   while (certsRemaining() > 0) {
     const [endCert] = hs.expectLengthUint24(chatty && 'certificate');
-
     const cert = new Cert(hs);  // this parses the cert and advances the offset
     certs.push(cert);
-
-    chatty && hs.comment('server certificate');
     endCert();
 
     const [endCertExt, certExtRemaining] = hs.expectLengthUint16();
@@ -70,46 +70,77 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   hs.expectUint8(0x0f, chatty && 'handshake message type: certificate verify');
   const [endCertVerifyPayload] = hs.expectLengthUint24(chatty && 'handshake message data');
-  hs.expectUint16(0x0403, chatty && 'signature type ecdsa_secp256r1_sha256');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3
-  const [endSignature] = hs.expectLengthUint16();
-  hs.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-  const [endSigDer] = hs.expectASN1Length(chatty && 'sequence');
+  const sigType = hs.readUint16();
 
-  hs.expectUint8(universalTypeInteger, chatty && 'integer');
-  const [endSigRBytes, sigRBytesRemaining] = hs.expectASN1Length(chatty && 'integer');
-  let sigR = hs.readBytes(sigRBytesRemaining());
-  chatty && hs.comment('signature: r');
-  endSigRBytes();
+  if (sigType === 0x0403) {
+    chatty && hs.comment('signature type ECDSA-SECP256R1-SHA256');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3
+    const [endSignature] = hs.expectLengthUint16();
+    hs.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+    const [endSigDer] = hs.expectASN1Length(chatty && 'sequence');
 
-  hs.expectUint8(universalTypeInteger, chatty && 'integer');
-  const [endSigSBytes, sigSBytesRemaining] = hs.expectASN1Length(chatty && 'integer');
-  let sigS = hs.readBytes(sigSBytesRemaining());
-  chatty && hs.comment('signature: s');
-  endSigSBytes();
+    hs.expectUint8(universalTypeInteger, chatty && 'integer');
+    const [endSigRBytes, sigRBytesRemaining] = hs.expectASN1Length(chatty && 'integer');
+    let sigR = hs.readBytes(sigRBytesRemaining());
+    chatty && hs.comment('signature: r');
+    endSigRBytes();
 
-  endSigDer();
-  endSignature();
+    hs.expectUint8(universalTypeInteger, chatty && 'integer');
+    const [endSigSBytes, sigSBytesRemaining] = hs.expectASN1Length(chatty && 'integer');
+    let sigS = hs.readBytes(sigSBytesRemaining());
+    chatty && hs.comment('signature: s');
+    endSigSBytes();
+
+    endSigDer();
+    endSignature();
+
+    /*
+    it seems WebCrypto expects a 64-byte P1363 signature, which sometimes discards a leading zero on r and s that's added to indicate positive sign
+    - https://crypto.stackexchange.com/questions/57731/ecdsa-signature-rs-to-asn1-der-encoding-question
+    - https://crypto.stackexchange.com/questions/1795/how-can-i-convert-a-der-ecdsa-signature-to-asn-1/1797#1797
+    - https://stackoverflow.com/a/65403229
+    */
+
+    const clampToLength = (x: Uint8Array, clampLength: number) =>
+      x.length > clampLength ? x.subarray(x.length - clampLength) :  // too long? cut off leftmost bytes (msb)
+        x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : // too short? left pad with zeroes
+          x;  // right length: pass through
+
+    const signature = concat(clampToLength(sigR, 32), clampToLength(sigS, 32));
+
+    // const signatureKey = await crypto.subtle.importKey('raw', userCert.publicKey.data, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    const signatureKey = await crypto.subtle.importKey('spki', userCert.publicKey.all, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    const certVerifyResult = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, signatureKey, signature, certVerifySignedData);
+    if (certVerifyResult !== true) throw new Error('ECDSA-SECP256R1-SHA256 certificate verify failed');
+
+  } else if (sigType === 0x0804) {  // 
+    chatty && hs.comment('signature type RSA-PSS-RSAE-SHA256');
+    const [endSignature, signatureRemaining] = hs.expectLengthUint16();
+    const signature = hs.subarray(signatureRemaining());
+    chatty && hs.comment('signature');
+    endSignature();
+
+    /*
+    RSASSA-PSS RSAE algorithms:  Indicates a signature algorithm using
+    RSASSA-PSS [RFC8017] with mask generation function 1.  The digest
+    used in the mask generation function and the digest being signed
+    are both the corresponding hash algorithm as defined in [SHS].
+    The length of the Salt MUST be equal to the length of the output
+    of the digest algorithm.  If the public key is carried in an X.509
+    certificate, it MUST use the rsaEncryption OID [RFC5280].
+    -- https://www.rfc-editor.org/rfc/rfc8446#section-4.2.3
+    */
+    console.log(hexFromU8(userCert.publicKey.all, ' '));
+    const signatureKey = await crypto.subtle.importKey('spki', userCert.publicKey.all, { name: 'RSA-PSS', hash: 'SHA-256' }, false, ['verify']);
+    const certVerifyResult = await crypto.subtle.verify({ name: 'RSA-PSS', saltLength: 32 /* SHA-256 length in bytes */ }, signatureKey, signature, certVerifySignedData);
+    if (certVerifyResult !== true) throw new Error('RSA-PSS-RSAE-SHA256 certificate verify failed');
+
+  } else {
+    throw new Error(`Unsupported certificate verify signature type 0x${hexFromU8([sigType]).padStart(4, '0')}`);
+  }
+
   endCertVerifyPayload();
 
-  // it seems WebCrypto expects a 64-byte P1363 signature, which sometimes discards a leading zero on r and s that's added to indicate positive sign
-  // https://crypto.stackexchange.com/questions/57731/ecdsa-signature-rs-to-asn1-der-encoding-question
-  // https://crypto.stackexchange.com/questions/1795/how-can-i-convert-a-der-ecdsa-signature-to-asn-1/1797#1797
-  // https://stackoverflow.com/a/65403229
-
-  const clampToLength = (x: Uint8Array, clampLength: number) =>
-    // if longer, cut off leftmost bytes (most significant on Big Endian)
-    x.length > clampLength ? x.subarray(x.length - clampLength) :
-      // if shorter, left pad with zero bytes
-      x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) :
-        // if neither, nothing to do!
-        x;
-
-  const signature = concat(clampToLength(sigR, 32), clampToLength(sigS, 32));
-  const signatureKey = await crypto.subtle.importKey('raw', userCert.publicKey.data, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-  const certVerifyResult = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, signatureKey, signature, certVerifySignedData);
-  if (certVerifyResult !== true) throw new Error('Certificate verify failed');
-
-  // handshake finished and verify
+  // handshake verify
   const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, 'finished', new Uint8Array(0), 32, 256);
@@ -129,8 +160,9 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true) throw new Error('Invalid server verify hash');
 
-  // logging
+
   chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
+
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates');
   for (const cert of certs) chatty && log(...highlightColonList(cert.description()));
@@ -151,3 +183,5 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
 
   // TODO: build and verify certificate chain
 }
+
+

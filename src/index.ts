@@ -14,7 +14,7 @@ import { log } from './presentation/log';
 
 async function start(host: string, port: number) {
   const ws = await new Promise<WebSocket>(resolve => {
-    const ws = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
+    const ws = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('close', () => { console.log("ws closed"); })
@@ -66,6 +66,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   // encrypted part of server handshake
   const serverHandshake = await readEncryptedTlsRecord(read, handshakeDecrypter, RecordType.Handshake);
   await parseEncryptedHandshake(host, serverHandshake, handshakeKeys.serverSecret, hellos);
+
 
   // dummy cipher change
   const clientCipherChange = new Bytes(6);
@@ -123,11 +124,13 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
     const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, RecordType.Application);
     console.log(`time to first decrypted record: ${Date.now() - t0}ms`);
     clearTimeout(timeout);
+
     log(new TextDecoder().decode(serverResponse));
   }
 }
 
 // start('neon-cf-pg-test.jawj.workers.dev', 443);
 // start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: no common cipher?
-// start('cloudflare.com', 443);
-start('google.com', 443);
+start('developers.cloudflare.com', 443);
+// start('google.com', 443);
+

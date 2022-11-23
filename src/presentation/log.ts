@@ -49,6 +49,7 @@ function htmlFromLogArgs(...args: string[]) {
 }
 
 export function log(...args: any[]) {
+  // if (!chatty) throw new Error('No logs should be emitted outside of chatty mode');
   console.log(...args);
   element.innerHTML += '<label><input type="checkbox"><div class="section">' + htmlFromLogArgs(...args) + '</div></label>';
 }

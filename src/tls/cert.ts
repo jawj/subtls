@@ -37,7 +37,7 @@ export class Cert {
   issuer: Record<string, string>;
   validityPeriod: { notBefore: Date; notAfter: Date };
   subject: Record<string, string>;
-  publicKey: { identifiers: OID[], data: Uint8Array };
+  publicKey: { identifiers: OID[]; data: Uint8Array; all: Uint8Array };
   signature: Uint8Array;
   keyUsage?: { critical?: boolean; usages: Set<string> };
   subjectAltNames?: string[];
@@ -93,9 +93,9 @@ export class Cert {
     this.subject = readSeqOfSetOfSeq(cb, 'subject');
 
     // public key
+    const publicKeyStartOffset = cb.offset;
     cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (public key)');
     const [endPublicKeySeq] = cb.expectASN1Length(chatty && 'public key sequence');
-
     cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (public key params)');
     const [endKeyOID, keyOIDRemaining] = cb.expectASN1Length(chatty && 'public key params sequence');
 
@@ -119,7 +119,7 @@ export class Cert {
     const publicKeyData = cb.readASN1BitString();
     chatty && cb.comment('public key');
 
-    this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData };
+    this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.uint8Array.subarray(publicKeyStartOffset, cb.offset) };
 
     endPublicKeySeq();
 

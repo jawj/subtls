@@ -71,7 +71,9 @@ export default function makeClientHello(host: string, publicKey: ArrayBuffer, se
   const endSigsExt = h.writeLengthUint16(chatty && 'signature algorithms data');
   const endSigs = h.writeLengthUint16(chatty && 'signature algorithms');
   h.writeUint16(0x0403);  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3
-  chatty && h.comment('ECDSA-SECP256r1-SHA256');
+  chatty && h.comment('ecdsa_secp256r1_sha256');
+  h.writeUint16(0x0804);
+  chatty && h.comment('rsa_pss_rsae_sha256');
   endSigs();
   endSigsExt();
 

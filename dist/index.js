@@ -48,11 +48,13 @@ var Bytes = class {
   }
   skip(length, comment) {
     this.offset += length;
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment);
     return this;
   }
   comment(s, offset = this.offset) {
+    if (false)
+      throw new Error("No comments should be emitted outside of chatty mode");
     const existing = this.comments[offset];
     const result = (existing === void 0 ? "" : existing + " ") + s;
     this.comments[offset] = result;
@@ -70,14 +72,14 @@ var Bytes = class {
   readUint8(comment) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
   readUint16(comment) {
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
@@ -85,41 +87,41 @@ var Bytes = class {
     const msb = this.readUint8();
     const lsbs = this.readUint16();
     const result = (msb << 16) + lsbs;
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
   readUint32(comment) {
     const result = this.dataView.getUint32(this.offset);
     this.offset += 4;
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
   expectBytes(expected, comment) {
     const actual = this.readBytes(expected.length);
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment);
     if (!equal(actual, expected))
       throw new Error(`Unexpected bytes`);
   }
   expectUint8(expectedValue, comment) {
     const actualValue = this.readUint8();
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment);
     if (actualValue !== expectedValue)
       throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
   expectUint16(expectedValue, comment) {
     const actualValue = this.readUint16();
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment);
     if (actualValue !== expectedValue)
       throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
   expectUint24(expectedValue, comment) {
     const actualValue = this.readUint24();
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment);
     if (actualValue !== expectedValue)
       throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
@@ -170,14 +172,14 @@ var Bytes = class {
   writeUint8(value, comment) {
     this.dataView.setUint8(this.offset, value);
     this.offset += 1;
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment);
     return this;
   }
   writeUint16(value, comment) {
     this.dataView.setUint16(this.offset, value);
     this.offset += 2;
-    if (comment !== void 0)
+    if (comment)
       this.comment(comment);
     return this;
   }
@@ -224,7 +226,7 @@ var Bytes = class {
       const comment = this.comments[i + 1];
       if (this.indents[i + 1] !== void 0)
         indent = this.indents[i + 1];
-      if (comment !== void 0)
+      if (comment)
         s += ` ${comment}
 ${indentChars.repeat(indent)}`;
     }
@@ -292,7 +294,9 @@ function makeClientHello(host, publicKey, sessionId) {
   const endSigsExt = h.writeLengthUint16("signature algorithms data");
   const endSigs = h.writeLengthUint16("signature algorithms");
   h.writeUint16(1027);
-  h.comment("ECDSA-SECP256r1-SHA256");
+  h.comment("ecdsa_secp256r1_sha256");
+  h.writeUint16(2052);
+  h.comment("rsa_pss_rsae_sha256");
   endSigs();
   endSigsExt();
   h.writeUint16(43);
@@ -1130,6 +1134,7 @@ var Cert = class {
     this.validityPeriod = { notBefore, notAfter };
     endValiditySeq();
     this.subject = readSeqOfSetOfSeq(cb, "subject");
+    const publicKeyStartOffset = cb.offset;
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (public key)");
     const [endPublicKeySeq] = cb.expectASN1Length("public key sequence");
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (public key params)");
@@ -1151,7 +1156,7 @@ var Cert = class {
     cb.expectUint8(universalTypeBitString, "bit string");
     const publicKeyData = cb.readASN1BitString();
     cb.comment("public key");
-    this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData };
+    this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.uint8Array.subarray(publicKeyStartOffset, cb.offset) };
     endPublicKeySeq();
     cb.expectUint8(constructedContextSpecificType, "constructed context-specific type");
     const [endExtsData] = cb.expectASN1Length();
@@ -1384,7 +1389,6 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
     const [endCert] = hs.expectLengthUint24("certificate");
     const cert = new Cert(hs);
     certs.push(cert);
-    hs.comment("server certificate");
     endCert();
     const [endCertExt, certExtRemaining] = hs.expectLengthUint16();
     const certExtData = hs.subarray(certExtRemaining());
@@ -1402,29 +1406,45 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const certVerifySignedData = concat(txtEnc3.encode(" ".repeat(64) + "TLS 1.3, server CertificateVerify"), [0], certVerifyHash);
   hs.expectUint8(15, "handshake message type: certificate verify");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
-  hs.expectUint16(1027, "signature type ecdsa_secp256r1_sha256");
-  const [endSignature] = hs.expectLengthUint16();
-  hs.expectUint8(constructedUniversalTypeSequence, "sequence");
-  const [endSigDer] = hs.expectASN1Length("sequence");
-  hs.expectUint8(universalTypeInteger, "integer");
-  const [endSigRBytes, sigRBytesRemaining] = hs.expectASN1Length("integer");
-  let sigR = hs.readBytes(sigRBytesRemaining());
-  hs.comment("signature: r");
-  endSigRBytes();
-  hs.expectUint8(universalTypeInteger, "integer");
-  const [endSigSBytes, sigSBytesRemaining] = hs.expectASN1Length("integer");
-  let sigS = hs.readBytes(sigSBytesRemaining());
-  hs.comment("signature: s");
-  endSigSBytes();
-  endSigDer();
-  endSignature();
+  const sigType = hs.readUint16();
+  if (sigType === 1027) {
+    hs.comment("signature type ECDSA-SECP256R1-SHA256");
+    const [endSignature] = hs.expectLengthUint16();
+    hs.expectUint8(constructedUniversalTypeSequence, "sequence");
+    const [endSigDer] = hs.expectASN1Length("sequence");
+    hs.expectUint8(universalTypeInteger, "integer");
+    const [endSigRBytes, sigRBytesRemaining] = hs.expectASN1Length("integer");
+    let sigR = hs.readBytes(sigRBytesRemaining());
+    hs.comment("signature: r");
+    endSigRBytes();
+    hs.expectUint8(universalTypeInteger, "integer");
+    const [endSigSBytes, sigSBytesRemaining] = hs.expectASN1Length("integer");
+    let sigS = hs.readBytes(sigSBytesRemaining());
+    hs.comment("signature: s");
+    endSigSBytes();
+    endSigDer();
+    endSignature();
+    const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : x;
+    const signature = concat(clampToLength(sigR, 32), clampToLength(sigS, 32));
+    const signatureKey = await crypto.subtle.importKey("spki", userCert.publicKey.all, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+    const certVerifyResult = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, signatureKey, signature, certVerifySignedData);
+    if (certVerifyResult !== true)
+      throw new Error("ECDSA-SECP256R1-SHA256 certificate verify failed");
+  } else if (sigType === 2052) {
+    hs.comment("signature type RSA-PSS-RSAE-SHA256");
+    const [endSignature, signatureRemaining] = hs.expectLengthUint16();
+    const signature = hs.subarray(signatureRemaining());
+    hs.comment("signature");
+    endSignature();
+    console.log(hexFromU8(userCert.publicKey.all, " "));
+    const signatureKey = await crypto.subtle.importKey("spki", userCert.publicKey.all, { name: "RSA-PSS", hash: "SHA-256" }, false, ["verify"]);
+    const certVerifyResult = await crypto.subtle.verify({ name: "RSA-PSS", saltLength: 32 }, signatureKey, signature, certVerifySignedData);
+    if (certVerifyResult !== true)
+      throw new Error("RSA-PSS-RSAE-SHA256 certificate verify failed");
+  } else {
+    throw new Error(`Unsupported certificate verify signature type 0x${hexFromU8([sigType]).padStart(4, "0")}`);
+  }
   endCertVerifyPayload();
-  const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : x;
-  const signature = concat(clampToLength(sigR, 32), clampToLength(sigS, 32));
-  const signatureKey = await crypto.subtle.importKey("raw", userCert.publicKey.data, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-  const certVerifyResult = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, signatureKey, signature, certVerifySignedData);
-  if (certVerifyResult !== true)
-    throw new Error("Certificate verify failed");
   const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, "finished", new Uint8Array(0), 32, 256);
@@ -1522,7 +1542,7 @@ var ReadQueue = class {
 // src/index.ts
 async function start(host, port) {
   const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`ws://localhost:9999/?name=${host}:${port}`);
+    const ws2 = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
     ws2.addEventListener("open", () => resolve(ws2));
     ws2.addEventListener("close", () => {
@@ -1619,4 +1639,4 @@ Host:${host}\r
     log(new TextDecoder().decode(serverResponse));
   }
 }
-start("google.com", 443);
+start("developers.cloudflare.com", 443);
