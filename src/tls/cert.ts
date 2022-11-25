@@ -1,8 +1,6 @@
 
 import { base64Decode } from '../util/base64';
 import { ASN1Bytes } from '../util/asn1bytes';
-import { highlightBytes } from '../presentation/highlights';
-import { LogColours } from '../presentation/appearance';
 import { log } from '../presentation/log';
 
 import {
@@ -28,8 +26,20 @@ import {
 } from './certUtils';
 import { hexFromU8 } from '../util/hex';
 
-
 type OID = string;
+
+const allKeyUsages = [
+  // https://www.rfc-editor.org/rfc/rfc3280#section-4.2.1.3
+  'digitalSignature', // (0)
+  'nonRepudiation',   // (1)
+  'keyEncipherment',  // (2)
+  'dataEncipherment', // (3)
+  'keyAgreement',     // (4)
+  'keyCertSign',      // (5)
+  'cRLSign',          // (6)
+  'encipherOnly',     // (7)
+  'decipherOnly',     // (8)
+] as const;
 
 export class Cert {
   serialNumber: Uint8Array;
@@ -39,18 +49,21 @@ export class Cert {
   subject: Record<string, string>;
   publicKey: { identifiers: OID[]; data: Uint8Array; all: Uint8Array };
   signature: Uint8Array;
-  keyUsage?: { critical?: boolean; usages: Set<string> };
+  keyUsage?: { critical?: boolean; usages: Set<typeof allKeyUsages[number]> };
   subjectAltNames?: string[];
   extKeyUsage?: { clientTls?: true; serverTls?: true };
   authorityKeyIdentifier?: Uint8Array;
   subjectKeyIdentifier?: Uint8Array;
   basicConstraints?: { critical: boolean; ca?: boolean; pathLength?: number } | undefined;
+  signedData: Uint8Array;
 
   constructor(certData: Uint8Array | ASN1Bytes) {
     const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
 
     cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate)');
     const [endCertSeq] = cb.expectASN1Length(chatty && 'certificate sequence');
+
+    const tbsCertStartOffset = cb.offset;
 
     cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate info)');
     const [endCertInfoSeq] = cb.expectASN1Length(chatty && 'certificate info');
@@ -155,18 +168,6 @@ export class Cert {
         cb.expectUint8(universalTypeBitString, chatty && 'bit string');
         const keyUsageBitStr = cb.readASN1BitString();
         const keyUsageBitmask = intFromBitString(keyUsageBitStr);
-        const allKeyUsages = [
-          // https://www.rfc-editor.org/rfc/rfc3280#section-4.2.1.3
-          'digitalSignature', // (0)
-          'nonRepudiation',   // (1)
-          'keyEncipherment',  // (2)
-          'dataEncipherment', // (3)
-          'keyAgreement',     // (4)
-          'keyCertSign',      // (5)
-          'cRLSign',          // (6)
-          'encipherOnly',     // (7)
-          'decipherOnly',     // (8)
-        ];
         const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & (1 << i)));
         chatty && cb.comment(`key usage: ${keyUsageBitmask} = ${[...keyUsageNames]}`);
         endKeyUsageDer();
@@ -286,6 +287,9 @@ export class Cert {
 
     endCertInfoSeq();
 
+    // to-be-signed cert data: https://crypto.stackexchange.com/questions/42345/what-information-is-signed-by-a-certification-authority
+    this.signedData = cb.uint8Array.subarray(tbsCertStartOffset, cb.offset);
+
     // signature algorithm
     cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (signature algorithm)');
     const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length(chatty && 'signature algorithm sequence');
@@ -304,7 +308,6 @@ export class Cert {
     chatty && cb.comment('signature');
 
     endCertSeq();
-    // chatty && log(...highlightBytes(cb.commentedString(true), LogColours.server));
   }
 
   static fromPEM(pem: string) {
@@ -315,15 +318,15 @@ export class Cert {
     while (matches = pattern.exec(pem)) {
       const base64 = matches[1].replace(/[\r\n]/g, '');
       const binary = base64Decode(base64);
-      const cert = new Cert(binary);
+      const cert = new this(binary);
       res.push(cert);
     }
     return res;
   }
 
-  subjectAltNamesMatch(host: string) {
+  subjectAltNameMatchingHost(host: string) {
     const twoDotRegex = /[.][^.]+[.][^.]+$/;
-    return (this.subjectAltNames ?? []).some(cert => {
+    return (this.subjectAltNames ?? []).find(cert => {
       let certName = cert;
       let hostName = host;
 
@@ -333,11 +336,7 @@ export class Cert {
         hostName = hostName.slice(hostName.indexOf('.'));
       }
 
-      // test
-      if (certName === hostName) {
-        chatty && log(`%c✓ matched "${host}" to subjectAltName "${cert}"`, 'color: #8c8');
-        return true;
-      }
+      if (certName === hostName) return true;
     });
   }
 
@@ -360,4 +359,7 @@ export class Cert {
       '\nsignature algorithm: ' + descriptionForAlgorithm(algorithmWithOID(this.algorithm));
   }
 }
+
+export class TrustedCert extends Cert { }
+
 

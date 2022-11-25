@@ -1,4 +1,4 @@
-import { Cert } from './cert';
+import { TrustedCert } from './cert';
 
 // @ts-ignore
 import isrgrootx1 from '../roots/isrg-root-x1.pem';
@@ -12,5 +12,5 @@ import cloudflare from '../roots/cloudflare.pem';
 import globalsign from '../roots/globalsign.pem';  // google.com
 
 export function getRootCerts() {
-  return Cert.fromPEM(isrgrootx1 + isrgrootx2 + trustidx3root + cloudflare + globalsign);
+  return TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + cloudflare + globalsign);
 }

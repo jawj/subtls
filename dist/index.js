@@ -440,9 +440,10 @@ function htmlEscape(s) {
   return s.replace(regexp, (match) => escapes[match]);
 }
 function htmlFromLogArgs(...args) {
-  let result = "<span>", arg, matchArr;
+  let result = "<span>", arg, matchArr, separator = "";
   while ((arg = args.shift()) !== void 0) {
-    arg = htmlEscape(String(arg));
+    arg = separator + htmlEscape(String(arg));
+    separator = " ";
     const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;
     while ((matchArr = formatRegExp.exec(arg)) !== null) {
       const [whole, literal, sub] = matchArr;
@@ -459,7 +460,6 @@ function htmlFromLogArgs(...args) {
         } else if (sub === "i" || sub === "d" || sub === "f") {
           result += String(args.shift());
         }
-        result += " ";
       }
     }
   }
@@ -1088,6 +1088,17 @@ function descriptionForAlgorithm(algo) {
 }
 
 // src/tls/cert.ts
+var allKeyUsages = [
+  "digitalSignature",
+  "nonRepudiation",
+  "keyEncipherment",
+  "dataEncipherment",
+  "keyAgreement",
+  "keyCertSign",
+  "cRLSign",
+  "encipherOnly",
+  "decipherOnly"
+];
 var Cert = class {
   serialNumber;
   algorithm;
@@ -1102,10 +1113,12 @@ var Cert = class {
   authorityKeyIdentifier;
   subjectKeyIdentifier;
   basicConstraints;
+  signedData;
   constructor(certData) {
     const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate)");
     const [endCertSeq] = cb.expectASN1Length("certificate sequence");
+    const tbsCertStartOffset = cb.offset;
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate info)");
     const [endCertInfoSeq] = cb.expectASN1Length("certificate info");
     cb.expectBytes([160, 3, 2, 1, 2], "certificate version v3");
@@ -1184,17 +1197,6 @@ var Cert = class {
         cb.expectUint8(universalTypeBitString, "bit string");
         const keyUsageBitStr = cb.readASN1BitString();
         const keyUsageBitmask = intFromBitString(keyUsageBitStr);
-        const allKeyUsages = [
-          "digitalSignature",
-          "nonRepudiation",
-          "keyEncipherment",
-          "dataEncipherment",
-          "keyAgreement",
-          "keyCertSign",
-          "cRLSign",
-          "encipherOnly",
-          "decipherOnly"
-        ];
         const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & 1 << i));
         cb.comment(`key usage: ${keyUsageBitmask} = ${[...keyUsageNames]}`);
         endKeyUsageDer();
@@ -1289,6 +1291,7 @@ var Cert = class {
     endExts();
     endExtsData();
     endCertInfoSeq();
+    this.signedData = cb.uint8Array.subarray(tbsCertStartOffset, cb.offset);
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (signature algorithm)");
     const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length("signature algorithm sequence");
     cb.expectUint8(universalTypeOID, "OID");
@@ -1313,24 +1316,22 @@ var Cert = class {
     while (matches = pattern.exec(pem)) {
       const base64 = matches[1].replace(/[\r\n]/g, "");
       const binary = base64Decode(base64);
-      const cert = new Cert(binary);
+      const cert = new this(binary);
       res.push(cert);
     }
     return res;
   }
-  subjectAltNamesMatch(host) {
+  subjectAltNameMatchingHost(host) {
     const twoDotRegex = /[.][^.]+[.][^.]+$/;
-    return (this.subjectAltNames ?? []).some((cert) => {
+    return (this.subjectAltNames ?? []).find((cert) => {
       let certName = cert;
       let hostName = host;
       if (twoDotRegex.test(host) && twoDotRegex.test(certName) && certName.startsWith("*.")) {
         certName = certName.slice(1);
         hostName = hostName.slice(hostName.indexOf("."));
       }
-      if (certName === hostName) {
-        log(`%c\u2713 matched "${host}" to subjectAltName "${cert}"`, "color: #8c8");
+      if (certName === hostName)
         return true;
-      }
     });
   }
   isValidAtMoment(moment = new Date()) {
@@ -1345,15 +1346,14 @@ extended key usage: TLS server \u2014\xA0${this.extKeyUsage.serverTls}, TLS clie
 basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical"}): CA \u2014\xA0${this.basicConstraints.ca}, path length \u2014 ${this.basicConstraints.pathLength}` : "") + "\nsignature algorithm: " + descriptionForAlgorithm(algorithmWithOID(this.algorithm));
   }
 };
+var TrustedCert = class extends Cert {
+};
 
 // src/roots/isrg-root-x1.pem
 var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\nTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\ncmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\nWhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\nZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\nMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\nh77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\nA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\nT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\nB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\nB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\nKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\nOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\njh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\nqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\nrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\nHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\nhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\nubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\nNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\nORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\nTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\njNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\noyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\nmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\nemyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n";
 
 // src/roots/isrg-root-x2.pem
 var isrg_root_x2_default = "-----BEGIN CERTIFICATE-----\nMIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\nCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\nR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\nMDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\nZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\nEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\nItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\nAQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\nzj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\ntL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n/q4AaOeMSQ+2b1tbFfLn\n-----END CERTIFICATE-----\n";
-
-// src/roots/trustid-x3-root.pem
-var trustid_x3_root_default = "-----BEGIN CERTIFICATE-----\nMIIDSjCCAjKgAwIBAgIQRK+wgNajJ7qJMDmGLvhAazANBgkqhkiG9w0BAQUFADA/\nMSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT\nDkRTVCBSb290IENBIFgzMB4XDTAwMDkzMDIxMTIxOVoXDTIxMDkzMDE0MDExNVow\nPzEkMCIGA1UEChMbRGlnaXRhbCBTaWduYXR1cmUgVHJ1c3QgQ28uMRcwFQYDVQQD\nEw5EU1QgUm9vdCBDQSBYMzCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB\nAN+v6ZdQCINXtMxiZfaQguzH0yxrMMpb7NnDfcdAwRgUi+DoM3ZJKuM/IUmTrE4O\nrz5Iy2Xu/NMhD2XSKtkyj4zl93ewEnu1lcCJo6m67XMuegwGMoOifooUMM0RoOEq\nOLl5CjH9UL2AZd+3UWODyOKIYepLYYHsUmu5ouJLGiifSKOeDNoJjj4XLh7dIN9b\nxiqKqy69cK3FCxolkHRyxXtqqzTWMIn/5WgTe1QLyNau7Fqckh49ZLOMxt+/yUFw\n7BZy1SbsOFU5Q9D8/RhcQPGX69Wam40dutolucbY38EVAjqr2m7xPi71XAicPNaD\naeQQmxkqtilX4+U9m5/wAl0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNV\nHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFMSnsaR7LHH62+FLkHX/xBVghYkQMA0GCSqG\nSIb3DQEBBQUAA4IBAQCjGiybFwBcqR7uKGY3Or+Dxz9LwwmglSBd49lZRNI+DT69\nikugdB/OEIKcdBodfpga3csTS7MgROSR6cz8faXbauX+5v3gTt23ADq1cEmv8uXr\nAvHRAosZy5Q6XkjEGB5YGV8eAlrwDPGxrancWYaLbumR9YbK+rlmM6pZW87ipxZz\nR8srzJmwN0jP41ZL9c8PDHIyh8bwRLtTcm1D9SZImlJnt1ir/md2cXjbDaJWFBM5\nJDGFoqgCWjBH4d1QB7wCCZAA62RjYJsWvIjJEubSfZGL+T0yjWW06XyxV3bqxbYo\nOb8VZRzI9neWagqNdwvYkQsEjgfbKbYK7p2CNTUQ\n-----END CERTIFICATE-----\n";
 
 // src/roots/cloudflare.pem
 var cloudflare_default = "-----BEGIN CERTIFICATE-----\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\n-----END CERTIFICATE-----";
@@ -1363,7 +1363,32 @@ var globalsign_default = "-----BEGIN CERTIFICATE-----\r\nMIIDdTCCAl2gAwIBAgILBAA
 
 // src/tls/rootCerts.ts
 function getRootCerts() {
-  return Cert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + trustid_x3_root_default + cloudflare_default + globalsign_default);
+  return TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + cloudflare_default + globalsign_default);
+}
+
+// src/tls/ecdsa.ts
+async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
+  sb.expectUint8(constructedUniversalTypeSequence, "sequence");
+  const [endSigDer] = sb.expectASN1Length("sequence");
+  sb.expectUint8(universalTypeInteger, "integer");
+  const [endSigRBytes, sigRBytesRemaining] = sb.expectASN1Length("integer");
+  let sigR = sb.readBytes(sigRBytesRemaining());
+  sb.comment("signature: r");
+  endSigRBytes();
+  sb.expectUint8(universalTypeInteger, "integer");
+  const [endSigSBytes, sigSBytesRemaining] = sb.expectASN1Length("integer");
+  let sigS = sb.readBytes(sigSBytesRemaining());
+  sb.comment("signature: s");
+  endSigSBytes();
+  endSigDer();
+  const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : x;
+  const intLength = namedCurve === "P-256" ? 32 : 48;
+  const signature = concat(clampToLength(sigR, intLength), clampToLength(sigS, intLength));
+  const signatureKey = await crypto.subtle.importKey("spki", publicKey, { name: "ECDSA", namedCurve }, false, ["verify"]);
+  const certVerifyResult = await crypto.subtle.verify({ name: "ECDSA", hash }, signatureKey, signature, signedData);
+  if (certVerifyResult !== true)
+    throw new Error("ECDSA-SECP256R1-SHA256 certificate verify failed");
+  log(`%c\u2713 ECDSA signature verified (curve ${namedCurve}, hash ${hash})`, "color: #8c8;");
 }
 
 // src/tls/parseEncryptedHandshake.ts
@@ -1380,6 +1405,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   }
   extEnd();
   eeMessageEnd();
+  log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
   hs.expectUint8(11, "handshake message type: server certificate");
   const [endCertPayload] = hs.expectLengthUint24("certificate payload");
   hs.expectUint8(0, "0 bytes of request context follow");
@@ -1407,36 +1433,18 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   hs.expectUint8(15, "handshake message type: certificate verify");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   const sigType = hs.readUint16();
+  log("verifying end-user certificate ...");
   if (sigType === 1027) {
     hs.comment("signature type ECDSA-SECP256R1-SHA256");
     const [endSignature] = hs.expectLengthUint16();
-    hs.expectUint8(constructedUniversalTypeSequence, "sequence");
-    const [endSigDer] = hs.expectASN1Length("sequence");
-    hs.expectUint8(universalTypeInteger, "integer");
-    const [endSigRBytes, sigRBytesRemaining] = hs.expectASN1Length("integer");
-    let sigR = hs.readBytes(sigRBytesRemaining());
-    hs.comment("signature: r");
-    endSigRBytes();
-    hs.expectUint8(universalTypeInteger, "integer");
-    const [endSigSBytes, sigSBytesRemaining] = hs.expectASN1Length("integer");
-    let sigS = hs.readBytes(sigSBytesRemaining());
-    hs.comment("signature: s");
-    endSigSBytes();
-    endSigDer();
+    await ecdsaVerify(hs, userCert.publicKey.all, certVerifySignedData, "P-256", "SHA-256");
     endSignature();
-    const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : x;
-    const signature = concat(clampToLength(sigR, 32), clampToLength(sigS, 32));
-    const signatureKey = await crypto.subtle.importKey("spki", userCert.publicKey.all, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-    const certVerifyResult = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, signatureKey, signature, certVerifySignedData);
-    if (certVerifyResult !== true)
-      throw new Error("ECDSA-SECP256R1-SHA256 certificate verify failed");
   } else if (sigType === 2052) {
     hs.comment("signature type RSA-PSS-RSAE-SHA256");
     const [endSignature, signatureRemaining] = hs.expectLengthUint16();
     const signature = hs.subarray(signatureRemaining());
     hs.comment("signature");
     endSignature();
-    console.log(hexFromU8(userCert.publicKey.all, " "));
     const signatureKey = await crypto.subtle.importKey("spki", userCert.publicKey.all, { name: "RSA-PSS", hash: "SHA-256" }, false, ["verify"]);
     const certVerifyResult = await crypto.subtle.verify({ name: "RSA-PSS", saltLength: 32 }, signatureKey, signature, certVerifySignedData);
     if (certVerifyResult !== true)
@@ -1465,15 +1473,66 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
   for (const cert of certs)
     log(...highlightColonList(cert.description()));
-  log("%c\u2713 end-user certificate verified: server has private key", "color: #8c8;");
-  const namesMatch = userCert.subjectAltNamesMatch(host);
-  if (!namesMatch)
+  log("%c\u2713 end-user certificate verified (server has private key)", "color: #8c8;");
+  const matchingSubjectAltName = userCert.subjectAltNameMatchingHost(host);
+  if (matchingSubjectAltName === void 0)
     throw new Error(`No matching subjectAltName for ${host}`);
-  log("%c\u2713 server verify hash validated", "color: #8c8;");
+  log(`%c\u2713 matched host to subjectAltName "${matchingSubjectAltName}"`, "color: #8c8;");
+  const validNow = userCert.isValidAtMoment();
+  if (!validNow)
+    throw new Error("End-user certificate is not valid now");
+  log(`%c\u2713 end-user certificate is valid now`, "color: #8c8;");
+  if (!userCert.extKeyUsage?.serverTls)
+    throw new Error("Signing certificate has no TLS server extKeyUsage");
+  log(`%c\u2713 end-user certificate has TLS server extKeyUsage`, "color: #8c8;");
   const rootCerts = getRootCerts();
+  let verifiedToTrustedRoot = false;
   log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
   for (const cert of rootCerts)
     log(...highlightColonList(cert.description()));
+  for (let i = 0, len = certs.length; i < len; i++) {
+    const subjectCert = certs[i];
+    const subjectAuthKeyId = subjectCert.authorityKeyIdentifier;
+    if (subjectAuthKeyId === void 0)
+      throw new Error("Certificates without an authorityKeyIdentifier are not supported");
+    let signingCert = rootCerts.find((cert) => cert.subjectKeyIdentifier !== void 0 && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
+    if (signingCert === void 0 && i < certs.length - 1)
+      signingCert = certs.slice(i + 1).find((cert) => cert.subjectKeyIdentifier !== void 0 && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
+    if (signingCert === void 0)
+      throw new Error("No matches found among trusted certificates or supplied chain");
+    log("matched certs on key id %s", hexFromU8(subjectAuthKeyId));
+    const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
+    if (!signingCert.isValidAtMoment())
+      throw new Error("Signing certificate is not valid now");
+    if (!signingCert.keyUsage?.usages.has("digitalSignature"))
+      throw new Error("Signing certificate keyUsage does not include digital signatures");
+    if (signingCert.basicConstraints?.ca !== true)
+      throw new Error("Signing certificate basicConstraints do not indicate a CA certificate");
+    log(`verifying certificate CN "${subjectCert.subject.CN}" is signed by ${signingCertIsTrustedRoot ? "trusted root" : "intermediate"} certificate CN "${signingCert.subject.CN}" ...`);
+    if (subjectCert.algorithm === "1.2.840.10045.4.3.2" || subjectCert.algorithm === "1.2.840.10045.4.3.3") {
+      const hash = subjectCert.algorithm === "1.2.840.10045.4.3.2" ? "SHA-256" : "SHA-384";
+      const signingKeyOIDs = signingCert.publicKey.identifiers;
+      const namedCurve = signingKeyOIDs.includes("1.2.840.10045.3.1.7") ? "P-256" : signingKeyOIDs.includes("1.3.132.0.34") ? "P-384" : void 0;
+      if (namedCurve === void 0)
+        throw new Error("Unsupported signing key curve");
+      const sb = new ASN1Bytes(subjectCert.signature);
+      await ecdsaVerify(sb, signingCert.publicKey.all, subjectCert.signedData, namedCurve, hash);
+    } else if (subjectCert.algorithm === "1.2.840.113549.1.1.11") {
+      const signatureKey = await crypto.subtle.importKey("spki", signingCert.publicKey.all, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+      const certVerifyResult = await crypto.subtle.verify({ name: "RSASSA-PKCS1-v1_5" }, signatureKey, subjectCert.signature, subjectCert.signedData);
+      if (certVerifyResult !== true)
+        throw new Error("RSASSA_PKCS1-v1_5-SHA256 certificate verify failed");
+      log(`%c\u2713 RSASAA-PKCS1-v1_5-SHA256 signature verified`, "color: #8c8;");
+    } else {
+      throw new Error("Unsupported signing algorithm");
+    }
+    if (signingCertIsTrustedRoot) {
+      verifiedToTrustedRoot = true;
+      break;
+    }
+  }
+  if (!verifiedToTrustedRoot)
+    throw new Error("Validated certificate chain did not end in trusted root");
 }
 
 // src/util/readqueue.ts
@@ -1618,7 +1677,7 @@ async function startTls(host, read, write) {
   const serverApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
   const requestDataRecord = new Bytes(1024);
-  requestDataRecord.writeUTF8String(`GET / HTTP/1.0\r
+  requestDataRecord.writeUTF8String(`HEAD / HTTP/1.0\r
 Host:${host}\r
 \r
 `);
@@ -1634,9 +1693,9 @@ Host:${host}\r
       done = true;
     }, 1e3);
     const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, 23 /* Application */);
-    console.log(`time to first decrypted record: ${Date.now() - t0}ms`);
+    console.log(`time taken: ${Date.now() - t0}ms`);
     clearTimeout(timeout);
     log(new TextDecoder().decode(serverResponse));
   }
 }
-start("developers.cloudflare.com", 443);
+start("neon-vercel-demo-heritage.vercel.app", 443);

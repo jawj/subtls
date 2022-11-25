@@ -2,13 +2,13 @@ import { LogColours } from '../presentation/appearance';
 import { hkdfExpandLabel } from './keys';
 import { concat, equal } from '../util/array';
 
-import { Cert } from './cert';
+import { Cert, TrustedCert } from './cert';
 import { highlightBytes, highlightColonList } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { getRootCerts } from './rootCerts';
-import { constructedUniversalTypeSequence, universalTypeInteger } from './certUtils';
 import { ASN1Bytes } from '../util/asn1bytes';
 import { hexFromU8 } from '../util/hex';
+import { ecdsaVerify } from './ecdsa';
 
 const txtEnc = new TextEncoder();
 
@@ -36,6 +36,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   }
   extEnd();
   eeMessageEnd();
+
+  chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
 
   // certificates
   hs.expectUint8(0x0b, chatty && 'handshake message type: server certificate');
@@ -72,47 +74,14 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const [endCertVerifyPayload] = hs.expectLengthUint24(chatty && 'handshake message data');
   const sigType = hs.readUint16();
 
+  chatty && log('verifying end-user certificate ...');
   if (sigType === 0x0403) {
     chatty && hs.comment('signature type ECDSA-SECP256R1-SHA256');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3
     const [endSignature] = hs.expectLengthUint16();
-    hs.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-    const [endSigDer] = hs.expectASN1Length(chatty && 'sequence');
-
-    hs.expectUint8(universalTypeInteger, chatty && 'integer');
-    const [endSigRBytes, sigRBytesRemaining] = hs.expectASN1Length(chatty && 'integer');
-    let sigR = hs.readBytes(sigRBytesRemaining());
-    chatty && hs.comment('signature: r');
-    endSigRBytes();
-
-    hs.expectUint8(universalTypeInteger, chatty && 'integer');
-    const [endSigSBytes, sigSBytesRemaining] = hs.expectASN1Length(chatty && 'integer');
-    let sigS = hs.readBytes(sigSBytesRemaining());
-    chatty && hs.comment('signature: s');
-    endSigSBytes();
-
-    endSigDer();
+    await ecdsaVerify(hs, userCert.publicKey.all, certVerifySignedData, 'P-256', 'SHA-256');
     endSignature();
 
-    /*
-    it seems WebCrypto expects a 64-byte P1363 signature, which sometimes discards a leading zero on r and s that's added to indicate positive sign
-    - https://crypto.stackexchange.com/questions/57731/ecdsa-signature-rs-to-asn1-der-encoding-question
-    - https://crypto.stackexchange.com/questions/1795/how-can-i-convert-a-der-ecdsa-signature-to-asn-1/1797#1797
-    - https://stackoverflow.com/a/65403229
-    */
-
-    const clampToLength = (x: Uint8Array, clampLength: number) =>
-      x.length > clampLength ? x.subarray(x.length - clampLength) :  // too long? cut off leftmost bytes (msb)
-        x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : // too short? left pad with zeroes
-          x;  // right length: pass through
-
-    const signature = concat(clampToLength(sigR, 32), clampToLength(sigS, 32));
-
-    // const signatureKey = await crypto.subtle.importKey('raw', userCert.publicKey.data, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-    const signatureKey = await crypto.subtle.importKey('spki', userCert.publicKey.all, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-    const certVerifyResult = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, signatureKey, signature, certVerifySignedData);
-    if (certVerifyResult !== true) throw new Error('ECDSA-SECP256R1-SHA256 certificate verify failed');
-
-  } else if (sigType === 0x0804) {  // 
+  } else if (sigType === 0x0804) {
     chatty && hs.comment('signature type RSA-PSS-RSAE-SHA256');
     const [endSignature, signatureRemaining] = hs.expectLengthUint16();
     const signature = hs.subarray(signatureRemaining());
@@ -129,7 +98,6 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
     certificate, it MUST use the rsaEncryption OID [RFC5280].
     -- https://www.rfc-editor.org/rfc/rfc8446#section-4.2.3
     */
-    console.log(hexFromU8(userCert.publicKey.all, ' '));
     const signatureKey = await crypto.subtle.importKey('spki', userCert.publicKey.all, { name: 'RSA-PSS', hash: 'SHA-256' }, false, ['verify']);
     const certVerifyResult = await crypto.subtle.verify({ name: 'RSA-PSS', saltLength: 32 /* SHA-256 length in bytes */ }, signatureKey, signature, certVerifySignedData);
     if (certVerifyResult !== true) throw new Error('RSA-PSS-RSAE-SHA256 certificate verify failed');
@@ -160,28 +128,81 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true) throw new Error('Invalid server verify hash');
 
-
   chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
-
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates');
   for (const cert of certs) chatty && log(...highlightColonList(cert.description()));
 
-  chatty && log('%c✓ end-user certificate verified: server has private key', 'color: #8c8;');  // if not, we'd have thrown by now
+  // end-user certificate checks
+  chatty && log('%c✓ end-user certificate verified (server has private key)', 'color: #8c8;');  // if not, we'd have thrown by now
 
-  const namesMatch = userCert.subjectAltNamesMatch(host);
-  if (!namesMatch) throw new Error(`No matching subjectAltName for ${host}`);
+  const matchingSubjectAltName = userCert.subjectAltNameMatchingHost(host);
+  if (matchingSubjectAltName === undefined) throw new Error(`No matching subjectAltName for ${host}`);
+  chatty && log(`%c✓ matched host to subjectAltName "${matchingSubjectAltName}"`, 'color: #8c8;');
 
-  chatty && log('%c✓ server verify hash validated', 'color: #8c8;');  // if not, we'd have thrown by now
+  const validNow = userCert.isValidAtMoment();
+  if (!validNow) throw new Error('End-user certificate is not valid now');
+  chatty && log(`%c✓ end-user certificate is valid now`, 'color: #8c8;');
 
-  // TODO: trustidx3root makes neon-cf-pg-test.jawj.workers.dev work, even though it's expired.
-  // Is this OK? https://scotthelme.co.uk/should-clients-care-about-the-expiration-of-a-root-certificate/
+  if (!userCert.extKeyUsage?.serverTls) throw new Error('Signing certificate has no TLS server extKeyUsage');
+  chatty && log(`%c✓ end-user certificate has TLS server extKeyUsage`, 'color: #8c8;');
+
+  // certificate chain checks
   const rootCerts = getRootCerts();
+  let verifiedToTrustedRoot = false;
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
   for (const cert of rootCerts) chatty && log(...highlightColonList(cert.description()));
 
-  // TODO: build and verify certificate chain
+  for (let i = 0, len = certs.length; i < len; i++) {
+    const subjectCert = certs[i];
+    const subjectAuthKeyId = subjectCert.authorityKeyIdentifier;
+    if (subjectAuthKeyId === undefined) throw new Error('Certificates without an authorityKeyIdentifier are not supported');
+
+    // first, see if any trusted root cert has a subjKeyId matching the authKeyId
+    let signingCert: Cert | undefined = rootCerts.find(cert =>
+      cert.subjectKeyIdentifier !== undefined && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
+
+    // if not, see if any later supplied cert has a subjKeyId matching the authKeyId
+    if (signingCert === undefined && i < certs.length - 1) signingCert = certs.slice(i + 1).find(cert =>
+      cert.subjectKeyIdentifier !== undefined && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
+
+    // if still not, give up
+    if (signingCert === undefined) throw new Error('No matches found among trusted certificates or supplied chain');
+    chatty && log('matched certs on key id %s', hexFromU8(subjectAuthKeyId));
+
+    const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
+    if (!signingCert.isValidAtMoment()) throw new Error('Signing certificate is not valid now');
+    if (!signingCert.keyUsage?.usages.has('digitalSignature')) throw new Error('Signing certificate keyUsage does not include digital signatures');
+    if (signingCert.basicConstraints?.ca !== true) throw new Error('Signing certificate basicConstraints do not indicate a CA certificate');
+    // TODO: check pathLength
+
+    // verify cert chain signature
+    chatty && log(`verifying certificate CN "${subjectCert.subject.CN}" is signed by ${signingCertIsTrustedRoot ? 'trusted root' : 'intermediate'} certificate CN "${signingCert.subject.CN}" ...`);
+    if (subjectCert.algorithm === '1.2.840.10045.4.3.2' || subjectCert.algorithm === '1.2.840.10045.4.3.3') {  // ECDSA + SHA256/384
+      const hash = subjectCert.algorithm === '1.2.840.10045.4.3.2' ? 'SHA-256' : 'SHA-384';
+      const signingKeyOIDs = signingCert.publicKey.identifiers;
+      const namedCurve = signingKeyOIDs.includes('1.2.840.10045.3.1.7') ? 'P-256' : signingKeyOIDs.includes('1.3.132.0.34') ? 'P-384' : undefined;
+      if (namedCurve === undefined) throw new Error('Unsupported signing key curve');
+
+      const sb = new ASN1Bytes(subjectCert.signature);
+      await ecdsaVerify(sb, signingCert.publicKey.all, subjectCert.signedData, namedCurve, hash);
+
+    } else if (subjectCert.algorithm === '1.2.840.113549.1.1.11') {  // RSASSA_PKCS1-v1_5 + SHA-256
+      const signatureKey = await crypto.subtle.importKey('spki', signingCert.publicKey.all, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+      const certVerifyResult = await crypto.subtle.verify({ name: 'RSASSA-PKCS1-v1_5' }, signatureKey, subjectCert.signature, subjectCert.signedData);
+      if (certVerifyResult !== true) throw new Error('RSASSA_PKCS1-v1_5-SHA256 certificate verify failed');
+      chatty && log(`%c✓ RSASAA-PKCS1-v1_5-SHA256 signature verified`, 'color: #8c8;');
+
+    } else {
+      throw new Error('Unsupported signing algorithm');
+    }
+
+    if (signingCertIsTrustedRoot) {
+      verifiedToTrustedRoot = true;
+      break;
+    }
+  }
+
+  if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in trusted root');
 }
-
-

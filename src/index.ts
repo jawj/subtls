@@ -110,19 +110,18 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 
   // GET request
   const requestDataRecord = new Bytes(1024);
-  requestDataRecord.writeUTF8String(`GET / HTTP/1.0\r\nHost:${host}\r\n\r\n`);
+  requestDataRecord.writeUTF8String(`HEAD / HTTP/1.0\r\nHost:${host}\r\n\r\n`);
   requestDataRecord.writeUint8(RecordType.Application, chatty && 'record type: Application');
   chatty && log(...highlightBytes(requestDataRecord.commentedString(), LogColours.client));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);  // to be sent below
 
   write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
 
-
   let done = false;
   while (true) {
     const timeout = setTimeout(() => { if (!done) window.dispatchEvent(new Event('handshakedone')); done = true; }, 1000);
     const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, RecordType.Application);
-    console.log(`time to first decrypted record: ${Date.now() - t0}ms`);
+    console.log(`time taken: ${Date.now() - t0}ms`);
     clearTimeout(timeout);
 
     log(new TextDecoder().decode(serverResponse));
@@ -130,7 +129,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 }
 
 // start('neon-cf-pg-test.jawj.workers.dev', 443);
-// start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: no common cipher?
-start('developers.cloudflare.com', 443);
+start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: no common cipher?
+// start('developers.cloudflare.com', 443);
 // start('google.com', 443);
 

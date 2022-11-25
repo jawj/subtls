@@ -16,10 +16,12 @@ function htmlFromLogArgs(...args: string[]) {
   let
     result = '<span>',
     arg: string | undefined,
-    matchArr: RegExpExecArray | null;
+    matchArr: RegExpExecArray | null,
+    separator = '';
 
   while ((arg = args.shift()) !== undefined) {
-    arg = htmlEscape(String(arg));
+    arg = separator + htmlEscape(String(arg));
+    separator = ' ';  // omit space only for first arg
 
     const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;  // define it here so lastIndex === 0
     while ((matchArr = formatRegExp.exec(arg)) !== null) {
@@ -40,7 +42,6 @@ function htmlFromLogArgs(...args: string[]) {
           // TODO: stop ignoring number formatting for i/d/f
           result += String(args.shift());
         }
-        result += ' ';
       }
     }
   }
