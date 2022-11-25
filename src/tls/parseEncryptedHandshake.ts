@@ -9,14 +9,12 @@ import { getRootCerts } from './rootCerts';
 import { ASN1Bytes } from '../util/asn1bytes';
 import { hexFromU8 } from '../util/hex';
 import { ecdsaVerify } from './ecdsa';
+import { readEncryptedTlsRecord } from './tlsrecord';
 
 const txtEnc = new TextEncoder();
 
-export async function parseEncryptedHandshake(host: string, record: Uint8Array, serverSecret: Uint8Array, hellos: Uint8Array) {
-  const hs = new ASN1Bytes(record);
-
-  // parse encrypted handshake part
-  const [endHs] = hs.expectLength(record.length, 0);
+export async function readEncryptedHandshake(host: string, readHandshakeRecord: () => Promise<Uint8Array>, serverSecret: Uint8Array, hellos: Uint8Array) {
+  const hs = new ASN1Bytes(await readHandshakeRecord());
 
   hs.expectUint8(0x08, chatty && 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
   const [eeMessageEnd] = hs.expectLengthUint24();
@@ -37,9 +35,8 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   extEnd();
   eeMessageEnd();
 
-  chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
-
   // certificates
+  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
   hs.expectUint8(0x0b, chatty && 'handshake message type: server certificate');
   const [endCertPayload] = hs.expectLengthUint24(chatty && 'certificate payload');
 
@@ -70,6 +67,7 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
   const certVerifySignedData = concat(txtEnc.encode(' '.repeat(64) + 'TLS 1.3, server CertificateVerify'), [0x00], certVerifyHash);
 
+  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
   hs.expectUint8(0x0f, chatty && 'handshake message type: certificate verify');
   const [endCertVerifyPayload] = hs.expectLengthUint24(chatty && 'handshake message data');
   const sigType = hs.readUint16();
@@ -117,13 +115,14 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   const correctVerifyHashBuffer = await crypto.subtle.sign('HMAC', hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
 
+  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
   hs.expectUint8(0x14, chatty && 'handshake message type: finished');
   const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24(chatty && 'verify hash');
   const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
   chatty && hs.comment('verify hash');
   endHsFinishedPayload();
 
-  endHs();
+  if (hs.remaining() !== 0) throw new Error('Unexpected surplus bytes in server handshake');
 
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true) throw new Error('Invalid server verify hash');
@@ -205,4 +204,5 @@ export async function parseEncryptedHandshake(host: string, record: Uint8Array, 
   }
 
   if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in trusted root');
+  return hs.uint8Array;
 }

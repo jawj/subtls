@@ -3,6 +3,7 @@ import { LogColours } from '../presentation/appearance';
 import Bytes from '../util/bytes';
 import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
+import { hexFromU8 } from '../util/hex';
 
 export enum RecordType {
   ChangeCipherSpec = 0x14,
@@ -56,6 +57,12 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   const lastByteIndex = decryptedRecord.length - 1;
   const record = decryptedRecord.subarray(0, lastByteIndex /* exclusive */);
   const type = decryptedRecord[lastByteIndex];
+
+  if (type === 0x15) {
+    chatty && log(`%cTLS 0x15 alert record: ${hexFromU8(record, ' ')}`, `color: ${LogColours.header}`);
+    if (record.length === 2 && record[0] === 0x01 && record[1] === 0x00) return undefined;  // 0x00 is close_notify
+  }
+
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
   chatty && log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, '0'), `color: ${LogColours.server}`, `actual decrypted record type: ${(RecordTypeName as any)[type]}`);
 

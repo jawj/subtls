@@ -3,7 +3,7 @@ import parseServerHello from './tls/parseServerHello';
 import { makeEncryptedTlsRecord, readEncryptedTlsRecord, readTlsRecord, RecordType } from './tls/tlsrecord';
 import { getApplicationKeys, getHandshakeKeys, hkdfExpandLabel } from './tls/keys';
 import { Crypter } from './tls/aesgcm';
-import { parseEncryptedHandshake } from './tls/parseEncryptedHandshake';
+import { readEncryptedHandshake } from './tls/parseEncryptedHandshake';
 import { ReadQueue } from './util/readqueue';
 import Bytes from './util/bytes';
 import { concat } from './util/array';
@@ -11,6 +11,7 @@ import { hexFromU8 } from './util/hex';
 import { LogColours } from './presentation/appearance';
 import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';
+import { ASN1Bytes } from './util/asn1bytes';
 
 async function start(host: string, port: number) {
   const ws = await new Promise<WebSocket>(resolve => {
@@ -63,10 +64,11 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   const clientHandshakeKey = await crypto.subtle.importKey('raw', handshakeKeys.clientHandshakeKey, { name: 'AES-GCM' }, false, ['encrypt']);
   const handshakeEncrypter = new Crypter('encrypt', clientHandshakeKey, handshakeKeys.clientHandshakeIV);
 
-  // encrypted part of server handshake
-  const serverHandshake = await readEncryptedTlsRecord(read, handshakeDecrypter, RecordType.Handshake);
-  await parseEncryptedHandshake(host, serverHandshake, handshakeKeys.serverSecret, hellos);
-
+  const readHandshakeRecord = async () => {
+    const tlsRecord = await readEncryptedTlsRecord(read, handshakeDecrypter, RecordType.Handshake);
+    return tlsRecord!;
+  };
+  const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos);
 
   // dummy cipher change
   const clientCipherChange = new Bytes(6);
@@ -120,16 +122,18 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   let done = false;
   while (true) {
     const timeout = setTimeout(() => { if (!done) window.dispatchEvent(new Event('handshakedone')); done = true; }, 1000);
-    const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, RecordType.Application);
+    const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter);
+
     console.log(`time taken: ${Date.now() - t0}ms`);
     clearTimeout(timeout);
 
     log(new TextDecoder().decode(serverResponse));
+    if (serverResponse === null) break;
   }
 }
 
 // start('neon-cf-pg-test.jawj.workers.dev', 443);
-start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: no common cipher?
+start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: handshake split across multiple messages
 // start('developers.cloudflare.com', 443);
 // start('google.com', 443);
 

@@ -1,4 +1,4 @@
-import { equal } from './array';
+import { concat, equal } from './array';
 import { indentChars } from '../presentation/appearance';
 
 const txtEnc = new TextEncoder();
@@ -19,6 +19,12 @@ export default class Bytes {
     this.comments = {};
     this.indents = {};
     this.indent = 0;
+  }
+
+  extend(arrayOrMaxBytes: number | Uint8Array) {
+    const newData = typeof arrayOrMaxBytes === 'number' ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
+    this.uint8Array = concat(this.uint8Array, newData);
+    this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
   }
 
   remaining() {

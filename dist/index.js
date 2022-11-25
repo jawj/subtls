@@ -40,6 +40,11 @@ var Bytes = class {
     this.indents = {};
     this.indent = 0;
   }
+  extend(arrayOrMaxBytes) {
+    const newData = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
+    this.uint8Array = concat(this.uint8Array, newData);
+    this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
+  }
   remaining() {
     return this.uint8Array.length - this.offset;
   }
@@ -510,6 +515,11 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   const lastByteIndex = decryptedRecord.length - 1;
   const record = decryptedRecord.subarray(0, lastByteIndex);
   const type = decryptedRecord[lastByteIndex];
+  if (type === 21) {
+    log(`%cTLS 0x15 alert record: ${hexFromU8(record, " ")}`, `color: ${"#c88" /* header */}`);
+    if (record.length === 2 && record[0] === 1 && record[1] === 0)
+      return void 0;
+  }
   if (expectedType !== void 0 && type !== expectedType)
     throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
@@ -1393,9 +1403,8 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
 
 // src/tls/parseEncryptedHandshake.ts
 var txtEnc3 = new TextEncoder();
-async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
-  const hs = new ASN1Bytes(record);
-  const [endHs] = hs.expectLength(record.length, 0);
+async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos) {
+  const hs = new ASN1Bytes(await readHandshakeRecord());
   hs.expectUint8(8, "handshake record type: encrypted extensions");
   const [eeMessageEnd] = hs.expectLengthUint24();
   const [extEnd, extRemaining] = hs.expectLengthUint16("extensions");
@@ -1405,7 +1414,8 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   }
   extEnd();
   eeMessageEnd();
-  log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
+  if (hs.remaining() === 0)
+    hs.extend(await readHandshakeRecord());
   hs.expectUint8(11, "handshake message type: server certificate");
   const [endCertPayload] = hs.expectLengthUint24("certificate payload");
   hs.expectUint8(0, "0 bytes of request context follow");
@@ -1430,6 +1440,8 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const certVerifyHashBuffer = await crypto.subtle.digest("SHA-256", certVerifyData);
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
   const certVerifySignedData = concat(txtEnc3.encode(" ".repeat(64) + "TLS 1.3, server CertificateVerify"), [0], certVerifyHash);
+  if (hs.remaining() === 0)
+    hs.extend(await readHandshakeRecord());
   hs.expectUint8(15, "handshake message type: certificate verify");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   const sigType = hs.readUint16();
@@ -1460,12 +1472,15 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   const hmacKey = await crypto.subtle.importKey("raw", finishedKey, { name: "HMAC", hash: { name: `SHA-256` } }, false, ["sign"]);
   const correctVerifyHashBuffer = await crypto.subtle.sign("HMAC", hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
+  if (hs.remaining() === 0)
+    hs.extend(await readHandshakeRecord());
   hs.expectUint8(20, "handshake message type: finished");
   const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24("verify hash");
   const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
   hs.comment("verify hash");
   endHsFinishedPayload();
-  endHs();
+  if (hs.remaining() !== 0)
+    throw new Error("Unexpected surplus bytes in server handshake");
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true)
     throw new Error("Invalid server verify hash");
@@ -1533,6 +1548,7 @@ async function parseEncryptedHandshake(host, record, serverSecret, hellos) {
   }
   if (!verifiedToTrustedRoot)
     throw new Error("Validated certificate chain did not end in trusted root");
+  return hs.uint8Array;
 }
 
 // src/util/readqueue.ts
@@ -1643,8 +1659,11 @@ async function startTls(host, read, write) {
   const handshakeDecrypter = new Crypter("decrypt", serverHandshakeKey, handshakeKeys.serverHandshakeIV);
   const clientHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
-  const serverHandshake = await readEncryptedTlsRecord(read, handshakeDecrypter, 22 /* Handshake */);
-  await parseEncryptedHandshake(host, serverHandshake, handshakeKeys.serverSecret, hellos);
+  const readHandshakeRecord = async () => {
+    const tlsRecord = await readEncryptedTlsRecord(read, handshakeDecrypter, 22 /* Handshake */);
+    return tlsRecord;
+  };
+  const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos);
   const clientCipherChange = new Bytes(6);
   clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
   clientCipherChange.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
@@ -1692,10 +1711,12 @@ Host:${host}\r
         window.dispatchEvent(new Event("handshakedone"));
       done = true;
     }, 1e3);
-    const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter, 23 /* Application */);
+    const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter);
     console.log(`time taken: ${Date.now() - t0}ms`);
     clearTimeout(timeout);
     log(new TextDecoder().decode(serverResponse));
+    if (serverResponse === null)
+      break;
   }
 }
 start("neon-vercel-demo-heritage.vercel.app", 443);
