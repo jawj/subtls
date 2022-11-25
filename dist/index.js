@@ -1701,8 +1701,9 @@ async function startTls(host, read, write) {
   const serverApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
   const requestDataRecord = new Bytes(1024);
-  requestDataRecord.writeUTF8String(`HEAD / HTTP/1.0\r
+  requestDataRecord.writeUTF8String(`HEAD / HTTP/1.1\r
 Host:${host}\r
+Connection: close\r
 \r
 `);
   requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
@@ -1724,4 +1725,4 @@ Host:${host}\r
     log(new TextDecoder().decode(serverResponse));
   }
 }
-start("guardian.co.uk", 443);
+start("google.com", 443);

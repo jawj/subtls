@@ -11,7 +11,6 @@ import { hexFromU8 } from './util/hex';
 import { LogColours } from './presentation/appearance';
 import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';
-import { ASN1Bytes } from './util/asn1bytes';
 
 async function start(host: string, port: number) {
   const ws = await new Promise<WebSocket>(resolve => {
@@ -113,7 +112,7 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 
   // GET request
   const requestDataRecord = new Bytes(1024);
-  requestDataRecord.writeUTF8String(`HEAD / HTTP/1.0\r\nHost:${host}\r\n\r\n`);
+  requestDataRecord.writeUTF8String(`HEAD / HTTP/1.1\r\nHost:${host}\r\nConnection: close\r\n\r\n`);
   requestDataRecord.writeUint8(RecordType.Application, chatty && 'record type: Application');
   chatty && log(...highlightBytes(requestDataRecord.commentedString(), LogColours.client));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);  // to be sent below
@@ -136,5 +135,5 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 // start('neon-cf-pg-test.jawj.workers.dev', 443);
 // start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: handshake split across multiple messages
 // start('developers.cloudflare.com', 443);
-// start('google.com', 443);
-start('guardian.co.uk', 443);
+start('google.com', 443);
+// start('guardian.co.uk', 443);
