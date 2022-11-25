@@ -128,7 +128,7 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
 
   chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
 
-  chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates');
+  chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates received from host');
   for (const cert of certs) chatty && log(...highlightColonList(cert.description()));
 
   // end-user certificate checks

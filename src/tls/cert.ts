@@ -358,6 +358,35 @@ export class Cert {
         `CA — ${this.basicConstraints.ca}, path length — ${this.basicConstraints.pathLength}` : '') +
       '\nsignature algorithm: ' + descriptionForAlgorithm(algorithmWithOID(this.algorithm));
   }
+
+  toJSON() {
+    return {
+      serialNumber: [...this.serialNumber],
+      algorithm: this.algorithm,
+      issuer: this.issuer,
+      validityPeriod: {
+        notBefore: this.validityPeriod.notBefore.toISOString(),
+        notAfter: this.validityPeriod.notAfter.toISOString(),
+      },
+      subject: this.subject,
+      publicKey: {
+        identifiers: this.publicKey.identifiers,
+        data: [...this.publicKey.data],
+        all: [...this.publicKey.all],
+      },
+      signature: [...this.signature],
+      keyUsage: {
+        critical: this.keyUsage?.critical,
+        usages: [...(this.keyUsage?.usages ?? [])],
+      },
+      subjectAltNames: this.subjectAltNames,
+      extKeyUsage: this.extKeyUsage,
+      authorityKeyIdentifier: this.authorityKeyIdentifier && [...this.authorityKeyIdentifier],
+      subjectKeyIdentifier: this.subjectKeyIdentifier && [...this.subjectKeyIdentifier],
+      basicConstraints: this.basicConstraints,
+      signedData: [...this.signedData],
+    }
+  }
 }
 
 export class TrustedCert extends Cert { }

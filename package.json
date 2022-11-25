@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "unvoid": "sed -i '' -e 's/,void 0[)]/)/g' -e 's/[(]void 0[)]/()/g' dist/index.min.js",
-    "build": "esbuild --define:chatty=0    src/index.ts --bundle --format=esm --target=es2019 --loader:.pem=text --outfile=dist/index.min.js --minify",
+    "check": "tsc --noEmit",
+    "build": "npm run check && esbuild --define:chatty=0    src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.min.js --minify",
     "watch": "esbuild --define:chatty=true src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.js --watch",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

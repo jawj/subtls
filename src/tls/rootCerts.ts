@@ -12,5 +12,6 @@ import globalsign from '../roots/globalsign.pem';  // google.com
 import globalsignr3 from '../roots/globalsign-r3.pem';  // guardian.co.uk
 
 export function getRootCerts() {
-  return TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + cloudflare + globalsign + globalsignr3);
+  const rootCerts = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + cloudflare + globalsign + globalsignr3);
+  return rootCerts;
 }

@@ -474,6 +474,7 @@ function htmlFromLogArgs(...args) {
 function log(...args) {
   console.log(...args);
   element.innerHTML += '<label><input type="checkbox"><div class="section">' + htmlFromLogArgs(...args) + "</div></label>";
+  document.body.scrollTo({ top: Number.MAX_SAFE_INTEGER });
 }
 
 // src/tls/tlsrecord.ts
@@ -1355,6 +1356,34 @@ key usage (${this.keyUsage.critical ? "critical" : "non-critical"}): ` + [...thi
 extended key usage: TLS server \u2014\xA0${this.extKeyUsage.serverTls}, TLS client \u2014\xA0${this.extKeyUsage.clientTls}` : "") + (this.basicConstraints ? `
 basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical"}): CA \u2014\xA0${this.basicConstraints.ca}, path length \u2014 ${this.basicConstraints.pathLength}` : "") + "\nsignature algorithm: " + descriptionForAlgorithm(algorithmWithOID(this.algorithm));
   }
+  toJSON() {
+    return {
+      serialNumber: [...this.serialNumber],
+      algorithm: this.algorithm,
+      issuer: this.issuer,
+      validityPeriod: {
+        notBefore: this.validityPeriod.notBefore.toISOString(),
+        notAfter: this.validityPeriod.notAfter.toISOString()
+      },
+      subject: this.subject,
+      publicKey: {
+        identifiers: this.publicKey.identifiers,
+        data: [...this.publicKey.data],
+        all: [...this.publicKey.all]
+      },
+      signature: [...this.signature],
+      keyUsage: {
+        critical: this.keyUsage?.critical,
+        usages: [...this.keyUsage?.usages ?? []]
+      },
+      subjectAltNames: this.subjectAltNames,
+      extKeyUsage: this.extKeyUsage,
+      authorityKeyIdentifier: this.authorityKeyIdentifier && [...this.authorityKeyIdentifier],
+      subjectKeyIdentifier: this.subjectKeyIdentifier && [...this.subjectKeyIdentifier],
+      basicConstraints: this.basicConstraints,
+      signedData: [...this.signedData]
+    };
+  }
 };
 var TrustedCert = class extends Cert {
 };
@@ -1376,7 +1405,8 @@ var globalsign_r3_default = "-----BEGIN CERTIFICATE-----\r\nMIIDXzCCAkegAwIBAgIL
 
 // src/tls/rootCerts.ts
 function getRootCerts() {
-  return TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + cloudflare_default + globalsign_default + globalsign_r3_default);
+  const rootCerts = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + cloudflare_default + globalsign_default + globalsign_r3_default);
+  return rootCerts;
 }
 
 // src/tls/ecdsa.ts
@@ -1488,7 +1518,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   if (verifyHashVerified !== true)
     throw new Error("Invalid server verify hash");
   log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
-  log("%c%s", `color: ${"#c88" /* header */}`, "certificates");
+  log("%c%s", `color: ${"#c88" /* header */}`, "certificates received from host");
   for (const cert of certs)
     log(...highlightColonList(cert.description()));
   log("%c\u2713 end-user certificate verified (server has private key)", "color: #8c8;");
@@ -1623,17 +1653,17 @@ async function start(host, port) {
     const ws2 = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
     ws2.addEventListener("open", () => resolve(ws2));
-    ws2.addEventListener("close", () => {
-      console.log("ws closed");
-    });
     ws2.addEventListener("error", (err) => {
       console.log("ws error:", err);
     });
+    ws2.addEventListener("close", () => {
+      console.log("ws closed");
+    });
   });
   const reader = new ReadQueue(ws);
-  await startTls(host, reader.read.bind(reader), ws.send.bind(ws));
+  await startTls(host, reader.read.bind(reader), ws.send.bind(ws), ws);
 }
-async function startTls(host, read, write) {
+async function startTls(host, read, write, ws) {
   const t0 = Date.now();
   const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
@@ -1701,28 +1731,27 @@ async function startTls(host, read, write) {
   const serverApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
   const requestDataRecord = new Bytes(1024);
-  requestDataRecord.writeUTF8String(`HEAD / HTTP/1.1\r
+  requestDataRecord.writeUTF8String(`HEAD / HTTP/1.0\r
 Host:${host}\r
-Connection: close\r
 \r
 `);
   requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
   log(...highlightBytes(requestDataRecord.commentedString(), "#8cc" /* client */));
   const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
   write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
-  let done = false;
-  while (true) {
-    const timeout = setTimeout(() => {
-      if (!done)
-        window.dispatchEvent(new Event("handshakedone"));
-      done = true;
-    }, 1e3);
-    const serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter);
-    console.log(`time taken: ${Date.now() - t0}ms`);
-    clearTimeout(timeout);
-    if (serverResponse === void 0)
-      break;
-    log(new TextDecoder().decode(serverResponse));
-  }
+  let serverResponse;
+  do {
+    serverResponse = await Promise.race([
+      readEncryptedTlsRecord(read, applicationDecrypter),
+      new Promise((resolve, reject) => {
+        ws.addEventListener("close", () => setTimeout(() => resolve(void 0), 100));
+        ws.addEventListener("error", () => reject("websocket error"));
+      })
+    ]);
+    if (serverResponse)
+      log(new TextDecoder().decode(serverResponse));
+  } while (serverResponse);
+  log(`time taken: ${Date.now() - t0}ms`);
+  window.dispatchEvent(new Event("handshakedone"));
 }
-start("google.com", 443);
+start("neon-cf-pg-test.jawj.workers.dev", 443);

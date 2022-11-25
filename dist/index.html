@@ -54,24 +54,25 @@
 <script>
   function saveState() {
     const inputs = document.querySelectorAll('input');
-    const state = Array.from(document.querySelectorAll('input')).reduce((memo, item, i) => {
-      if (item.checked) memo.push(i);
+    const state = Array.from(inputs).reduce((memo, input, i) => {
+      if (input.checked) memo.push(i);
       return memo;
     }, [document.body.scrollTop]).join(',');
     window.name = state;
   }
   function restoreState() {
-    console.log('restoring page state');
     const state = window.name;
     if (!state) return;
     const [y, ...checked] = state.split(',').map(x => parseFloat(x));
-    document.body.scrollTop = y;
     const inputs = document.querySelectorAll('input');
-    checked.forEach(index => inputs[index].checked = true);
+    checked.forEach(index => { if (inputs[index]) inputs[index].checked = true; });
+    setTimeout(() => {
+      document.body.scrollTop = y;
+      window.addEventListener('scroll', saveState);
+      window.addEventListener('click', saveState);
+    }, 0);  // may need to open all sections before scroll position can be reinstated
   }
   window.addEventListener('handshakedone', restoreState);
-  window.addEventListener('scroll', saveState);
-  window.addEventListener('click', saveState);
 </script>
 <div id="logs"></div>
 <script src="index.js"></script>
