@@ -3,7 +3,7 @@ import parseServerHello from './tls/parseServerHello';
 import { makeEncryptedTlsRecord, readEncryptedTlsRecord, readTlsRecord, RecordType } from './tls/tlsrecord';
 import { getApplicationKeys, getHandshakeKeys, hkdfExpandLabel } from './tls/keys';
 import { Crypter } from './tls/aesgcm';
-import { readEncryptedHandshake } from './tls/parseEncryptedHandshake';
+import { readEncryptedHandshake } from './tls/readEncryptedHandshake';
 import { ReadQueue } from './util/readqueue';
 import Bytes from './util/bytes';
 import { concat } from './util/array';
@@ -66,7 +66,8 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 
   const readHandshakeRecord = async () => {
     const tlsRecord = await readEncryptedTlsRecord(read, handshakeDecrypter, RecordType.Handshake);
-    return tlsRecord!;
+    if (tlsRecord === undefined) throw new Error('Premature end of encrypted server handshake');
+    return tlsRecord;
   };
   const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos);
 
@@ -127,13 +128,13 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
     console.log(`time taken: ${Date.now() - t0}ms`);
     clearTimeout(timeout);
 
+    if (serverResponse === undefined) break;
     log(new TextDecoder().decode(serverResponse));
-    if (serverResponse === null) break;
   }
 }
 
 // start('neon-cf-pg-test.jawj.workers.dev', 443);
-start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: handshake split across multiple messages
+// start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: handshake split across multiple messages
 // start('developers.cloudflare.com', 443);
 // start('google.com', 443);
-
+start('guardian.co.uk', 443);

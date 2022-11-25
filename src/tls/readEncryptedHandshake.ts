@@ -9,7 +9,6 @@ import { getRootCerts } from './rootCerts';
 import { ASN1Bytes } from '../util/asn1bytes';
 import { hexFromU8 } from '../util/hex';
 import { ecdsaVerify } from './ecdsa';
-import { readEncryptedTlsRecord } from './tlsrecord';
 
 const txtEnc = new TextEncoder();
 
