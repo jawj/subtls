@@ -18,13 +18,13 @@ async function start(host: string, port: number) {
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('error', (err) => { console.log('ws error:', err); });
-    ws.addEventListener('close', () => { console.log('ws closed'); })
+    ws.addEventListener('close', () => { chatty && log('connection closed'); })
   });
   const reader = new ReadQueue(ws);
   await startTls(host, reader.read.bind(reader), ws.send.bind(ws), ws);
 }
 
-async function startTls(host: string, read: (bytes: number) => Promise<Uint8Array>, write: (data: Uint8Array) => void, ws: EventTarget) {
+async function startTls(host: string, read: (bytes: number) => Promise<Uint8Array | undefined>, write: (data: Uint8Array) => void, ws: EventTarget) {
   const t0 = Date.now();
   const ecdhKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true /* extractable */, ['deriveKey', 'deriveBits']);
   const rawPublicKey = await crypto.subtle.exportKey('raw', ecdhKeys.publicKey);
@@ -40,12 +40,14 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 
   // parse server hello
   const serverHelloRecord = await readTlsRecord(read, RecordType.Handshake);
+  if (serverHelloRecord === undefined) throw new Error('No data awaiting server hello');
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
   chatty && log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), LogColours.server));
 
   // parse dummy cipher change
   const changeCipherRecord = await readTlsRecord(read, RecordType.ChangeCipherSpec);
+  if (changeCipherRecord === undefined) throw new Error('No data awaiting server cipher change');
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
@@ -121,22 +123,17 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 
   let serverResponse;
   do {
-    serverResponse = await Promise.race([
-      readEncryptedTlsRecord(read, applicationDecrypter),
-      new Promise<undefined>((resolve, reject) => {
-        ws.addEventListener('close', () => setTimeout(() => resolve(undefined), 100));  // this is messy; timeout is required for any outstanding decryption to complete
-        ws.addEventListener('error', () => reject('websocket error'));
-      }),
-    ]);
+    serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter);
+    log(`time taken: ${Date.now() - t0}ms`);
     if (serverResponse) log(new TextDecoder().decode(serverResponse));
-  } while (serverResponse);
+  } while (serverResponse && serverResponse.length > 0);
 
-  log(`time taken: ${Date.now() - t0}ms`);
+  log('finished');
   window.dispatchEvent(new Event('handshakedone'))
 }
 
-start('neon-cf-pg-test.jawj.workers.dev', 443);
+// start('neon-cf-pg-test.jawj.workers.dev', 443);
 // start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: handshake split across multiple messages
 // start('developers.cloudflare.com', 443);
-// start('google.com', 443);
+start('google.com', 443);
 // start('guardian.co.uk', 443);

@@ -1,15 +1,23 @@
 interface DataRequest {
   bytes: number;
-  resolve: (data: Uint8Array) => void;
+  resolve: (data: Uint8Array | undefined) => void;
+}
+
+enum WebSocketReadyState {
+  CONNECTING = 0,
+  OPEN = 1,
+  CLOSING = 2,
+  CLOSED = 3,
 }
 
 export class ReadQueue {
   queue: Uint8Array[];
   outstandingRequest: DataRequest | undefined;
 
-  constructor(ws: WebSocket) {
+  constructor(private ws: WebSocket) {
     this.queue = [];
     ws.addEventListener('message', (msg) => this.enqueue(new Uint8Array(msg.data)));
+    ws.addEventListener('close', () => this.dequeue());
   }
 
   enqueue(data: Uint8Array) {
@@ -19,9 +27,14 @@ export class ReadQueue {
 
   dequeue() {
     if (this.outstandingRequest === undefined) return;
-    const { resolve, bytes } = this.outstandingRequest;
+
+    let { resolve, bytes } = this.outstandingRequest;
     const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes) return;
+    if (bytesInQueue < bytes && this.ws.readyState <= WebSocketReadyState.OPEN) return;  // if socket remains open, wait until requested data size is available
+
+    bytes = Math.min(bytes, bytesInQueue);
+    if (bytes === 0) return resolve(undefined);
+
     this.outstandingRequest = undefined;
 
     const firstItem = this.queue[0];
@@ -66,7 +79,7 @@ export class ReadQueue {
 
   async read(bytes: number) {
     if (this.outstandingRequest !== undefined) throw new Error('Can’t read while already awaiting read');
-    return new Promise((resolve: (data: Uint8Array) => void) => {
+    return new Promise((resolve: (data: Uint8Array | undefined) => void) => {
       this.outstandingRequest = { resolve, bytes };
       this.dequeue();
     });

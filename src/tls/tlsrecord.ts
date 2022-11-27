@@ -21,10 +21,13 @@ export const RecordTypeName = {
   0x18: 'Heartbeat',
 };
 
-const maxRecordLength = 1 << 14;
+const maxRecordLength = 1 << 14;  // TODO: fix max length for plain and encrypted records
 
-export async function readTlsRecord(read: (length: number) => Promise<Uint8Array>, expectedType?: RecordType) {
+export async function readTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, expectedType?: RecordType) {
   const headerData = await read(5);
+  if (headerData === undefined) return;
+  if (headerData.length < 5) throw new Error('TLS record header truncated');
+
   const header = new Bytes(headerData);
 
   const type = header.readUint8() as keyof typeof RecordTypeName;
@@ -39,11 +42,14 @@ export async function readTlsRecord(read: (length: number) => Promise<Uint8Array
   if (length > maxRecordLength) throw new Error(`Record too long: ${length} bytes`)
 
   const content = await read(length);
+  if (content === undefined || content.length < length) throw new Error('TLS record content truncated');
+
   return { headerData, header, type, version, length, content };
 }
 
-export async function readEncryptedTlsRecord(read: (length: number) => Promise<Uint8Array>, decrypter: Crypter, expectedType?: RecordType) {
+export async function readEncryptedTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, decrypter: Crypter, expectedType?: RecordType) {
   const encryptedRecord = await readTlsRecord(read, RecordType.Application);
+  if (encryptedRecord === undefined) return;
 
   const encryptedBytes = new Bytes(encryptedRecord.content);
   const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remaining());

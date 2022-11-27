@@ -488,6 +488,10 @@ var RecordTypeName = {
 var maxRecordLength = 1 << 14;
 async function readTlsRecord(read, expectedType) {
   const headerData = await read(5);
+  if (headerData === void 0)
+    return;
+  if (headerData.length < 5)
+    throw new Error("TLS record header truncated");
   const header = new Bytes(headerData);
   const type = header.readUint8();
   if (type < 20 || type > 24)
@@ -502,10 +506,14 @@ async function readTlsRecord(read, expectedType) {
   if (length > maxRecordLength)
     throw new Error(`Record too long: ${length} bytes`);
   const content = await read(length);
+  if (content === void 0 || content.length < length)
+    throw new Error("TLS record content truncated");
   return { headerData, header, type, version, length, content };
 }
 async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   const encryptedRecord = await readTlsRecord(read, 23 /* Application */);
+  if (encryptedRecord === void 0)
+    return;
   const encryptedBytes = new Bytes(encryptedRecord.content);
   const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remaining());
   encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
@@ -1586,12 +1594,14 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
 
 // src/util/readqueue.ts
 var ReadQueue = class {
-  queue;
-  outstandingRequest;
   constructor(ws) {
+    this.ws = ws;
     this.queue = [];
     ws.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+    ws.addEventListener("close", () => this.dequeue());
   }
+  queue;
+  outstandingRequest;
   enqueue(data) {
     this.queue.push(data);
     this.dequeue();
@@ -1599,10 +1609,13 @@ var ReadQueue = class {
   dequeue() {
     if (this.outstandingRequest === void 0)
       return;
-    const { resolve, bytes } = this.outstandingRequest;
+    let { resolve, bytes } = this.outstandingRequest;
     const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes)
+    if (bytesInQueue < bytes && this.ws.readyState <= 1 /* OPEN */)
       return;
+    bytes = Math.min(bytes, bytesInQueue);
+    if (bytes === 0)
+      return resolve(void 0);
     this.outstandingRequest = void 0;
     const firstItem = this.queue[0];
     const firstItemLength = firstItem.length;
@@ -1657,7 +1670,7 @@ async function start(host, port) {
       console.log("ws error:", err);
     });
     ws2.addEventListener("close", () => {
-      console.log("ws closed");
+      log("connection closed");
     });
   });
   const reader = new ReadQueue(ws);
@@ -1674,10 +1687,14 @@ async function startTls(host, read, write, ws) {
   const clientHelloData = clientHello.array();
   write(clientHelloData);
   const serverHelloRecord = await readTlsRecord(read, 22 /* Handshake */);
+  if (serverHelloRecord === void 0)
+    throw new Error("No data awaiting server hello");
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
   log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
   const changeCipherRecord = await readTlsRecord(read, 20 /* ChangeCipherSpec */);
+  if (changeCipherRecord === void 0)
+    throw new Error("No data awaiting server cipher change");
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
@@ -1741,17 +1758,12 @@ Host:${host}\r
   write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
   let serverResponse;
   do {
-    serverResponse = await Promise.race([
-      readEncryptedTlsRecord(read, applicationDecrypter),
-      new Promise((resolve, reject) => {
-        ws.addEventListener("close", () => setTimeout(() => resolve(void 0), 100));
-        ws.addEventListener("error", () => reject("websocket error"));
-      })
-    ]);
+    serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter);
+    log(`time taken: ${Date.now() - t0}ms`);
     if (serverResponse)
       log(new TextDecoder().decode(serverResponse));
-  } while (serverResponse);
-  log(`time taken: ${Date.now() - t0}ms`);
+  } while (serverResponse && serverResponse.length > 0);
+  log("finished");
   window.dispatchEvent(new Event("handshakedone"));
 }
-start("neon-cf-pg-test.jawj.workers.dev", 443);
+start("google.com", 443);
