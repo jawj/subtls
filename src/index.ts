@@ -40,14 +40,14 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
 
   // parse server hello
   const serverHelloRecord = await readTlsRecord(read, RecordType.Handshake);
-  if (serverHelloRecord === undefined) throw new Error('No data awaiting server hello');
+  if (serverHelloRecord === undefined) throw new Error('Connection closed while awaiting server hello');
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
   chatty && log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), LogColours.server));
 
   // parse dummy cipher change
   const changeCipherRecord = await readTlsRecord(read, RecordType.ChangeCipherSpec);
-  if (changeCipherRecord === undefined) throw new Error('No data awaiting server cipher change');
+  if (changeCipherRecord === undefined) throw new Error('Connection closed awaiting server cipher change');
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
@@ -124,16 +124,15 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   let serverResponse;
   do {
     serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter);
-    log(`time taken: ${Date.now() - t0}ms`);
     if (serverResponse) log(new TextDecoder().decode(serverResponse));
-  } while (serverResponse && serverResponse.length > 0);
+  } while (serverResponse);
 
-  log('finished');
+  log(`time taken: ${Date.now() - t0}ms`);
   window.dispatchEvent(new Event('handshakedone'))
 }
 
-// start('neon-cf-pg-test.jawj.workers.dev', 443);
+start('neon-cf-pg-test.jawj.workers.dev', 443);
 // start('neon-vercel-demo-heritage.vercel.app', 443);  // fails: handshake split across multiple messages
-start('developers.cloudflare.com', 443);
+// start('developers.cloudflare.com', 443);
 // start('google.com', 443);
 // start('guardian.co.uk', 443);

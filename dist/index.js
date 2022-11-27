@@ -521,9 +521,13 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   endEncrypted();
   log(...highlightBytes(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
-  const lastByteIndex = decryptedRecord.length - 1;
-  const record = decryptedRecord.subarray(0, lastByteIndex);
-  const type = decryptedRecord[lastByteIndex];
+  let recordTypeIndex = decryptedRecord.length - 1;
+  while (decryptedRecord[recordTypeIndex] === 0)
+    recordTypeIndex -= 1;
+  if (recordTypeIndex < 0)
+    throw new Error("Decrypted message is all has no record type indicator (all zeroes)");
+  const type = decryptedRecord[recordTypeIndex];
+  const record = decryptedRecord.subarray(0, recordTypeIndex);
   if (type === 21) {
     log(`%cTLS 0x15 alert record: ${hexFromU8(record, " ")}`, `color: ${"#c88" /* header */}`);
     if (record.length === 2 && record[0] === 1 && record[1] === 0)
@@ -1691,13 +1695,13 @@ async function startTls(host, read, write, ws) {
   write(clientHelloData);
   const serverHelloRecord = await readTlsRecord(read, 22 /* Handshake */);
   if (serverHelloRecord === void 0)
-    throw new Error("No data awaiting server hello");
+    throw new Error("Connection closed while awaiting server hello");
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
   log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
   const changeCipherRecord = await readTlsRecord(read, 20 /* ChangeCipherSpec */);
   if (changeCipherRecord === void 0)
-    throw new Error("No data awaiting server cipher change");
+    throw new Error("Connection closed awaiting server cipher change");
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
@@ -1762,11 +1766,10 @@ Host:${host}\r
   let serverResponse;
   do {
     serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter);
-    log(`time taken: ${Date.now() - t0}ms`);
     if (serverResponse)
       log(new TextDecoder().decode(serverResponse));
-  } while (serverResponse && serverResponse.length > 0);
-  log("finished");
+  } while (serverResponse);
+  log(`time taken: ${Date.now() - t0}ms`);
   window.dispatchEvent(new Event("handshakedone"));
 }
-start("developers.cloudflare.com", 443);
+start("neon-cf-pg-test.jawj.workers.dev", 443);

@@ -60,9 +60,13 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
 
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
 
-  const lastByteIndex = decryptedRecord.length - 1;
-  const record = decryptedRecord.subarray(0, lastByteIndex /* exclusive */);
-  const type = decryptedRecord[lastByteIndex];
+  // strip zero-padding at end
+  let recordTypeIndex = decryptedRecord.length - 1;
+  while (decryptedRecord[recordTypeIndex] === 0) recordTypeIndex -= 1;
+  if (recordTypeIndex < 0) throw new Error('Decrypted message is all has no record type indicator (all zeroes)');
+
+  const type = decryptedRecord[recordTypeIndex];
+  const record = decryptedRecord.subarray(0, recordTypeIndex /* exclusive */);
 
   if (type === 0x15) {
     chatty && log(`%cTLS 0x15 alert record: ${hexFromU8(record, ' ')}`, `color: ${LogColours.header}`);

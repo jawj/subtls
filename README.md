@@ -13,8 +13,7 @@ A TypeScript TLS 1.3 client of very limited scope. Built using SubtleCrypto and 
 * No cert chain building: each cert must sign the preceding one, up to a trusted root
 * No client certificates 
 * No session tickets
-* Limited ability to deal with message fragmentation across records (this is a bug)
-* No support for record padding (this is a bug)
+* Limited ability to deal with message fragmentation across records sent or received (this is probably a bug)
 
 
 ## Features
