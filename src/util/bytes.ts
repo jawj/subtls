@@ -7,15 +7,15 @@ const txtDec = new TextDecoder();
 export default class Bytes {
   offset: number;
   dataView: DataView;
-  uint8Array: Uint8Array;
+  data: Uint8Array;
   comments: Record<number, string>;
   indents: Record<number, number>;
   indent: number;
 
   constructor(arrayOrMaxBytes: number | Uint8Array) {
     this.offset = 0;
-    this.uint8Array = typeof arrayOrMaxBytes === 'number' ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
+    this.data = typeof arrayOrMaxBytes === 'number' ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
+    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
     this.comments = {};
     this.indents = {};
     this.indent = 0;
@@ -23,17 +23,17 @@ export default class Bytes {
 
   extend(arrayOrMaxBytes: number | Uint8Array) {
     const newData = typeof arrayOrMaxBytes === 'number' ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.uint8Array = concat(this.uint8Array, newData);
-    this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
+    this.data = concat(this.data, newData);
+    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
 
   remaining() {
-    return this.uint8Array.length - this.offset;
+    return this.data.length - this.offset;
   }
 
   subarray(length: number) {
     // this advances the offset and returns a subarray for external writing (e.g. with crypto.getRandomValues()) or reading
-    return this.uint8Array.subarray(this.offset, this.offset += length);
+    return this.data.subarray(this.offset, this.offset += length);
   }
 
   skip(length: number, comment?: string) {
@@ -53,7 +53,7 @@ export default class Bytes {
   // reading
 
   readBytes(length: number) {
-    return this.uint8Array.slice(this.offset, this.offset += length);
+    return this.data.slice(this.offset, this.offset += length);
   }
 
   readUTF8String(length: number) {
@@ -119,7 +119,7 @@ export default class Bytes {
   expectLength(length: number, indentDelta = 1) {
     const startOffset = this.offset;
     const endOffset = startOffset + length;
-    if (endOffset > this.uint8Array.length) throw new Error('Expected length exceeds remaining data length');
+    if (endOffset > this.data.length) throw new Error('Expected length exceeds remaining data length');
     this.indent += indentDelta;
     this.indents[startOffset] = this.indent;
     return [
@@ -153,7 +153,7 @@ export default class Bytes {
   // writing
 
   writeBytes(bytes: number[] | Uint8Array) {
-    this.uint8Array.set(bytes, this.offset);
+    this.data.set(bytes, this.offset);
     this.offset += bytes.length;
     return this;
   }
@@ -217,15 +217,15 @@ export default class Bytes {
   // output
 
   array() {
-    return this.uint8Array.subarray(0, this.offset);
+    return this.data.subarray(0, this.offset);
   }
 
   commentedString(all = false) {
     let s = this.indents[0] !== undefined ? indentChars.repeat(this.indents[0]) : '';
     let indent = this.indents[0] ?? 0;
-    const len = all ? this.uint8Array.length : this.offset;
+    const len = all ? this.data.length : this.offset;
     for (let i = 0; i < len; i++) {
-      s += this.uint8Array[i].toString(16).padStart(2, '0') + ' ';
+      s += this.data[i].toString(16).padStart(2, '0') + ' ';
       const comment = this.comments[i + 1];
       if (this.indents[i + 1] !== undefined) indent = this.indents[i + 1];
       if (comment) s += ` ${comment}\n${indentChars.repeat(indent)}`;

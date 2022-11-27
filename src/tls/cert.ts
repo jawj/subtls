@@ -132,7 +132,7 @@ export class Cert {
     const publicKeyData = cb.readASN1BitString();
     chatty && cb.comment('public key');
 
-    this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.uint8Array.subarray(publicKeyStartOffset, cb.offset) };
+    this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.data.subarray(publicKeyStartOffset, cb.offset) };
 
     endPublicKeySeq();
 
@@ -250,13 +250,13 @@ export class Cert {
         if (constraintsSeqRemaining() > 0) {
           cb.expectUint8(universalTypeInteger, chatty && 'integer');
           const maxPathLengthLength = cb.readASN1Length(chatty && 'max path length');
-          const basicConstraintsPathLength =
+          basicConstraintsPathLength =
             maxPathLengthLength === 1 ? cb.readUint8() :
               maxPathLengthLength === 2 ? cb.readUint16() :
                 maxPathLengthLength === 3 ? cb.readUint24() :
                   undefined;
-          chatty && cb.comment('max path length');
           if (basicConstraintsPathLength === undefined) throw new Error('Too many bytes in max path length in certificate basicConstraints');
+          chatty && cb.comment('max path length');
         }
 
         endConstraintsSeq();
@@ -276,6 +276,7 @@ export class Cert {
          * - Authority Information Access
          * - Signed Certificate Timestamp (SCT) List
          */
+        // TODO: check for criticality, throw if critical
         cb.skip(extRemaining(), chatty && 'ignored extension data');
       }
 
@@ -288,7 +289,7 @@ export class Cert {
     endCertInfoSeq();
 
     // to-be-signed cert data: https://crypto.stackexchange.com/questions/42345/what-information-is-signed-by-a-certification-authority
-    this.signedData = cb.uint8Array.subarray(tbsCertStartOffset, cb.offset);
+    this.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
 
     // signature algorithm
     cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (signature algorithm)');

@@ -60,7 +60,7 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
   const userCert = certs[0];
 
   // certificate verify
-  const certVerifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
+  const certVerifyHandshakeData = hs.data.subarray(0, hs.offset);
   const certVerifyData = concat(hellos, certVerifyHandshakeData);
   const certVerifyHashBuffer = await crypto.subtle.digest('SHA-256', certVerifyData);
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
@@ -106,7 +106,7 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
   endCertVerifyPayload();
 
   // handshake verify
-  const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
+  const verifyHandshakeData = hs.data.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, 'finished', new Uint8Array(0), 32, 256);
   const finishedHash = await crypto.subtle.digest('SHA-256', verifyData);
@@ -161,19 +161,20 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
     let signingCert: Cert | undefined = rootCerts.find(cert =>
       cert.subjectKeyIdentifier !== undefined && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
 
-    // if not, see if any later supplied cert has a subjKeyId matching the authKeyId
-    if (signingCert === undefined && i < certs.length - 1) signingCert = certs.slice(i + 1).find(cert =>
-      cert.subjectKeyIdentifier !== undefined && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
+    // if not, try the next supplied certificate
+    if (signingCert === undefined) signingCert = certs[i + 1];
 
-    // if still not, give up
-    if (signingCert === undefined) throw new Error('No matches found among trusted certificates or supplied chain');
-    chatty && log('matched certs on key id %s', hexFromU8(subjectAuthKeyId));
+    // if we still didn't find a signing certificate, give up
+    if (signingCert === undefined) throw new Error('Ran out of certificates');
+
+    chatty && log('matched certificates on key id %s', hexFromU8(subjectAuthKeyId));
 
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
-    if (!signingCert.isValidAtMoment()) throw new Error('Signing certificate is not valid now');
-    if (!signingCert.keyUsage?.usages.has('digitalSignature')) throw new Error('Signing certificate keyUsage does not include digital signatures');
+    if (signingCert.isValidAtMoment() !== true) throw new Error('Signing certificate is not valid now');
+    if (signingCert.keyUsage?.usages.has('digitalSignature') !== true) throw new Error('Signing certificate keyUsage does not include digital signatures');
     if (signingCert.basicConstraints?.ca !== true) throw new Error('Signing certificate basicConstraints do not indicate a CA certificate');
-    // TODO: check pathLength
+    const { pathLength } = signingCert.basicConstraints;
+    if (pathLength !== undefined && pathLength < i) throw new Error('Exceeded certificate path length');
 
     // verify cert chain signature
     chatty && log(`verifying certificate CN "${subjectCert.subject.CN}" is signed by ${signingCertIsTrustedRoot ? 'trusted root' : 'intermediate'} certificate CN "${signingCert.subject.CN}" ...`);
@@ -202,6 +203,6 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
     }
   }
 
-  if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in trusted root');
-  return hs.uint8Array;
+  if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in a trusted root');
+  return hs.data;
 }

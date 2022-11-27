@@ -28,28 +28,28 @@ var txtDec = new TextDecoder();
 var Bytes = class {
   offset;
   dataView;
-  uint8Array;
+  data;
   comments;
   indents;
   indent;
   constructor(arrayOrMaxBytes) {
     this.offset = 0;
-    this.uint8Array = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
+    this.data = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
+    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
     this.comments = {};
     this.indents = {};
     this.indent = 0;
   }
   extend(arrayOrMaxBytes) {
     const newData = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.uint8Array = concat(this.uint8Array, newData);
-    this.dataView = new DataView(this.uint8Array.buffer, this.uint8Array.byteOffset, this.uint8Array.byteLength);
+    this.data = concat(this.data, newData);
+    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
   remaining() {
-    return this.uint8Array.length - this.offset;
+    return this.data.length - this.offset;
   }
   subarray(length) {
-    return this.uint8Array.subarray(this.offset, this.offset += length);
+    return this.data.subarray(this.offset, this.offset += length);
   }
   skip(length, comment) {
     this.offset += length;
@@ -66,7 +66,7 @@ var Bytes = class {
     return this;
   }
   readBytes(length) {
-    return this.uint8Array.slice(this.offset, this.offset += length);
+    return this.data.slice(this.offset, this.offset += length);
   }
   readUTF8String(length) {
     const bytes = this.subarray(length);
@@ -134,7 +134,7 @@ var Bytes = class {
   expectLength(length, indentDelta = 1) {
     const startOffset = this.offset;
     const endOffset = startOffset + length;
-    if (endOffset > this.uint8Array.length)
+    if (endOffset > this.data.length)
       throw new Error("Expected length exceeds remaining data length");
     this.indent += indentDelta;
     this.indents[startOffset] = this.indent;
@@ -164,7 +164,7 @@ var Bytes = class {
     return this.expectLength(length);
   }
   writeBytes(bytes) {
-    this.uint8Array.set(bytes, this.offset);
+    this.data.set(bytes, this.offset);
     this.offset += bytes.length;
     return this;
   }
@@ -220,14 +220,14 @@ var Bytes = class {
     return this._writeLengthGeneric(3, comment);
   }
   array() {
-    return this.uint8Array.subarray(0, this.offset);
+    return this.data.subarray(0, this.offset);
   }
   commentedString(all = false) {
     let s = this.indents[0] !== void 0 ? indentChars.repeat(this.indents[0]) : "";
     let indent = this.indents[0] ?? 0;
-    const len = all ? this.uint8Array.length : this.offset;
+    const len = all ? this.data.length : this.offset;
     for (let i = 0; i < len; i++) {
-      s += this.uint8Array[i].toString(16).padStart(2, "0") + " ";
+      s += this.data[i].toString(16).padStart(2, "0") + " ";
       const comment = this.comments[i + 1];
       if (this.indents[i + 1] !== void 0)
         indent = this.indents[i + 1];
@@ -1188,7 +1188,7 @@ var Cert = class {
     cb.expectUint8(universalTypeBitString, "bit string");
     const publicKeyData = cb.readASN1BitString();
     cb.comment("public key");
-    this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.uint8Array.subarray(publicKeyStartOffset, cb.offset) };
+    this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.data.subarray(publicKeyStartOffset, cb.offset) };
     endPublicKeySeq();
     cb.expectUint8(constructedContextSpecificType, "constructed context-specific type");
     const [endExtsData] = cb.expectASN1Length();
@@ -1290,10 +1290,10 @@ var Cert = class {
         if (constraintsSeqRemaining() > 0) {
           cb.expectUint8(universalTypeInteger, "integer");
           const maxPathLengthLength = cb.readASN1Length("max path length");
-          const basicConstraintsPathLength2 = maxPathLengthLength === 1 ? cb.readUint8() : maxPathLengthLength === 2 ? cb.readUint16() : maxPathLengthLength === 3 ? cb.readUint24() : void 0;
-          cb.comment("max path length");
-          if (basicConstraintsPathLength2 === void 0)
+          basicConstraintsPathLength = maxPathLengthLength === 1 ? cb.readUint8() : maxPathLengthLength === 2 ? cb.readUint16() : maxPathLengthLength === 3 ? cb.readUint24() : void 0;
+          if (basicConstraintsPathLength === void 0)
             throw new Error("Too many bytes in max path length in certificate basicConstraints");
+          cb.comment("max path length");
         }
         endConstraintsSeq();
         endBasicConstraintsDer();
@@ -1310,7 +1310,7 @@ var Cert = class {
     endExts();
     endExtsData();
     endCertInfoSeq();
-    this.signedData = cb.uint8Array.subarray(tbsCertStartOffset, cb.offset);
+    this.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (signature algorithm)");
     const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length("signature algorithm sequence");
     cb.expectUint8(universalTypeOID, "OID");
@@ -1476,7 +1476,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   if (certs.length === 0)
     throw new Error("No certificates supplied");
   const userCert = certs[0];
-  const certVerifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
+  const certVerifyHandshakeData = hs.data.subarray(0, hs.offset);
   const certVerifyData = concat(hellos, certVerifyHandshakeData);
   const certVerifyHashBuffer = await crypto.subtle.digest("SHA-256", certVerifyData);
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
@@ -1506,7 +1506,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     throw new Error(`Unsupported certificate verify signature type 0x${hexFromU8([sigType]).padStart(4, "0")}`);
   }
   endCertVerifyPayload();
-  const verifyHandshakeData = hs.uint8Array.subarray(0, hs.offset);
+  const verifyHandshakeData = hs.data.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, "finished", new Uint8Array(0), 32, 256);
   const finishedHash = await crypto.subtle.digest("SHA-256", verifyData);
@@ -1552,18 +1552,21 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     if (subjectAuthKeyId === void 0)
       throw new Error("Certificates without an authorityKeyIdentifier are not supported");
     let signingCert = rootCerts.find((cert) => cert.subjectKeyIdentifier !== void 0 && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
-    if (signingCert === void 0 && i < certs.length - 1)
-      signingCert = certs.slice(i + 1).find((cert) => cert.subjectKeyIdentifier !== void 0 && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
     if (signingCert === void 0)
-      throw new Error("No matches found among trusted certificates or supplied chain");
-    log("matched certs on key id %s", hexFromU8(subjectAuthKeyId));
+      signingCert = certs[i + 1];
+    if (signingCert === void 0)
+      throw new Error("Ran out of certificates");
+    log("matched certificates on key id %s", hexFromU8(subjectAuthKeyId));
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
-    if (!signingCert.isValidAtMoment())
+    if (signingCert.isValidAtMoment() !== true)
       throw new Error("Signing certificate is not valid now");
-    if (!signingCert.keyUsage?.usages.has("digitalSignature"))
+    if (signingCert.keyUsage?.usages.has("digitalSignature") !== true)
       throw new Error("Signing certificate keyUsage does not include digital signatures");
     if (signingCert.basicConstraints?.ca !== true)
       throw new Error("Signing certificate basicConstraints do not indicate a CA certificate");
+    const { pathLength } = signingCert.basicConstraints;
+    if (pathLength !== void 0 && pathLength < i)
+      throw new Error("Exceeded certificate path length");
     log(`verifying certificate CN "${subjectCert.subject.CN}" is signed by ${signingCertIsTrustedRoot ? "trusted root" : "intermediate"} certificate CN "${signingCert.subject.CN}" ...`);
     if (subjectCert.algorithm === "1.2.840.10045.4.3.2" || subjectCert.algorithm === "1.2.840.10045.4.3.3") {
       const hash = subjectCert.algorithm === "1.2.840.10045.4.3.2" ? "SHA-256" : "SHA-384";
@@ -1588,8 +1591,8 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     }
   }
   if (!verifiedToTrustedRoot)
-    throw new Error("Validated certificate chain did not end in trusted root");
-  return hs.uint8Array;
+    throw new Error("Validated certificate chain did not end in a trusted root");
+  return hs.data;
 }
 
 // src/util/readqueue.ts
@@ -1766,4 +1769,4 @@ Host:${host}\r
   log("finished");
   window.dispatchEvent(new Event("handshakedone"));
 }
-start("google.com", 443);
+start("developers.cloudflare.com", 443);
