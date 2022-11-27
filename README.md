@@ -7,13 +7,14 @@ A TypeScript TLS 1.3 client of very limited scope. Built using SubtleCrypto and 
 
 * TLS 1.3 only
 * Client only
-* Key exchange: SECP256R1 ECDH only (P384 and P521 would be easy to add; there's currently no SubtleCrypto support for  Curve25519 and x448)
+* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there's currently no SubtleCrypto support for  Curve25519 and x448)
 * Ciphers: TLS_AES_128_GCM_SHA256 only (TLS_AES_256_GCM_SHA384 would be easy to add; there's currently no SubtleCrypto support for TLS_CHACHA20_POLY1305_SHA256)
-* Signature verification (end-user cert and cert chain): ECDSA_SECP256R1_SHA256 and RSA_PSS_RSAE_SHA256 only
+* End-user certificate verify: ECDSA (P-256) + SHA256 and RSA_PSS_RSAE_SHA256 only
+* Certificate chain verify: ECDSA (P-256/384) + SHA256/384 and RSASSA_PKCS1-v1_5 + SHA-256 only
 * No cert chain building: each cert must sign the preceding one, up to a trusted root
 * No client certificates 
 * No session tickets
-* Limited ability to deal with message fragmentation across records sent or received (this is probably a bug)
+* Very limited ability to deal with message fragmentation across records (this is technically a bug)
 
 
 ## Features

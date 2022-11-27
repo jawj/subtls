@@ -35,7 +35,7 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
   eeMessageEnd();
 
   // certificates
-  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());  // e.g. Vercel sends certs in a separate record
   hs.expectUint8(0x0b, chatty && 'handshake message type: server certificate');
   const [endCertPayload] = hs.expectLengthUint24(chatty && 'certificate payload');
 
@@ -45,7 +45,7 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
   const certs: Cert[] = [];
   while (certsRemaining() > 0) {
     const [endCert] = hs.expectLengthUint24(chatty && 'certificate');
-    const cert = new Cert(hs);  // this parses the cert and advances the offset
+    const cert = new Cert(hs);  // this parses the cert and advances the Bytes object offset
     certs.push(cert);
     endCert();
 
@@ -121,7 +121,7 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
   chatty && hs.comment('verify hash');
   endHsFinishedPayload();
 
-  if (hs.remaining() !== 0) throw new Error('Unexpected surplus bytes in server handshake');
+  if (hs.remaining() !== 0) throw new Error('Unexpected extra bytes in server handshake');
 
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true) throw new Error('Invalid server verify hash');

@@ -1525,7 +1525,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   hs.comment("verify hash");
   endHsFinishedPayload();
   if (hs.remaining() !== 0)
-    throw new Error("Unexpected surplus bytes in server handshake");
+    throw new Error("Unexpected extra bytes in server handshake");
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true)
     throw new Error("Invalid server verify hash");
