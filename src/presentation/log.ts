@@ -53,5 +53,5 @@ export function log(...args: any[]) {
   // if (!chatty) throw new Error('No logs should be emitted outside of chatty mode');
   console.log(...args);
   element.innerHTML += '<label><input type="checkbox"><div class="section">' + htmlFromLogArgs(...args) + '</div></label>';
-  document.body.scrollTo({ top: Number.MAX_SAFE_INTEGER });
+  document.body.scrollTo({ top: 999999 });
 }

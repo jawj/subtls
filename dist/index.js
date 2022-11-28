@@ -474,7 +474,7 @@ function htmlFromLogArgs(...args) {
 function log(...args) {
   console.log(...args);
   element.innerHTML += '<label><input type="checkbox"><div class="section">' + htmlFromLogArgs(...args) + "</div></label>";
-  document.body.scrollTo({ top: Number.MAX_SAFE_INTEGER });
+  document.body.scrollTo({ top: 999999 });
 }
 
 // src/tls/tlsRecord.ts
