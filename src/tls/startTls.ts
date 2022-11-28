@@ -26,7 +26,6 @@ export async function startTls(
   const clientHello = makeClientHello(host, rawPublicKey, sessionId);
   chatty && log(...highlightBytes(clientHello.commentedString(), LogColours.client));
   const clientHelloData = clientHello.array();
-
   networkWrite(clientHelloData);
 
   // parse server hello
