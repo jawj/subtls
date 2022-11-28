@@ -1,6 +1,6 @@
 import makeClientHello from './tls/makeClientHello';
 import parseServerHello from './tls/parseServerHello';
-import { makeEncryptedTlsRecord, readEncryptedTlsRecord, readTlsRecord, RecordType } from './tls/tlsrecord';
+import { makeEncryptedTlsRecord, readEncryptedTlsRecord, readTlsRecord, RecordType } from './tls/tlsRecord';
 import { getApplicationKeys, getHandshakeKeys, hkdfExpandLabel } from './tls/keys';
 import { Crypter } from './tls/aesgcm';
 import { readEncryptedHandshake } from './tls/readEncryptedHandshake';
