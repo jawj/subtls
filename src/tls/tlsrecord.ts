@@ -4,6 +4,7 @@ import Bytes from '../util/bytes';
 import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { hexFromU8 } from '../util/hex';
+import { concat } from '../util/array';
 
 export enum RecordType {
   ChangeCipherSpec = 0x14,
@@ -21,7 +22,7 @@ export const RecordTypeName = {
   0x18: 'Heartbeat',
 };
 
-const maxRecordLength = 1 << 14;  // TODO: fix max length for plain and encrypted records
+const maxPlaintextRecordLength = 1 << 14;  // TODO: fix max length for plain and encrypted records
 
 export async function readTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, expectedType?: RecordType) {
   const headerLength = 5;
@@ -40,7 +41,7 @@ export async function readTlsRecord(read: (length: number) => Promise<Uint8Array
   if ([0x0301, 0x0302, 0x0303].indexOf(version) < 0) throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, '0')}`);
 
   const length = header.readUint16(chatty && '% bytes of TLS record follow');
-  if (length > maxRecordLength) throw new Error(`Record too long: ${length} bytes`)
+  if (length > maxPlaintextRecordLength) throw new Error(`Record too long: ${length} bytes`)
 
   const content = await read(length);
   if (content === undefined || content.length < length) throw new Error('TLS record content truncated');
@@ -80,7 +81,8 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   return record;
 }
 
-export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypter) {
+async function makeEncryptedTlsRecord(plaintext: Uint8Array, encrypter: Crypter, type: RecordType) {
+  const data = concat(plaintext, [type]);
   const headerLength = 5;
   const dataLength = data.length;
   const authTagLength = 16;
@@ -104,4 +106,15 @@ export async function makeEncryptedTlsRecord(data: Uint8Array, encrypter: Crypte
 
   chatty && log(...highlightBytes(encryptedRecord.commentedString(), LogColours.client));
   return encryptedRecord.array();
+}
+
+export async function makeEncryptedTlsRecords(plaintext: Uint8Array, encrypter: Crypter, type: RecordType) {
+  const recordCount = Math.ceil(plaintext.length / maxPlaintextRecordLength);
+  const encryptedRecords = [];
+  for (let i = 0; i < recordCount; i++) {
+    const data = plaintext.subarray(i * maxPlaintextRecordLength, (i + 1) * maxPlaintextRecordLength);
+    const encryptedRecord = await makeEncryptedTlsRecord(data, encrypter, type);
+    encryptedRecords.push(encryptedRecord);
+  }
+  return encryptedRecords;
 }

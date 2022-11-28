@@ -1,5 +1,75 @@
+// src/util/readqueue.ts
+var ReadQueue = class {
+  constructor(ws) {
+    this.ws = ws;
+    this.queue = [];
+    ws.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+    ws.addEventListener("close", () => this.dequeue());
+  }
+  queue;
+  outstandingRequest;
+  enqueue(data) {
+    this.queue.push(data);
+    this.dequeue();
+  }
+  dequeue() {
+    if (this.outstandingRequest === void 0)
+      return;
+    let { resolve, bytes } = this.outstandingRequest;
+    const bytesInQueue = this.bytesInQueue();
+    if (bytesInQueue < bytes && this.ws.readyState <= 1 /* OPEN */)
+      return;
+    bytes = Math.min(bytes, bytesInQueue);
+    if (bytes === 0)
+      return resolve(void 0);
+    this.outstandingRequest = void 0;
+    const firstItem = this.queue[0];
+    const firstItemLength = firstItem.length;
+    if (firstItemLength === bytes) {
+      this.queue.shift();
+      return resolve(firstItem);
+    } else if (firstItemLength > bytes) {
+      this.queue[0] = firstItem.subarray(bytes);
+      return resolve(firstItem.subarray(0, bytes));
+    } else {
+      const result = new Uint8Array(bytes);
+      let outstandingBytes = bytes;
+      let offset = 0;
+      while (outstandingBytes > 0) {
+        const nextItem = this.queue[0];
+        const nextItemLength = nextItem.length;
+        if (nextItemLength <= outstandingBytes) {
+          this.queue.shift();
+          result.set(nextItem, offset);
+          offset += nextItemLength;
+          outstandingBytes -= nextItemLength;
+        } else {
+          this.queue[0] = nextItem.subarray(outstandingBytes);
+          result.set(nextItem.subarray(0, outstandingBytes), offset);
+          outstandingBytes -= outstandingBytes;
+          offset += outstandingBytes;
+        }
+      }
+      return resolve(result);
+    }
+  }
+  bytesInQueue() {
+    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
+  }
+  async read(bytes) {
+    if (this.outstandingRequest !== void 0)
+      throw new Error("Can\u2019t read while already awaiting read");
+    return new Promise((resolve) => {
+      this.outstandingRequest = { resolve, bytes };
+      this.dequeue();
+    });
+  }
+};
+
 // src/util/array.ts
 function concat(...arrs) {
+  if (arrs.length === 1 && arrs[0] instanceof Uint8Array)
+    return arrs[0];
   const length = arrs.reduce((memo, arr) => memo + arr.length, 0);
   const result = new Uint8Array(length);
   let offset = 0;
@@ -239,6 +309,72 @@ ${indentChars.repeat(indent)}`;
   }
 };
 
+// src/presentation/highlights.ts
+var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
+function highlightBytes(s, colour) {
+  const css = [];
+  s = s.replace(regex, (m) => {
+    css.push(m.startsWith(indentChars) ? "color: #ddd" : `color: ${colour}`, "color: inherit");
+    return `%c${m}%c`;
+  });
+  return [s, ...css];
+}
+function highlightColonList(s) {
+  const css = [];
+  s = s.replace(/^[^:]+:.*$/gm, (m) => {
+    const colonIndex = m.indexOf(":");
+    css.push("color: #aaa", "color: inherit");
+    return `%c${m.slice(0, colonIndex + 1)}%c${m.slice(colonIndex + 1)}`;
+  });
+  return [s, ...css];
+}
+
+// src/presentation/log.ts
+var element = document.querySelector("#logs");
+var escapes = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&apos;"
+};
+var regexp = new RegExp("[" + Object.keys(escapes).join("") + "]", "g");
+function htmlEscape(s) {
+  return s.replace(regexp, (match) => escapes[match]);
+}
+function htmlFromLogArgs(...args) {
+  let result = "<span>", arg, matchArr, separator = "";
+  while ((arg = args.shift()) !== void 0) {
+    arg = separator + htmlEscape(String(arg));
+    separator = " ";
+    const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;
+    while ((matchArr = formatRegExp.exec(arg)) !== null) {
+      const [whole, literal, sub] = matchArr;
+      if (sub === void 0) {
+        result += whole;
+      } else {
+        result += literal;
+        if (sub === "c") {
+          result += `</span><span style="${args.shift()}">`;
+        } else if (sub === "s") {
+          result += args.shift();
+        } else if (sub === "o" || sub === "O") {
+          result += JSON.stringify(args.shift(), void 0, sub === "O" ? 2 : void 0);
+        } else if (sub === "i" || sub === "d" || sub === "f") {
+          result += String(args.shift());
+        }
+      }
+    }
+  }
+  result += "</span>";
+  return result;
+}
+function log(...args) {
+  console.log(...args);
+  element.innerHTML += '<label><input type="checkbox"><div class="section">' + htmlFromLogArgs(...args) + "</div></label>";
+  document.body.scrollTo({ top: 999999 });
+}
+
 // src/tls/makeClientHello.ts
 function makeClientHello(host, publicKey, sessionId) {
   const h = new Bytes(1024);
@@ -411,72 +547,6 @@ function parseServerHello(hello, sessionId) {
   return serverPublicKey;
 }
 
-// src/presentation/highlights.ts
-var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
-function highlightBytes(s, colour) {
-  const css = [];
-  s = s.replace(regex, (m) => {
-    css.push(m.startsWith(indentChars) ? "color: #ddd" : `color: ${colour}`, "color: inherit");
-    return `%c${m}%c`;
-  });
-  return [s, ...css];
-}
-function highlightColonList(s) {
-  const css = [];
-  s = s.replace(/^[^:]+:.*$/gm, (m) => {
-    const colonIndex = m.indexOf(":");
-    css.push("color: #aaa", "color: inherit");
-    return `%c${m.slice(0, colonIndex + 1)}%c${m.slice(colonIndex + 1)}`;
-  });
-  return [s, ...css];
-}
-
-// src/presentation/log.ts
-var element = document.querySelector("#logs");
-var escapes = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&apos;"
-};
-var regexp = new RegExp("[" + Object.keys(escapes).join("") + "]", "g");
-function htmlEscape(s) {
-  return s.replace(regexp, (match) => escapes[match]);
-}
-function htmlFromLogArgs(...args) {
-  let result = "<span>", arg, matchArr, separator = "";
-  while ((arg = args.shift()) !== void 0) {
-    arg = separator + htmlEscape(String(arg));
-    separator = " ";
-    const formatRegExp = /([\s\S]*?)%([csoOidf])|[\s\S]+/g;
-    while ((matchArr = formatRegExp.exec(arg)) !== null) {
-      const [whole, literal, sub] = matchArr;
-      if (sub === void 0) {
-        result += whole;
-      } else {
-        result += literal;
-        if (sub === "c") {
-          result += `</span><span style="${args.shift()}">`;
-        } else if (sub === "s") {
-          result += args.shift();
-        } else if (sub === "o" || sub === "O") {
-          result += JSON.stringify(args.shift(), void 0, sub === "O" ? 2 : void 0);
-        } else if (sub === "i" || sub === "d" || sub === "f") {
-          result += String(args.shift());
-        }
-      }
-    }
-  }
-  result += "</span>";
-  return result;
-}
-function log(...args) {
-  console.log(...args);
-  element.innerHTML += '<label><input type="checkbox"><div class="section">' + htmlFromLogArgs(...args) + "</div></label>";
-  document.body.scrollTo({ top: 999999 });
-}
-
 // src/tls/tlsRecord.ts
 var RecordTypeName = {
   20: "ChangeCipherSpec",
@@ -485,7 +555,7 @@ var RecordTypeName = {
   23: "Application",
   24: "Heartbeat"
 };
-var maxRecordLength = 1 << 14;
+var maxPlaintextRecordLength = 1 << 14;
 async function readTlsRecord(read, expectedType) {
   const headerLength = 5;
   const headerData = await read(headerLength);
@@ -504,7 +574,7 @@ async function readTlsRecord(read, expectedType) {
   if ([769, 770, 771].indexOf(version) < 0)
     throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
   const length = header.readUint16("% bytes of TLS record follow");
-  if (length > maxRecordLength)
+  if (length > maxPlaintextRecordLength)
     throw new Error(`Record too long: ${length} bytes`);
   const content = await read(length);
   if (content === void 0 || content.length < length)
@@ -539,7 +609,8 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
   return record;
 }
-async function makeEncryptedTlsRecord(data, encrypter) {
+async function makeEncryptedTlsRecord(plaintext, encrypter, type) {
+  const data = concat(plaintext, [type]);
   const headerLength = 5;
   const dataLength = data.length;
   const authTagLength = 16;
@@ -558,6 +629,16 @@ async function makeEncryptedTlsRecord(data, encrypter) {
   endEncryptedRecord();
   log(...highlightBytes(encryptedRecord.commentedString(), "#8cc" /* client */));
   return encryptedRecord.array();
+}
+async function makeEncryptedTlsRecords(plaintext, encrypter, type) {
+  const recordCount = Math.ceil(plaintext.length / maxPlaintextRecordLength);
+  const encryptedRecords = [];
+  for (let i = 0; i < recordCount; i++) {
+    const data = plaintext.subarray(i * maxPlaintextRecordLength, (i + 1) * maxPlaintextRecordLength);
+    const encryptedRecord = await makeEncryptedTlsRecord(data, encrypter, type);
+    encryptedRecords.push(encryptedRecord);
+  }
+  return encryptedRecords;
 }
 
 // src/tls/keys.ts
@@ -1614,92 +1695,8 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   return hs.data;
 }
 
-// src/util/readqueue.ts
-var ReadQueue = class {
-  constructor(ws) {
-    this.ws = ws;
-    this.queue = [];
-    ws.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
-    ws.addEventListener("close", () => this.dequeue());
-  }
-  queue;
-  outstandingRequest;
-  enqueue(data) {
-    this.queue.push(data);
-    this.dequeue();
-  }
-  dequeue() {
-    if (this.outstandingRequest === void 0)
-      return;
-    let { resolve, bytes } = this.outstandingRequest;
-    const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.ws.readyState <= 1 /* OPEN */)
-      return;
-    bytes = Math.min(bytes, bytesInQueue);
-    if (bytes === 0)
-      return resolve(void 0);
-    this.outstandingRequest = void 0;
-    const firstItem = this.queue[0];
-    const firstItemLength = firstItem.length;
-    if (firstItemLength === bytes) {
-      this.queue.shift();
-      return resolve(firstItem);
-    } else if (firstItemLength > bytes) {
-      this.queue[0] = firstItem.subarray(bytes);
-      return resolve(firstItem.subarray(0, bytes));
-    } else {
-      const result = new Uint8Array(bytes);
-      let outstandingBytes = bytes;
-      let offset = 0;
-      while (outstandingBytes > 0) {
-        const nextItem = this.queue[0];
-        const nextItemLength = nextItem.length;
-        if (nextItemLength <= outstandingBytes) {
-          this.queue.shift();
-          result.set(nextItem, offset);
-          offset += nextItemLength;
-          outstandingBytes -= nextItemLength;
-        } else {
-          this.queue[0] = nextItem.subarray(outstandingBytes);
-          result.set(nextItem.subarray(0, outstandingBytes), offset);
-          outstandingBytes -= outstandingBytes;
-          offset += outstandingBytes;
-        }
-      }
-      return resolve(result);
-    }
-  }
-  bytesInQueue() {
-    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
-  }
-  async read(bytes) {
-    if (this.outstandingRequest !== void 0)
-      throw new Error("Can\u2019t read while already awaiting read");
-    return new Promise((resolve) => {
-      this.outstandingRequest = { resolve, bytes };
-      this.dequeue();
-    });
-  }
-};
-
-// src/index.ts
-async function start(host, port) {
-  const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
-    ws2.binaryType = "arraybuffer";
-    ws2.addEventListener("open", () => resolve(ws2));
-    ws2.addEventListener("error", (err) => {
-      console.log("ws error:", err);
-    });
-    ws2.addEventListener("close", () => {
-      log("connection closed");
-    });
-  });
-  const reader = new ReadQueue(ws);
-  await startTls(host, reader.read.bind(reader), ws.send.bind(ws), ws);
-}
-async function startTls(host, read, write, ws) {
-  const t0 = Date.now();
+// src/tls/startTls.ts
+async function startTls(host, networkRead, networkWrite) {
   const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
   const sessionId = new Uint8Array(32);
@@ -1707,14 +1704,14 @@ async function startTls(host, read, write, ws) {
   const clientHello = makeClientHello(host, rawPublicKey, sessionId);
   log(...highlightBytes(clientHello.commentedString(), "#8cc" /* client */));
   const clientHelloData = clientHello.array();
-  write(clientHelloData);
-  const serverHelloRecord = await readTlsRecord(read, 22 /* Handshake */);
+  networkWrite(clientHelloData);
+  const serverHelloRecord = await readTlsRecord(networkRead, 22 /* Handshake */);
   if (serverHelloRecord === void 0)
     throw new Error("Connection closed while awaiting server hello");
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
   log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
-  const changeCipherRecord = await readTlsRecord(read, 20 /* ChangeCipherSpec */);
+  const changeCipherRecord = await readTlsRecord(networkRead, 20 /* ChangeCipherSpec */);
   if (changeCipherRecord === void 0)
     throw new Error("Connection closed awaiting server cipher change");
   const ccipher = new Bytes(changeCipherRecord.content);
@@ -1732,7 +1729,7 @@ async function startTls(host, read, write, ws) {
   const clientHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
   const readHandshakeRecord = async () => {
-    const tlsRecord = await readEncryptedTlsRecord(read, handshakeDecrypter, 22 /* Handshake */);
+    const tlsRecord = await readEncryptedTlsRecord(networkRead, handshakeDecrypter, 22 /* Handshake */);
     if (tlsRecord === void 0)
       throw new Error("Premature end of encrypted server handshake");
     return tlsRecord;
@@ -1754,37 +1751,61 @@ async function startTls(host, read, write, ws) {
   const verifyHmacKey = await crypto.subtle.importKey("raw", finishedKey, { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
   const verifyDataBuffer = await crypto.subtle.sign("HMAC", verifyHmacKey, wholeHandshakeHash);
   const verifyData = new Uint8Array(verifyDataBuffer);
-  const clientFinishedRecord = new Bytes(37);
+  const clientFinishedRecord = new Bytes(36);
   clientFinishedRecord.writeUint8(20, "handshake message type: finished");
   const clientFinishedRecordEnd = clientFinishedRecord.writeLengthUint24("handshake finished data");
   clientFinishedRecord.writeBytes(verifyData);
   clientFinishedRecord.comment("verify data");
   clientFinishedRecordEnd();
-  clientFinishedRecord.writeUint8(22 /* Handshake */, "record type: Handshake");
+  const encryptedClientFinished = await makeEncryptedTlsRecords(clientFinishedRecord.array(), handshakeEncrypter, 22 /* Handshake */);
   log(...highlightBytes(clientFinishedRecord.commentedString(), "#8cc" /* client */));
-  const encryptedClientFinished = await makeEncryptedTlsRecord(clientFinishedRecord.array(), handshakeEncrypter);
   log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
   const clientApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const applicationEncrypter = new Crypter("encrypt", clientApplicationKey, applicationKeys.clientApplicationIV);
   const serverApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
-  const requestDataRecord = new Bytes(1024);
-  requestDataRecord.writeUTF8String(`HEAD / HTTP/1.0\r
+  let wroteFinishedRecords = false;
+  const read = () => readEncryptedTlsRecord(networkRead, applicationDecrypter);
+  const write = async (data) => {
+    const encryptedRecords = await makeEncryptedTlsRecords(data, applicationEncrypter, 23 /* Application */);
+    const allRecords = wroteFinishedRecords ? concat(...encryptedRecords) : concat(clientCipherChangeData, ...encryptedClientFinished, ...encryptedRecords);
+    networkWrite(allRecords);
+    wroteFinishedRecords = true;
+  };
+  return [read, write];
+}
+
+// src/index.ts
+async function start(host, port) {
+  const ws = await new Promise((resolve) => {
+    const ws2 = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
+    ws2.binaryType = "arraybuffer";
+    ws2.addEventListener("open", () => resolve(ws2));
+    ws2.addEventListener("error", (err) => {
+      console.log("ws error:", err);
+    });
+    ws2.addEventListener("close", () => {
+      log("connection closed");
+    });
+  });
+  const reader = new ReadQueue(ws);
+  const t0 = Date.now();
+  const [read, write] = await startTls(host, reader.read.bind(reader), ws.send.bind(ws));
+  const request = new Bytes(1024);
+  request.writeUTF8String(`HEAD / HTTP/1.0\r
 Host:${host}\r
 \r
 `);
-  requestDataRecord.writeUint8(23 /* Application */, "record type: Application");
-  log(...highlightBytes(requestDataRecord.commentedString(), "#8cc" /* client */));
-  const encryptedRequest = await makeEncryptedTlsRecord(requestDataRecord.array(), applicationEncrypter);
-  write(concat(clientCipherChangeData, encryptedClientFinished, encryptedRequest));
+  log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
+  write(request.array());
   let serverResponse;
   do {
-    serverResponse = await readEncryptedTlsRecord(read, applicationDecrypter);
+    serverResponse = await read();
     if (serverResponse)
       log(new TextDecoder().decode(serverResponse));
   } while (serverResponse);
   log(`time taken: ${Date.now() - t0}ms`);
-  window.dispatchEvent(new Event("handshakedone"));
+  window.dispatchEvent(new Event("tlsdone"));
 }
 start("google.com", 443);

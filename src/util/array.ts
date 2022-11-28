@@ -1,4 +1,6 @@
 export function concat(...arrs: (Uint8Array | number[])[]) {
+  if (arrs.length === 1 && arrs[0] instanceof Uint8Array) return arrs[0];
+
   const length = arrs.reduce((memo, arr) => memo + arr.length, 0);
   const result = new Uint8Array(length);
   let offset = 0;
