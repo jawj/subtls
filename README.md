@@ -14,8 +14,9 @@ A TypeScript TLS 1.3 client of very limited scope. Built using SubtleCrypto and 
 * No cert chain building: each cert must sign the preceding one, up to a trusted root
 * No client certificates 
 * No session tickets
+* No Pre-Shared Keys
 * Very limited ability to deal with message fragmentation across records (this is technically a bug)
-
+* Never sends alert records: immediately throws on errors
 
 ## Features
 

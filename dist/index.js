@@ -556,7 +556,8 @@ var RecordTypeName = {
   24: "Heartbeat"
 };
 var maxPlaintextRecordLength = 1 << 14;
-async function readTlsRecord(read, expectedType) {
+var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
+async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordLength) {
   const headerLength = 5;
   const headerData = await read(headerLength);
   if (headerData === void 0)
@@ -574,7 +575,7 @@ async function readTlsRecord(read, expectedType) {
   if ([769, 770, 771].indexOf(version) < 0)
     throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
   const length = header.readUint16("% bytes of TLS record follow");
-  if (length > maxPlaintextRecordLength)
+  if (length > maxLength)
     throw new Error(`Record too long: ${length} bytes`);
   const content = await read(length);
   if (content === void 0 || content.length < length)
@@ -582,7 +583,7 @@ async function readTlsRecord(read, expectedType) {
   return { headerData, header, type, version, length, content };
 }
 async function readEncryptedTlsRecord(read, decrypter, expectedType) {
-  const encryptedRecord = await readTlsRecord(read, 23 /* Application */);
+  const encryptedRecord = await readTlsRecord(read, 23 /* Application */, maxCiphertextRecordLength);
   if (encryptedRecord === void 0)
     return;
   const encryptedBytes = new Bytes(encryptedRecord.content);
@@ -596,7 +597,7 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   while (decryptedRecord[recordTypeIndex] === 0)
     recordTypeIndex -= 1;
   if (recordTypeIndex < 0)
-    throw new Error("Decrypted message is all has no record type indicator (all zeroes)");
+    throw new Error("Decrypted message has no record type indicator (all zeroes)");
   const type = decryptedRecord[recordTypeIndex];
   const record = decryptedRecord.subarray(0, recordTypeIndex);
   if (type === 21) {

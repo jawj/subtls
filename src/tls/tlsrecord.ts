@@ -22,9 +22,10 @@ export const RecordTypeName = {
   0x18: 'Heartbeat',
 };
 
-const maxPlaintextRecordLength = 1 << 14;  // TODO: fix max length for plain and encrypted records
+const maxPlaintextRecordLength = 1 << 14;
+const maxCiphertextRecordLength = maxPlaintextRecordLength + 1 /* record type */ + 255 /* max aead */;
 
-export async function readTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, expectedType?: RecordType) {
+export async function readTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, expectedType?: RecordType, maxLength = maxPlaintextRecordLength) {
   const headerLength = 5;
   const headerData = await read(headerLength);
   if (headerData === undefined) return;
@@ -41,7 +42,7 @@ export async function readTlsRecord(read: (length: number) => Promise<Uint8Array
   if ([0x0301, 0x0302, 0x0303].indexOf(version) < 0) throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, '0')}`);
 
   const length = header.readUint16(chatty && '% bytes of TLS record follow');
-  if (length > maxPlaintextRecordLength) throw new Error(`Record too long: ${length} bytes`)
+  if (length > maxLength) throw new Error(`Record too long: ${length} bytes`)
 
   const content = await read(length);
   if (content === undefined || content.length < length) throw new Error('TLS record content truncated');
@@ -50,7 +51,7 @@ export async function readTlsRecord(read: (length: number) => Promise<Uint8Array
 }
 
 export async function readEncryptedTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, decrypter: Crypter, expectedType?: RecordType) {
-  const encryptedRecord = await readTlsRecord(read, RecordType.Application);
+  const encryptedRecord = await readTlsRecord(read, RecordType.Application, maxCiphertextRecordLength);
   if (encryptedRecord === undefined) return;
 
   const encryptedBytes = new Bytes(encryptedRecord.content);
@@ -65,7 +66,7 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   // strip zero-padding at end
   let recordTypeIndex = decryptedRecord.length - 1;
   while (decryptedRecord[recordTypeIndex] === 0) recordTypeIndex -= 1;
-  if (recordTypeIndex < 0) throw new Error('Decrypted message is all has no record type indicator (all zeroes)');
+  if (recordTypeIndex < 0) throw new Error('Decrypted message has no record type indicator (all zeroes)');
 
   const type = decryptedRecord[recordTypeIndex];
   const record = decryptedRecord.subarray(0, recordTypeIndex /* exclusive */);
