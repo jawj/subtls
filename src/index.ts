@@ -131,8 +131,8 @@ async function startTls(host: string, read: (bytes: number) => Promise<Uint8Arra
   window.dispatchEvent(new Event('handshakedone'))
 }
 
-start('neon-cf-pg-test.jawj.workers.dev', 443);
+// start('neon-cf-pg-test.jawj.workers.dev', 443);
 // start('neon-vercel-demo-heritage.vercel.app', 443);  // encrypted handshake is split across multiple messages
 // start('developers.cloudflare.com', 443);
-// start('google.com', 443);
+start('google.com', 443);
 // start('guardian.co.uk', 443);

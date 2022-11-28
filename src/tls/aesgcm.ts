@@ -23,7 +23,7 @@ export class Crypter {
 
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
   async process(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
-    if (this.recordsDecrypted === maxRecords) throw new Error(`Can't decrypt any more records`);
+    if (this.recordsDecrypted === maxRecords) throw new Error('Cannot encrypt/decrypt any more records');
     const currentIvLast32 = this.initialIvLast32 ^ this.recordsDecrypted;
     this.currentIvDataView.setUint32(this.ivLength - 4, currentIvLast32);
     this.recordsDecrypted += 1;

@@ -487,10 +487,11 @@ var RecordTypeName = {
 };
 var maxRecordLength = 1 << 14;
 async function readTlsRecord(read, expectedType) {
-  const headerData = await read(5);
+  const headerLength = 5;
+  const headerData = await read(headerLength);
   if (headerData === void 0)
     return;
-  if (headerData.length < 5)
+  if (headerData.length < headerLength)
     throw new Error("TLS record header truncated");
   const header = new Bytes(headerData);
   const type = header.readUint8();
@@ -674,7 +675,7 @@ var Crypter = class {
   }
   async process(data, authTagLength, additionalData) {
     if (this.recordsDecrypted === maxRecords)
-      throw new Error(`Can't decrypt any more records`);
+      throw new Error("Cannot encrypt/decrypt any more records");
     const currentIvLast32 = this.initialIvLast32 ^ this.recordsDecrypted;
     this.currentIvDataView.setUint32(this.ivLength - 4, currentIvLast32);
     this.recordsDecrypted += 1;
@@ -1786,4 +1787,4 @@ Host:${host}\r
   log(`time taken: ${Date.now() - t0}ms`);
   window.dispatchEvent(new Event("handshakedone"));
 }
-start("neon-cf-pg-test.jawj.workers.dev", 443);
+start("google.com", 443);

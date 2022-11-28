@@ -24,9 +24,10 @@ export const RecordTypeName = {
 const maxRecordLength = 1 << 14;  // TODO: fix max length for plain and encrypted records
 
 export async function readTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, expectedType?: RecordType) {
-  const headerData = await read(5);
+  const headerLength = 5;
+  const headerData = await read(headerLength);
   if (headerData === undefined) return;
-  if (headerData.length < 5) throw new Error('TLS record header truncated');
+  if (headerData.length < headerLength) throw new Error('TLS record header truncated');
 
   const header = new Bytes(headerData);
 
