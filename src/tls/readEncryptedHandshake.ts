@@ -2,10 +2,9 @@ import { LogColours } from '../presentation/appearance';
 import { hkdfExpandLabel } from './keys';
 import { concat, equal } from '../util/array';
 
-import { Cert, TrustedCert } from './cert';
-import { highlightBytes, highlightColonList } from '../presentation/highlights';
+import { Cert } from './cert';
+import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
-import { getRootCerts } from './rootCerts';
 import { ASN1Bytes } from '../util/asn1bytes';
 import { hexFromU8 } from '../util/hex';
 import { ecdsaVerify } from './ecdsa';

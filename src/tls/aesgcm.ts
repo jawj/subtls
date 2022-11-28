@@ -1,3 +1,6 @@
+
+const maxRecords = 1 << 30;  // because signed integers 1^31 is max recordsDecrypted value
+
 export class Crypter {
   mode: 'encrypt' | 'decrypt';
   key: CryptoKey;
@@ -20,12 +23,12 @@ export class Crypter {
 
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
   async process(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
-    const authTagBits = authTagLength << 3;
-
+    if (this.recordsDecrypted === maxRecords) throw new Error(`Can't decrypt any more records`);
     const currentIvLast32 = this.initialIvLast32 ^ this.recordsDecrypted;
     this.currentIvDataView.setUint32(this.ivLength - 4, currentIvLast32);
     this.recordsDecrypted += 1;
 
+    const authTagBits = authTagLength << 3;
     const algorithm = { name: 'AES-GCM', iv: this.currentIv, tagLength: authTagBits, additionalData };
     const resultBuffer = await crypto.subtle[this.mode](algorithm, this.key, data);
 

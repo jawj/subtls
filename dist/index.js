@@ -653,6 +653,7 @@ async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyL
 }
 
 // src/tls/aesgcm.ts
+var maxRecords = 1 << 30;
 var Crypter = class {
   mode;
   key;
@@ -672,10 +673,12 @@ var Crypter = class {
     this.initialIvLast32 = this.currentIvDataView.getUint32(this.ivLength - 4);
   }
   async process(data, authTagLength, additionalData) {
-    const authTagBits = authTagLength << 3;
+    if (this.recordsDecrypted === maxRecords)
+      throw new Error(`Can't decrypt any more records`);
     const currentIvLast32 = this.initialIvLast32 ^ this.recordsDecrypted;
     this.currentIvDataView.setUint32(this.ivLength - 4, currentIvLast32);
     this.recordsDecrypted += 1;
+    const authTagBits = authTagLength << 3;
     const algorithm = { name: "AES-GCM", iv: this.currentIv, tagLength: authTagBits, additionalData };
     const resultBuffer = await crypto.subtle[this.mode](algorithm, this.key, data);
     const result = new Uint8Array(resultBuffer);

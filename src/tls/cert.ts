@@ -1,7 +1,6 @@
 
 import { base64Decode } from '../util/base64';
 import { ASN1Bytes } from '../util/asn1bytes';
-import { log } from '../presentation/log';
 
 import {
   universalTypeBitString,
