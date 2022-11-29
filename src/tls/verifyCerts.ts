@@ -14,6 +14,8 @@ export async function verifyCerts(host: string, certs: Cert[], rootCerts: Truste
   chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates received from host');
   for (const cert of certs) chatty && log(...highlightColonList(cert.description()));
 
+  chatty && log('Now we have all the certificates, which are summarised above. First, we do some basic checks on the end-user certificate — i.e. the one this server is presenting as its own:');
+
   const userCert = certs[0];
   const matchingSubjectAltName = userCert.subjectAltNameMatchingHost(host);
   if (matchingSubjectAltName === undefined) throw new Error(`No matching subjectAltName for ${host}`);
@@ -27,6 +29,8 @@ export async function verifyCerts(host: string, certs: Cert[], rootCerts: Truste
   chatty && log(`%c✓ end-user certificate has TLS server extKeyUsage`, 'color: #8c8;');
 
   // certificate chain checks
+  chatty && log('Next, we verify the signature of each certificate using the public key of the next certificate in the chain. This carries on until we find a certificate we can verify using one of our own trusted root certificates (or until we reach the end of the chain and therefore fail):');
+
   let verifiedToTrustedRoot = false;
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
@@ -47,7 +51,7 @@ export async function verifyCerts(host: string, certs: Cert[], rootCerts: Truste
     // if we still didn't find a signing certificate, give up
     if (signingCert === undefined) throw new Error('Ran out of certificates');
 
-    chatty && log('matched certificates on key id %s', hexFromU8(subjectAuthKeyId));
+    chatty && log('matched certificates on key id %s', hexFromU8(subjectAuthKeyId, ' '));
 
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
     if (signingCert.isValidAtMoment() !== true) throw new Error('Signing certificate is not valid now');

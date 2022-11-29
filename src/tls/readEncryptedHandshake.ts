@@ -127,6 +127,7 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true) throw new Error('Invalid server verify hash');
 
+  chatty && log('Decrypted using the server handshake key, the server’s handshake messages are then parsed as follows. This is a long section, since X.509 certificates are quite complex and there will be several of them:');
   chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
 
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);

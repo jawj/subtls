@@ -37,9 +37,13 @@ export async function postgres(urlStr: string) {
   const endSslRequest = sslRequest.writeLengthUint32Incl(chatty && 'SSL request');
   sslRequest.writeUint32(0x04d2162f, 'SSL request code');
   endSslRequest();
-  chatty && log('▼ client to server, unencrypted: request for SSL support status');
+
+  chatty && log('First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:');
+
   chatty && log(...highlightBytes(sslRequest.commentedString(), LogColours.client));
   const writePreData = sslRequest.array();
+
+  chatty && log('We don’t need to wait for the reply: we run this server, so we know it’s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a ‘client hello’:');
 
   const sslResponse = new Bytes(1);
   sslResponse.writeUTF8String('S');
@@ -71,8 +75,13 @@ export async function postgres(urlStr: string) {
   msg.writeUTF8StringNullTerminated('SELECT now()');
   endQuery();
 
+  chatty && log('We cheat a bit again here. By assuming we know how the server will respond, we can save several network round-trips and bundle up a Postgres startup message, a cleartext password message, and a simple query. Here’s the plaintext:');
   chatty && log(...highlightBytes(msg.commentedString(), LogColours.client));
-  write(msg.array());
+
+  chatty && log('And the ciphertext looks like this:');
+  await write(msg.array());
+
+  chatty && log('The server now responds to each message in turn. First it responds to the startup message with a request for our password. Encrypted, as received:');
 
   const preAuthResponse = await read();
   const preAuthBytes = new Bytes(preAuthResponse!);
@@ -81,10 +90,14 @@ export async function postgres(urlStr: string) {
   const [endAuthReq] = preAuthBytes.expectLengthUint32Incl('request');
   preAuthBytes.expectUint32(3, chatty && 'request cleartext password auth');
   endAuthReq();
-  chatty && log(...highlightBytes(preAuthBytes.commentedString(true), LogColours.client));
+  chatty && log('Decrypted and parsed:');
+  chatty && log(...highlightBytes(preAuthBytes.commentedString(true), LogColours.server));
+
+  chatty && log('Next, it responds to the password we sent, and provides some other useful data. Encrypted, that’s:');
 
   const postAuthResponse = await read();
   const postAuthBytes = new Bytes(postAuthResponse!);
+
   postAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
   const [endAuthOK] = postAuthBytes.expectLengthUint32Incl(chatty && 'result');
   postAuthBytes.expectUint32(0, chatty && 'authentication successful');
@@ -115,8 +128,10 @@ export async function postgres(urlStr: string) {
       endStatus();
     }
   }
+  chatty && log('Decrypted and parsed:');
   chatty && log(...highlightBytes(postAuthBytes.commentedString(true), LogColours.server));
 
+  chatty && log('Lastly, it returns our query result. Encrypted:');
   const queryResult = await read();
   const queryResultBytes = new Bytes(queryResult!);
 
@@ -168,7 +183,9 @@ export async function postgres(urlStr: string) {
     }
   }
 
+  chatty && log('Decrypted and parsed:');
   chatty && log(...highlightBytes(queryResultBytes.commentedString(true), LogColours.server));
+  chatty && log('We pick out our result — the current time on our server:');
   log('%c%s', 'font-size: 2em', lastColumnData);
   chatty || log(`time taken: ${Date.now() - t0}ms`);
 
@@ -178,8 +195,10 @@ export async function postgres(urlStr: string) {
   const endTerminate = endBytes.writeLengthUint32Incl();
   endTerminate();
 
+  chatty && log('Last of all, we send a termination command. Before encryption, that’s:');
   chatty && log(...highlightBytes(endBytes.commentedString(true), LogColours.client));
-  write(endBytes.array());
+  chatty && log('And as sent on the wire:');
+  await write(endBytes.array());
 }
 
 function parse(url: string, parseQueryString = false) {

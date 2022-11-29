@@ -30,7 +30,6 @@ export async function startTls(
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
-  chatty && log('▼ client to server, unencrypted: begin TLS handshake with client hello');
   chatty && log(...highlightBytes(clientHello.commentedString(), LogColours.client));
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
@@ -39,7 +38,7 @@ export async function startTls(
   if (expectPreData) {
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData)) throw new Error('Pre data did not match expectation');
-    chatty && log('▼ server to client, unencrypted');
+    chatty && log('The server responds:');
     chatty && log(...highlightBytes(hexFromU8(receivedPreData) + '  ' + commentPreData, LogColours.server));
   }
 
@@ -57,9 +56,11 @@ export async function startTls(
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
   endCipherPayload();
+  chatty && log('For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends a meaningless cipher change record:');
   chatty && log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), LogColours.server));
 
   // handshake keys, encryption/decryption instances
+  chatty && log('Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:');
   chatty && log('%c%s', `color: ${LogColours.header}`, 'handshake key computations');
   const clientHelloContent = clientHelloData.subarray(5);  // cut off the 5-byte record header
   const serverHelloContent = serverHelloRecord.content;    // 5-byte record header is already excluded
@@ -70,6 +71,7 @@ export async function startTls(
   const clientHandshakeKey = await crypto.subtle.importKey('raw', handshakeKeys.clientHandshakeKey, { name: 'AES-GCM' }, false, ['encrypt']);
   const handshakeEncrypter = new Crypter('encrypt', clientHandshakeKey, handshakeKeys.clientHandshakeIV);
 
+  chatty && log('The server sends one or more encrypted records containing the rest of its handshake messages. These include the ‘certificate verify’ message, which we check on the spot, and the full certificate chain, which we verify a bit later on:');
   const readHandshakeRecord = async () => {
     const tlsRecord = await readEncryptedTlsRecord(networkRead, handshakeDecrypter, RecordType.Handshake);
     if (tlsRecord === undefined) throw new Error('Premature end of encrypted server handshake');
@@ -78,6 +80,7 @@ export async function startTls(
   const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
 
   // dummy cipher change
+  chatty && log('For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, it’s the client’s turn to send a meaningless cipher change record:');
   const clientCipherChange = new Bytes(6);
   clientCipherChange.writeUint8(0x14, chatty && 'record type: ChangeCipherSpec');
   clientCipherChange.writeUint16(0x0303, chatty && 'TLS version 1.2 (middlebox compatibility)');
@@ -87,11 +90,12 @@ export async function startTls(
   chatty && log(...highlightBytes(clientCipherChange.commentedString(), LogColours.client));
   const clientCipherChangeData = clientCipherChange.array();  // to be sent below
 
+  chatty && log('Next, we send a ’handshake finished’ message, which includes an HMAC of (nearly) the whole handshake to date. This is how it looks before encryption:');
+
   // hash of whole handshake (note: dummy cipher change is excluded)
   const wholeHandshake = concat(hellos, serverHandshake);
   const wholeHandshakeHashBuffer = await crypto.subtle.digest('SHA-256', wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
-  chatty && log('whole handshake hash', hexFromU8(wholeHandshakeHash));
 
   // client handshake finished
   const finishedKey = await hkdfExpandLabel(handshakeKeys.clientSecret, 'finished', new Uint8Array(0), 32 /* = hashBytes */, 256);
@@ -106,9 +110,12 @@ export async function startTls(
   chatty && clientFinishedRecord.comment('verify data');
   clientFinishedRecordEnd();
   chatty && log(...highlightBytes(clientFinishedRecord.commentedString(), LogColours.client));
+
+  chatty && log('And here it is encrypted with the client’s handshake key and ready to go:');
   const encryptedClientFinished = await makeEncryptedTlsRecords(clientFinishedRecord.array(), handshakeEncrypter, RecordType.Handshake);  // to be sent below
 
   // application keys, encryption/decryption instances
+  chatty && log('Both parties now have what they need to calculate the keys and IVs that will protect the application data:');
   chatty && log('%c%s', `color: ${LogColours.header}`, 'application key computations');
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
   const clientApplicationKey = await crypto.subtle.importKey('raw', applicationKeys.clientApplicationKey, { name: 'AES-GCM' }, false, ['encrypt']);
@@ -118,6 +125,7 @@ export async function startTls(
 
   let wroteFinishedRecords = false;
 
+  chatty && log('The TLS connection is established, and server and client can start exchanging encrypted application data.');
   const read = () => {
     if (!wroteFinishedRecords) {
       const finishedRecords = concat(clientCipherChangeData, ...encryptedClientFinished);

@@ -1590,6 +1590,7 @@ async function verifyCerts(host, certs, rootCerts) {
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates received from host");
   for (const cert of certs)
     log(...highlightColonList(cert.description()));
+  log("Now we have all the certificates, which are summarised above. First, we do some basic checks on the end-user certificate \u2014\xA0i.e. the one this server is presenting as its own:");
   const userCert = certs[0];
   const matchingSubjectAltName = userCert.subjectAltNameMatchingHost(host);
   if (matchingSubjectAltName === void 0)
@@ -1602,6 +1603,7 @@ async function verifyCerts(host, certs, rootCerts) {
   if (!userCert.extKeyUsage?.serverTls)
     throw new Error("End-user certificate has no TLS server extKeyUsage");
   log(`%c\u2713 end-user certificate has TLS server extKeyUsage`, "color: #8c8;");
+  log("Next, we verify the signature of each certificate using the public key of the next certificate in the chain. This carries on until we find a certificate we can verify using one of our own trusted root certificates (or until we reach the end of the chain and therefore fail):");
   let verifiedToTrustedRoot = false;
   log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
   for (const cert of rootCerts)
@@ -1616,7 +1618,7 @@ async function verifyCerts(host, certs, rootCerts) {
       signingCert = certs[i + 1];
     if (signingCert === void 0)
       throw new Error("Ran out of certificates");
-    log("matched certificates on key id %s", hexFromU8(subjectAuthKeyId));
+    log("matched certificates on key id %s", hexFromU8(subjectAuthKeyId, " "));
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
     if (signingCert.isValidAtMoment() !== true)
       throw new Error("Signing certificate is not valid now");
@@ -1741,6 +1743,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true)
     throw new Error("Invalid server verify hash");
+  log("Decrypted using the server handshake key, the server\u2019s handshake messages are then parsed as follows. This is a long section, since X.509 certificates are quite complex and there will be several of them:");
   log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);
   if (!verifiedToTrustedRoot)
@@ -1755,7 +1758,6 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
-  log("\u25BC client to server, unencrypted: begin TLS handshake with client hello");
   log(...highlightBytes(clientHello.commentedString(), "#8cc" /* client */));
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
@@ -1764,7 +1766,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData))
       throw new Error("Pre data did not match expectation");
-    log("\u25BC server to client, unencrypted");
+    log("The server responds:");
     log(...highlightBytes(hexFromU8(receivedPreData) + "  " + commentPreData, "#88c" /* server */));
   }
   const serverHelloRecord = await readTlsRecord(networkRead, 22 /* Handshake */);
@@ -1780,7 +1782,9 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
   endCipherPayload();
+  log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends a meaningless cipher change record:");
   log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
+  log("Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:");
   log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations");
   const clientHelloContent = clientHelloData.subarray(5);
   const serverHelloContent = serverHelloRecord.content;
@@ -1790,6 +1794,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const handshakeDecrypter = new Crypter("decrypt", serverHandshakeKey, handshakeKeys.serverHandshakeIV);
   const clientHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
+  log("The server sends one or more encrypted records containing the rest of its handshake messages. These include the \u2018certificate verify\u2019 message, which we check on the spot, and the full certificate chain, which we verify a bit later on:");
   const readHandshakeRecord = async () => {
     const tlsRecord = await readEncryptedTlsRecord(networkRead, handshakeDecrypter, 22 /* Handshake */);
     if (tlsRecord === void 0)
@@ -1797,6 +1802,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
     return tlsRecord;
   };
   const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
+  log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, it\u2019s the client\u2019s turn to send a meaningless cipher change record:");
   const clientCipherChange = new Bytes(6);
   clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
   clientCipherChange.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
@@ -1805,10 +1811,10 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   endClientCipherChangePayload();
   log(...highlightBytes(clientCipherChange.commentedString(), "#8cc" /* client */));
   const clientCipherChangeData = clientCipherChange.array();
+  log("Next, we send a \u2019handshake finished\u2019 message, which includes an HMAC of (nearly) the whole handshake to date. This is how it looks before encryption:");
   const wholeHandshake = concat(hellos, serverHandshake);
   const wholeHandshakeHashBuffer = await crypto.subtle.digest("SHA-256", wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
-  log("whole handshake hash", hexFromU8(wholeHandshakeHash));
   const finishedKey = await hkdfExpandLabel(handshakeKeys.clientSecret, "finished", new Uint8Array(0), 32, 256);
   const verifyHmacKey = await crypto.subtle.importKey("raw", finishedKey, { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
   const verifyDataBuffer = await crypto.subtle.sign("HMAC", verifyHmacKey, wholeHandshakeHash);
@@ -1820,7 +1826,9 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   clientFinishedRecord.comment("verify data");
   clientFinishedRecordEnd();
   log(...highlightBytes(clientFinishedRecord.commentedString(), "#8cc" /* client */));
+  log("And here it is encrypted with the client\u2019s handshake key and ready to go:");
   const encryptedClientFinished = await makeEncryptedTlsRecords(clientFinishedRecord.array(), handshakeEncrypter, 22 /* Handshake */);
+  log("Both parties now have what they need to calculate the keys and IVs that will protect the application data:");
   log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
   const clientApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
@@ -1828,6 +1836,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const serverApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
   let wroteFinishedRecords = false;
+  log("The TLS connection is established, and server and client can start exchanging encrypted application data.");
   const read = () => {
     if (!wroteFinishedRecords) {
       const finishedRecords = concat(clientCipherChangeData, ...encryptedClientFinished);
@@ -1919,9 +1928,10 @@ async function postgres(urlStr) {
   const endSslRequest = sslRequest.writeLengthUint32Incl("SSL request");
   sslRequest.writeUint32(80877103, "SSL request code");
   endSslRequest();
-  log("\u25BC client to server, unencrypted: request for SSL support status");
+  log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
   const writePreData = sslRequest.array();
+  log("We don\u2019t need to wait for the reply: we run this server, so we know it\u2019s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a \u2018client hello\u2019:");
   const sslResponse = new Bytes(1);
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();
@@ -1946,15 +1956,20 @@ async function postgres(urlStr) {
   const endQuery = msg.writeLengthUint32Incl("query");
   msg.writeUTF8StringNullTerminated("SELECT now()");
   endQuery();
+  log("We cheat a bit again here. By assuming we know how the server will respond, we can save several network round-trips and bundle up a Postgres startup message, a cleartext password message, and a simple query. Here\u2019s the plaintext:");
   log(...highlightBytes(msg.commentedString(), "#8cc" /* client */));
-  write(msg.array());
+  log("And the ciphertext looks like this:");
+  await write(msg.array());
+  log("The server now responds to each message in turn. First it responds to the startup message with a request for our password. Encrypted, as received:");
   const preAuthResponse = await read();
   const preAuthBytes = new Bytes(preAuthResponse);
   preAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
   const [endAuthReq] = preAuthBytes.expectLengthUint32Incl("request");
   preAuthBytes.expectUint32(3, "request cleartext password auth");
   endAuthReq();
-  log(...highlightBytes(preAuthBytes.commentedString(true), "#8cc" /* client */));
+  log("Decrypted and parsed:");
+  log(...highlightBytes(preAuthBytes.commentedString(true), "#88c" /* server */));
+  log("Next, it responds to the password we sent, and provides some other useful data. Encrypted, that\u2019s:");
   const postAuthResponse = await read();
   const postAuthBytes = new Bytes(postAuthResponse);
   postAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
@@ -1984,7 +1999,9 @@ async function postgres(urlStr) {
       endStatus();
     }
   }
+  log("Decrypted and parsed:");
   log(...highlightBytes(postAuthBytes.commentedString(true), "#88c" /* server */));
+  log("Lastly, it returns our query result. Encrypted:");
   const queryResult = await read();
   const queryResultBytes = new Bytes(queryResult);
   queryResultBytes.expectUint8("T".charCodeAt(0), '"T" = row description');
@@ -2030,15 +2047,19 @@ async function postgres(urlStr) {
       throw new Error(`Unexpected message type: ${msgType}`);
     }
   }
+  log("Decrypted and parsed:");
   log(...highlightBytes(queryResultBytes.commentedString(true), "#88c" /* server */));
+  log("We pick out our result \u2014\xA0the current time on our server:");
   log("%c%s", "font-size: 2em", lastColumnData);
   const endBytes = new Bytes(5);
   endBytes.writeUTF8String("X");
   endBytes.comment("= terminate");
   const endTerminate = endBytes.writeLengthUint32Incl();
   endTerminate();
+  log("Last of all, we send a termination command. Before encryption, that\u2019s:");
   log(...highlightBytes(endBytes.commentedString(true), "#8cc" /* client */));
-  write(endBytes.array());
+  log("And as sent on the wire:");
+  await write(endBytes.array());
 }
 function parse(url, parseQueryString = false) {
   const { protocol } = new URL(url);
