@@ -1,5 +1,4 @@
 import { Cert, TrustedCert } from './cert';
-import { getRootCerts } from './rootCerts';
 import { hexFromU8 } from '../util/hex';
 import { equal } from '../util/array';
 import { LogColours } from '../presentation/appearance';
@@ -9,12 +8,11 @@ import { ASN1Bytes } from '../util/asn1bytes';
 import { ecdsaVerify } from './ecdsa';
 
 
-export async function verifyCerts(certs: Cert[], host: string) {
-  chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates received from host');
-  for (const cert of certs) chatty && log(...highlightColonList(cert.description()));
+export async function verifyCerts(host: string, certs: Cert[], rootCerts: TrustedCert[]) {
 
   // end-user certificate checks
-  chatty && log('%c✓ end-user certificate verified (server has private key)', 'color: #8c8;');  // if not, we'd have thrown by now
+  chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates received from host');
+  for (const cert of certs) chatty && log(...highlightColonList(cert.description()));
 
   const userCert = certs[0];
   const matchingSubjectAltName = userCert.subjectAltNameMatchingHost(host);
@@ -29,7 +27,6 @@ export async function verifyCerts(certs: Cert[], host: string) {
   chatty && log(`%c✓ end-user certificate has TLS server extKeyUsage`, 'color: #8c8;');
 
   // certificate chain checks
-  const rootCerts = getRootCerts();
   let verifiedToTrustedRoot = false;
 
   chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');

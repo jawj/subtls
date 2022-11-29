@@ -21,6 +21,10 @@ A TypeScript TLS 1.3 client of limited scope, built using SubtleCrypto and no ot
 
 * Annotated binary input and output (when built in 'chatty' mode)
 
+## Name
+
+The name _subtls_ is a play on SubtleCrypto + TLS, and perhaps also conveys the idea that this is an incomplete/non-conformant implementation.
+
 ## Resources
 
 TLS 1.3

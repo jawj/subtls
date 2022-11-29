@@ -10,15 +10,18 @@ import { hexFromU8 } from '../util/hex';
 import { LogColours } from '../presentation/appearance';
 import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
+import { TrustedCert } from './cert';
 
 
 export async function startTls(
   host: string,
+  rootCerts: TrustedCert[],
   networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
   networkWrite: (data: Uint8Array) => void,
   useSNI = true,
   writePreData?: Uint8Array,
   expectPreData?: Uint8Array,
+  commentPreData?: string,
 ) {
   const ecdhKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
   const rawPublicKey = await crypto.subtle.exportKey('raw', ecdhKeys.publicKey);
@@ -27,6 +30,7 @@ export async function startTls(
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
+  chatty && log('▼ client to server, unencrypted: begin TLS handshake with client hello');
   chatty && log(...highlightBytes(clientHello.commentedString(), LogColours.client));
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
@@ -35,6 +39,8 @@ export async function startTls(
   if (expectPreData) {
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData)) throw new Error('Pre data did not match expectation');
+    chatty && log('▼ server to client, unencrypted');
+    chatty && log(...highlightBytes(hexFromU8(receivedPreData) + '  ' + commentPreData, LogColours.server));
   }
 
   // parse server hello
@@ -69,7 +75,7 @@ export async function startTls(
     if (tlsRecord === undefined) throw new Error('Premature end of encrypted server handshake');
     return tlsRecord;
   };
-  const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos);
+  const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
 
   // dummy cipher change
   const clientCipherChange = new Bytes(6);
@@ -99,8 +105,8 @@ export async function startTls(
   clientFinishedRecord.writeBytes(verifyData);
   chatty && clientFinishedRecord.comment('verify data');
   clientFinishedRecordEnd();
-  const encryptedClientFinished = await makeEncryptedTlsRecords(clientFinishedRecord.array(), handshakeEncrypter, RecordType.Handshake);  // to be sent below
   chatty && log(...highlightBytes(clientFinishedRecord.commentedString(), LogColours.client));
+  const encryptedClientFinished = await makeEncryptedTlsRecords(clientFinishedRecord.array(), handshakeEncrypter, RecordType.Handshake);  // to be sent below
 
   // application keys, encryption/decryption instances
   chatty && log('%c%s', `color: ${LogColours.header}`, 'application key computations');

@@ -1585,33 +1585,11 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
   log(`%c\u2713 ECDSA signature verified (curve ${namedCurve}, hash ${hash})`, "color: #8c8;");
 }
 
-// src/roots/isrg-root-x1.pem
-var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\nTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\ncmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\nWhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\nZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\nMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\nh77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\nA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\nT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\nB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\nB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\nKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\nOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\njh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\nqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\nrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\nHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\nhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\nubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\nNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\nORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\nTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\njNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\noyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\nmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\nemyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n";
-
-// src/roots/isrg-root-x2.pem
-var isrg_root_x2_default = "-----BEGIN CERTIFICATE-----\nMIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\nCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\nR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\nMDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\nZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\nEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\nItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\nAQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\nzj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\ntL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n/q4AaOeMSQ+2b1tbFfLn\n-----END CERTIFICATE-----\n";
-
-// src/roots/cloudflare.pem
-var cloudflare_default = "-----BEGIN CERTIFICATE-----\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\n-----END CERTIFICATE-----";
-
-// src/roots/globalsign.pem
-var globalsign_default = "-----BEGIN CERTIFICATE-----\r\nMIIDdTCCAl2gAwIBAgILBAAAAAABFUtaw5QwDQYJKoZIhvcNAQEFBQAwVzELMAkG\r\nA1UEBhMCQkUxGTAXBgNVBAoTEEdsb2JhbFNpZ24gbnYtc2ExEDAOBgNVBAsTB1Jv\r\nb3QgQ0ExGzAZBgNVBAMTEkdsb2JhbFNpZ24gUm9vdCBDQTAeFw05ODA5MDExMjAw\r\nMDBaFw0yODAxMjgxMjAwMDBaMFcxCzAJBgNVBAYTAkJFMRkwFwYDVQQKExBHbG9i\r\nYWxTaWduIG52LXNhMRAwDgYDVQQLEwdSb290IENBMRswGQYDVQQDExJHbG9iYWxT\r\naWduIFJvb3QgQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDaDuaZ\r\njc6j40+Kfvvxi4Mla+pIH/EqsLmVEQS98GPR4mdmzxzdzxtIK+6NiY6arymAZavp\r\nxy0Sy6scTHAHoT0KMM0VjU/43dSMUBUc71DuxC73/OlS8pF94G3VNTCOXkNz8kHp\r\n1Wrjsok6Vjk4bwY8iGlbKk3Fp1S4bInMm/k8yuX9ifUSPJJ4ltbcdG6TRGHRjcdG\r\nsnUOhugZitVtbNV4FpWi6cgKOOvyJBNPc1STE4U6G7weNLWLBYy5d4ux2x8gkasJ\r\nU26Qzns3dLlwR5EiUWMWea6xrkEmCMgZK9FGqkjWZCrXgzT/LCrBbBlDSgeF59N8\r\n9iFo7+ryUp9/k5DPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8E\r\nBTADAQH/MB0GA1UdDgQWBBRge2YaRQ2XyolQL30EzTSo//z9SzANBgkqhkiG9w0B\r\nAQUFAAOCAQEA1nPnfE920I2/7LqivjTFKDK1fPxsnCwrvQmeU79rXqoRSLblCKOz\r\nyj1hTdNGCbM+w6DjY1Ub8rrvrTnhQ7k4o+YviiY776BQVvnGCv04zcQLcFGUl5gE\r\n38NflNUVyRRBnMRddWQVDf9VMOyGj/8N7yy5Y0b2qvzfvGn9LhJIZJrglfCm7ymP\r\nAbEVtQwdpf5pLGkkeB6zpxxxYu7KyJesF12KwvhHhm4qxFYxldBniYUr+WymXUad\r\nDKqC5JlR3XC321Y9YeRq4VzW9v493kHMB65jUr9TU/Qr6cf9tveCX4XSQRjbgbME\r\nHMUfpIBvFSDJ3gyICh3WZlXi/EjJKSZp4A==\r\n-----END CERTIFICATE-----\r\n";
-
-// src/roots/globalsign-r3.pem
-var globalsign_r3_default = "-----BEGIN CERTIFICATE-----\r\nMIIDXzCCAkegAwIBAgILBAAAAAABIVhTCKIwDQYJKoZIhvcNAQELBQAwTDEgMB4G\r\nA1UECxMXR2xvYmFsU2lnbiBSb290IENBIC0gUjMxEzARBgNVBAoTCkdsb2JhbFNp\r\nZ24xEzARBgNVBAMTCkdsb2JhbFNpZ24wHhcNMDkwMzE4MTAwMDAwWhcNMjkwMzE4\r\nMTAwMDAwWjBMMSAwHgYDVQQLExdHbG9iYWxTaWduIFJvb3QgQ0EgLSBSMzETMBEG\r\nA1UEChMKR2xvYmFsU2lnbjETMBEGA1UEAxMKR2xvYmFsU2lnbjCCASIwDQYJKoZI\r\nhvcNAQEBBQADggEPADCCAQoCggEBAMwldpB5BngiFvXAg7aEyiie/QV2EcWtiHL8\r\nRgJDx7KKnQRfJMsuS+FggkbhUqsMgUdwbN1k0ev1LKMPgj0MK66X17YUhhB5uzsT\r\ngHeMCOFJ0mpiLx9e+pZo34knlTifBtc+ycsmWQ1z3rDI6SYOgxXG71uL0gRgykmm\r\nKPZpO/bLyCiR5Z2KYVc3rHQU3HTgOu5yLy6c+9C7v/U9AOEGM+iCK65TpjoWc4zd\r\nQQ4gOsC0p6Hpsk+QLjJg6VfLuQSSaGjlOCZgdbKfd/+RFO+uIEn8rUAVSNECMWEZ\r\nXriX7613t2Saer9fwRPvm2L7DWzgVGkWqQPabumDk3F2xmmFghcCAwEAAaNCMEAw\r\nDgYDVR0PAQH/BAQDAgEGMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI/wS3+o\r\nLkUkrk1Q+mOai97i3Ru8MA0GCSqGSIb3DQEBCwUAA4IBAQBLQNvAUKr+yAzv95ZU\r\nRUm7lgAJQayzE4aGKAczymvmdLm6AC2upArT9fHxD4q/c2dKg8dEe3jgr25sbwMp\r\njjM5RcOO5LlXbKr8EpbsU8Yt5CRsuZRj+9xTaGdWPoO4zzUhw8lo/s7awlOqzJCK\r\n6fBdRoyV3XpYKBovHd7NADdBj+1EbddTKJd+82cEHhXXipa0095MJ6RMG3NzdvQX\r\nmcIfeg7jLQitChws/zyrVQ4PkX4268NXSb7hLi18YIvDQVETI53O9zJrlAGomecs\r\nMx86OyXShkDOOyyGeMlhLxS67ttVb9+E7gUJTb0o2HLO02JQZR7rkpeDMdmztcpH\r\nWD9f\r\n-----END CERTIFICATE-----\r\n";
-
-// src/tls/rootCerts.ts
-function getRootCerts() {
-  const rootCerts = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + cloudflare_default + globalsign_default + globalsign_r3_default);
-  return rootCerts;
-}
-
 // src/tls/verifyCerts.ts
-async function verifyCerts(certs, host) {
+async function verifyCerts(host, certs, rootCerts) {
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates received from host");
   for (const cert of certs)
     log(...highlightColonList(cert.description()));
-  log("%c\u2713 end-user certificate verified (server has private key)", "color: #8c8;");
   const userCert = certs[0];
   const matchingSubjectAltName = userCert.subjectAltNameMatchingHost(host);
   if (matchingSubjectAltName === void 0)
@@ -1624,7 +1602,6 @@ async function verifyCerts(certs, host) {
   if (!userCert.extKeyUsage?.serverTls)
     throw new Error("End-user certificate has no TLS server extKeyUsage");
   log(`%c\u2713 end-user certificate has TLS server extKeyUsage`, "color: #8c8;");
-  const rootCerts = getRootCerts();
   let verifiedToTrustedRoot = false;
   log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
   for (const cert of rootCerts)
@@ -1682,7 +1659,7 @@ async function verifyCerts(certs, host) {
 
 // src/tls/readEncryptedHandshake.ts
 var txtEnc3 = new TextEncoder();
-async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos) {
+async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos, rootCerts) {
   const hs = new ASN1Bytes(await readHandshakeRecord());
   hs.expectUint8(8, "handshake record type: encrypted extensions");
   const [eeMessageEnd] = hs.expectLengthUint24();
@@ -1743,6 +1720,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   } else {
     throw new Error(`Unsupported certificate verify signature type 0x${hexFromU8([sigType]).padStart(4, "0")}`);
   }
+  log("%c\u2713 end-user certificate verified (server has private key)", "color: #8c8;");
   endCertVerifyPayload();
   const verifyHandshakeData = hs.data.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
@@ -1764,19 +1742,20 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   if (verifyHashVerified !== true)
     throw new Error("Invalid server verify hash");
   log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
-  const verifiedToTrustedRoot = await verifyCerts(certs, host);
+  const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);
   if (!verifiedToTrustedRoot)
     throw new Error("Validated certificate chain did not end in a trusted root");
   return hs.data;
 }
 
 // src/tls/startTls.ts
-async function startTls(host, networkRead, networkWrite, useSNI = true, writePreData, expectPreData) {
+async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = true, writePreData, expectPreData, commentPreData) {
   const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
+  log("\u25BC client to server, unencrypted: begin TLS handshake with client hello");
   log(...highlightBytes(clientHello.commentedString(), "#8cc" /* client */));
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
@@ -1785,6 +1764,8 @@ async function startTls(host, networkRead, networkWrite, useSNI = true, writePre
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData))
       throw new Error("Pre data did not match expectation");
+    log("\u25BC server to client, unencrypted");
+    log(...highlightBytes(hexFromU8(receivedPreData) + "  " + commentPreData, "#88c" /* server */));
   }
   const serverHelloRecord = await readTlsRecord(networkRead, 22 /* Handshake */);
   if (serverHelloRecord === void 0)
@@ -1815,7 +1796,7 @@ async function startTls(host, networkRead, networkWrite, useSNI = true, writePre
       throw new Error("Premature end of encrypted server handshake");
     return tlsRecord;
   };
-  const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos);
+  const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
   const clientCipherChange = new Bytes(6);
   clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
   clientCipherChange.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
@@ -1838,8 +1819,8 @@ async function startTls(host, networkRead, networkWrite, useSNI = true, writePre
   clientFinishedRecord.writeBytes(verifyData);
   clientFinishedRecord.comment("verify data");
   clientFinishedRecordEnd();
-  const encryptedClientFinished = await makeEncryptedTlsRecords(clientFinishedRecord.array(), handshakeEncrypter, 22 /* Handshake */);
   log(...highlightBytes(clientFinishedRecord.commentedString(), "#8cc" /* client */));
+  const encryptedClientFinished = await makeEncryptedTlsRecords(clientFinishedRecord.array(), handshakeEncrypter, 22 /* Handshake */);
   log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
   const clientApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
@@ -1908,8 +1889,10 @@ Host:${host}\r
   return response;
 }
 
+// src/roots/isrg-root-x1.pem
+var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\nTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\ncmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\nWhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\nZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\nMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\nh77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\nA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\nT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\nB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\nB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\nKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\nOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\njh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\nqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\nrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\nHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\nhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\nubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\nNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\nORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\nTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\njNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\noyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\nmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\nemyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n";
+
 // src/postgres.ts
-var txtDec3 = new TextDecoder();
 async function postgres(urlStr) {
   const t0 = Date.now();
   const url = parse(urlStr);
@@ -1919,7 +1902,7 @@ async function postgres(urlStr) {
   const password = `project=${host.match(/^[^.]+/)[0]};${url.password}`;
   const db = url.pathname.slice(1);
   const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
+    const ws2 = new WebSocket(`ws://ws.neon.build/v1?address=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
     ws2.addEventListener("open", () => resolve(ws2));
     ws2.addEventListener("error", (err) => {
@@ -1933,15 +1916,17 @@ async function postgres(urlStr) {
   const networkRead = reader.read.bind(reader);
   const networkWrite = ws.send.bind(ws);
   const sslRequest = new Bytes(8);
-  const endSslRequest = sslRequest.writeLengthUint32Incl("ssl request");
-  sslRequest.writeUint32(80877103);
+  const endSslRequest = sslRequest.writeLengthUint32Incl("SSL request");
+  sslRequest.writeUint32(80877103, "SSL request code");
   endSslRequest();
+  log("\u25BC client to server, unencrypted: request for SSL support status");
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
   const writePreData = sslRequest.array();
   const sslResponse = new Bytes(1);
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();
-  const [read, write] = await startTls(host, networkRead, networkWrite, false, writePreData, expectPreData);
+  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default);
+  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, false, writePreData, expectPreData, '"S" = SSL connection supported');
   const msg = new Bytes(1024);
   const endStartupMessage = msg.writeLengthUint32Incl("startup message");
   msg.writeUint32(196608, "protocol version");
@@ -1959,7 +1944,7 @@ async function postgres(urlStr) {
   msg.writeUTF8String("Q");
   msg.comment("= simple query");
   const endQuery = msg.writeLengthUint32Incl("query");
-  msg.writeUTF8StringNullTerminated("SELECT now();");
+  msg.writeUTF8StringNullTerminated("SELECT now()");
   endQuery();
   log(...highlightBytes(msg.commentedString(), "#8cc" /* client */));
   write(msg.array());
@@ -1995,11 +1980,11 @@ async function postgres(urlStr) {
     } else if (msgType === "Z") {
       postAuthBytes.comment("= ready for query");
       const [endStatus] = postAuthBytes.expectLengthUint32Incl("status");
-      postAuthBytes.expectUint8("I".charCodeAt(0), '"I" = idle');
+      postAuthBytes.expectUint8("I".charCodeAt(0), '"I" = status: idle');
       endStatus();
     }
   }
-  log(...highlightBytes(postAuthBytes.commentedString(true), "#8cc" /* client */));
+  log(...highlightBytes(postAuthBytes.commentedString(true), "#88c" /* server */));
   const queryResult = await read();
   const queryResultBytes = new Bytes(queryResult);
   queryResultBytes.expectUint8("T".charCodeAt(0), '"T" = row description');
@@ -2007,7 +1992,7 @@ async function postgres(urlStr) {
   const fieldsPerRow = queryResultBytes.readUint16("fields per row");
   for (let i = 0; i < fieldsPerRow; i++) {
     const columnName = queryResultBytes.readUTF8StringNullTerminated();
-    queryResultBytes.comment("column name");
+    queryResultBytes.comment("= column name", queryResultBytes.offset - 1);
     const tableOID = queryResultBytes.readUint32("table OID");
     const colAttrNum = queryResultBytes.readUint16("column attribute number");
     const dataTypeOID = queryResultBytes.readUint32("data type OID");
@@ -2016,37 +2001,44 @@ async function postgres(urlStr) {
     const formatCode = queryResultBytes.readUint16("format code");
   }
   endRowDescription();
+  let lastColumnData;
   while (queryResultBytes.remaining() > 0) {
     const msgType = queryResultBytes.readUTF8String(1);
     if (msgType === "D") {
-      postAuthBytes.comment("= data row");
+      queryResultBytes.comment("= data row");
       const [endDataRow] = queryResultBytes.expectLengthUint32Incl();
       const columnsToFollow = queryResultBytes.readUint16("columns to follow");
       for (let i = 0; i < columnsToFollow; i++) {
         const [endColumn, columnRemaining] = queryResultBytes.expectLengthUint32();
-        const columnData = queryResultBytes.readUTF8String(columnRemaining());
-        log(columnData);
-        queryResultBytes.comment("column value");
+        lastColumnData = queryResultBytes.readUTF8String(columnRemaining());
+        queryResultBytes.comment("= column value");
         endColumn();
       }
       endDataRow();
     } else if (msgType === "C") {
-      postAuthBytes.comment("= close command");
+      queryResultBytes.comment("= close command");
       const [endClose] = queryResultBytes.expectLengthUint32Incl();
       queryResultBytes.readUTF8StringNullTerminated();
-      queryResultBytes.comment("= command tag");
+      queryResultBytes.comment("= command tag", queryResultBytes.offset - 1);
       endClose();
     } else if (msgType === "Z") {
-      postAuthBytes.comment("= ready for query");
+      queryResultBytes.comment("= ready for query");
       const [endReady] = queryResultBytes.expectLengthUint32Incl();
-      queryResultBytes.expectUint8("I".charCodeAt(0), '"I" = idle');
+      queryResultBytes.expectUint8("I".charCodeAt(0), '"I" = status: idle');
       endReady();
     } else {
       throw new Error(`Unexpected message type: ${msgType}`);
     }
   }
-  log(...highlightBytes(queryResultBytes.commentedString(true), "#8cc" /* client */));
-  log(`time taken: ${Date.now() - t0}ms`);
+  log(...highlightBytes(queryResultBytes.commentedString(true), "#88c" /* server */));
+  log("%c%s", "font-size: 2em", lastColumnData);
+  const endBytes = new Bytes(5);
+  endBytes.writeUTF8String("X");
+  endBytes.comment("= terminate");
+  const endTerminate = endBytes.writeLengthUint32Incl();
+  endTerminate();
+  log(...highlightBytes(endBytes.commentedString(true), "#8cc" /* client */));
+  write(endBytes.array());
 }
 function parse(url, parseQueryString = false) {
   const { protocol } = new URL(url);

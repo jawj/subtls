@@ -2,7 +2,7 @@ import { LogColours } from '../presentation/appearance';
 import { hkdfExpandLabel } from './keys';
 import { concat, equal } from '../util/array';
 
-import { Cert } from './cert';
+import { Cert, TrustedCert } from './cert';
 import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { ASN1Bytes } from '../util/asn1bytes';
@@ -12,7 +12,7 @@ import { verifyCerts } from './verifyCerts';
 
 const txtEnc = new TextEncoder();
 
-export async function readEncryptedHandshake(host: string, readHandshakeRecord: () => Promise<Uint8Array>, serverSecret: Uint8Array, hellos: Uint8Array) {
+export async function readEncryptedHandshake(host: string, readHandshakeRecord: () => Promise<Uint8Array>, serverSecret: Uint8Array, hellos: Uint8Array, rootCerts: TrustedCert[]) {
   const hs = new ASN1Bytes(await readHandshakeRecord());
 
   hs.expectUint8(0x08, chatty && 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
@@ -103,6 +103,7 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
     throw new Error(`Unsupported certificate verify signature type 0x${hexFromU8([sigType]).padStart(4, '0')}`);
   }
 
+  chatty && log('%c✓ end-user certificate verified (server has private key)', 'color: #8c8;');  // if not, we'd have thrown by now
   endCertVerifyPayload();
 
   // handshake verify
@@ -128,7 +129,7 @@ export async function readEncryptedHandshake(host: string, readHandshakeRecord: 
 
   chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
 
-  const verifiedToTrustedRoot = await verifyCerts(certs, host);
+  const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);
   if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in a trusted root');
 
   return hs.data;

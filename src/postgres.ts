@@ -5,11 +5,10 @@ import { LogColours } from './presentation/appearance';
 import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
-import { uint8FromUint32 } from './util/bigEndian';
-import { hexFromU8 } from './util/hex';
-import { equal } from './util/array';
+import { TrustedCert } from './tls/cert';
 
-const txtDec = new TextDecoder();
+// @ts-ignore
+import isrgrootx1 from './roots/isrg-root-x1.pem';
 
 export async function postgres(urlStr: string) {
   const t0 = Date.now();
@@ -22,7 +21,7 @@ export async function postgres(urlStr: string) {
   const db = url.pathname.slice(1);
 
   const ws = await new Promise<WebSocket>(resolve => {
-    const ws = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
+    const ws = new WebSocket(`ws://ws.neon.build/v1?address=${host}:${port}`);
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('error', (err) => { console.log('ws error:', err); });
@@ -32,10 +31,13 @@ export async function postgres(urlStr: string) {
   const networkRead = reader.read.bind(reader);
   const networkWrite = ws.send.bind(ws);
 
+  // https://www.postgresql.org/docs/current/protocol-message-formats.html
+
   const sslRequest = new Bytes(8);
-  const endSslRequest = sslRequest.writeLengthUint32Incl(chatty && 'ssl request');
-  sslRequest.writeUint32(0x04d2162f);
+  const endSslRequest = sslRequest.writeLengthUint32Incl(chatty && 'SSL request');
+  sslRequest.writeUint32(0x04d2162f, 'SSL request code');
   endSslRequest();
+  chatty && log('▼ client to server, unencrypted: request for SSL support status');
   chatty && log(...highlightBytes(sslRequest.commentedString(), LogColours.client));
   const writePreData = sslRequest.array();
 
@@ -43,7 +45,8 @@ export async function postgres(urlStr: string) {
   sslResponse.writeUTF8String('S');
   const expectPreData = sslResponse.array();
 
-  const [read, write] = await startTls(host, networkRead, networkWrite, false, writePreData, expectPreData);
+  const rootCert = TrustedCert.fromPEM(isrgrootx1);
+  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, false, writePreData, expectPreData, '"S" = SSL connection supported');
 
   const msg = new Bytes(1024);
 
@@ -65,13 +68,8 @@ export async function postgres(urlStr: string) {
   msg.writeUTF8String('Q');
   chatty && msg.comment('= simple query');
   const endQuery = msg.writeLengthUint32Incl(chatty && 'query');
-  msg.writeUTF8StringNullTerminated('SELECT now();');
+  msg.writeUTF8StringNullTerminated('SELECT now()');
   endQuery();
-
-  // msg.writeUTF8String('X');
-  // chatty && msg.comment('= terminate');
-  // const endTerminate = msg.writeLengthUint32Incl();
-  // endTerminate();
 
   chatty && log(...highlightBytes(msg.commentedString(), LogColours.client));
   write(msg.array());
@@ -113,11 +111,11 @@ export async function postgres(urlStr: string) {
     } else if (msgType === 'Z') {
       chatty && postAuthBytes.comment('= ready for query');
       const [endStatus] = postAuthBytes.expectLengthUint32Incl(chatty && 'status');
-      postAuthBytes.expectUint8('I'.charCodeAt(0), chatty && '"I" = idle');
+      postAuthBytes.expectUint8('I'.charCodeAt(0), chatty && '"I" = status: idle');
       endStatus();
     }
   }
-  chatty && log(...highlightBytes(postAuthBytes.commentedString(true), LogColours.client));
+  chatty && log(...highlightBytes(postAuthBytes.commentedString(true), LogColours.server));
 
   const queryResult = await read();
   const queryResultBytes = new Bytes(queryResult!);
@@ -127,7 +125,7 @@ export async function postgres(urlStr: string) {
   const fieldsPerRow = queryResultBytes.readUint16(chatty && 'fields per row');
   for (let i = 0; i < fieldsPerRow; i++) {
     const columnName = queryResultBytes.readUTF8StringNullTerminated();
-    chatty && queryResultBytes.comment('column name');
+    chatty && queryResultBytes.comment('= column name', queryResultBytes.offset - 1);
     const tableOID = queryResultBytes.readUint32(chatty && 'table OID');
     const colAttrNum = queryResultBytes.readUint16(chatty && 'column attribute number');
     const dataTypeOID = queryResultBytes.readUint32(chatty && 'data type OID');
@@ -137,32 +135,32 @@ export async function postgres(urlStr: string) {
   }
   endRowDescription();
 
+  let lastColumnData;
   while (queryResultBytes.remaining() > 0) {
     const msgType = queryResultBytes.readUTF8String(1);
     if (msgType === 'D') {
-      chatty && postAuthBytes.comment('= data row');
+      chatty && queryResultBytes.comment('= data row');
       const [endDataRow] = queryResultBytes.expectLengthUint32Incl();
       const columnsToFollow = queryResultBytes.readUint16(chatty && 'columns to follow');
       for (let i = 0; i < columnsToFollow; i++) {
         const [endColumn, columnRemaining] = queryResultBytes.expectLengthUint32();  // NOT including self this time
-        const columnData = queryResultBytes.readUTF8String(columnRemaining());
-        log(columnData);
-        chatty && queryResultBytes.comment('column value');
+        lastColumnData = queryResultBytes.readUTF8String(columnRemaining());
+        chatty && queryResultBytes.comment('= column value');
         endColumn();
       }
       endDataRow();
 
     } else if (msgType === 'C') {
-      chatty && postAuthBytes.comment('= close command');
+      chatty && queryResultBytes.comment('= close command');
       const [endClose] = queryResultBytes.expectLengthUint32Incl();
       queryResultBytes.readUTF8StringNullTerminated();
-      chatty && queryResultBytes.comment('= command tag');
+      chatty && queryResultBytes.comment('= command tag', queryResultBytes.offset - 1);
       endClose();
 
     } else if (msgType === 'Z') {
-      chatty && postAuthBytes.comment('= ready for query');
+      chatty && queryResultBytes.comment('= ready for query');
       const [endReady] = queryResultBytes.expectLengthUint32Incl();
-      queryResultBytes.expectUint8('I'.charCodeAt(0), chatty && '"I" = idle');
+      queryResultBytes.expectUint8('I'.charCodeAt(0), chatty && '"I" = status: idle');
       endReady();
 
     } else {
@@ -170,8 +168,18 @@ export async function postgres(urlStr: string) {
     }
   }
 
-  chatty && log(...highlightBytes(queryResultBytes.commentedString(true), LogColours.client));
-  log(`time taken: ${Date.now() - t0}ms`);
+  chatty && log(...highlightBytes(queryResultBytes.commentedString(true), LogColours.server));
+  log('%c%s', 'font-size: 2em', lastColumnData);
+  chatty || log(`time taken: ${Date.now() - t0}ms`);
+
+  const endBytes = new Bytes(5);
+  endBytes.writeUTF8String('X');
+  chatty && endBytes.comment('= terminate');
+  const endTerminate = endBytes.writeLengthUint32Incl();
+  endTerminate();
+
+  chatty && log(...highlightBytes(endBytes.commentedString(true), LogColours.client));
+  write(endBytes.array());
 }
 
 function parse(url: string, parseQueryString = false) {
