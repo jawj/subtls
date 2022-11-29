@@ -5,7 +5,7 @@ import { getApplicationKeys, getHandshakeKeys, hkdfExpandLabel } from './keys';
 import { Crypter } from './aesgcm';
 import { readEncryptedHandshake } from './readEncryptedHandshake';
 import Bytes from '../util/bytes';
-import { concat } from '../util/array';
+import { concat, equal } from '../util/array';
 import { hexFromU8 } from '../util/hex';
 import { LogColours } from '../presentation/appearance';
 import { highlightBytes } from '../presentation/highlights';
@@ -16,6 +16,9 @@ export async function startTls(
   host: string,
   networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
   networkWrite: (data: Uint8Array) => void,
+  useSNI = true,
+  writePreData?: Uint8Array,
+  expectPreData?: Uint8Array,
 ) {
   const ecdhKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
   const rawPublicKey = await crypto.subtle.exportKey('raw', ecdhKeys.publicKey);
@@ -23,10 +26,16 @@ export async function startTls(
   // client hello
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
-  const clientHello = makeClientHello(host, rawPublicKey, sessionId);
+  const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
   chatty && log(...highlightBytes(clientHello.commentedString(), LogColours.client));
   const clientHelloData = clientHello.array();
-  networkWrite(clientHelloData);
+  const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
+  networkWrite(initialData);
+
+  if (expectPreData) {
+    const receivedPreData = await networkRead(expectPreData.length);
+    if (!receivedPreData || !equal(receivedPreData, expectPreData)) throw new Error('Pre data did not match expectation');
+  }
 
   // parse server hello
   const serverHelloRecord = await readTlsRecord(networkRead, RecordType.Handshake);
@@ -103,9 +112,17 @@ export async function startTls(
 
   let wroteFinishedRecords = false;
 
-  const read = () => readEncryptedTlsRecord(networkRead, applicationDecrypter);
+  const read = () => {
+    if (!wroteFinishedRecords) {
+      const finishedRecords = concat(clientCipherChangeData, ...encryptedClientFinished);
+      networkWrite(finishedRecords);
+      wroteFinishedRecords = true;
+    }
+    return readEncryptedTlsRecord(networkRead, applicationDecrypter)
+  };
   const write = async (data: Uint8Array) => {
     const encryptedRecords = await makeEncryptedTlsRecords(data, applicationEncrypter, RecordType.Application);
+
     const allRecords = wroteFinishedRecords ?
       concat(...encryptedRecords) :
       concat(clientCipherChangeData, ...encryptedClientFinished, ...encryptedRecords);

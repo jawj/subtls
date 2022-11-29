@@ -51,7 +51,8 @@
   <a href="#" onclick="document.body.scrollTo({ top: 0 }); return false;">Top</a> &nbsp;
   <a href="#" onclick="document.body.scrollTo({ top: 999999 }); return false;">Bottom</a>
 </div>
-<script>
+<div id="logs"></div>
+<script type="module">
   function saveState() {
     const inputs = document.querySelectorAll('input');
     const state = Array.from(inputs).reduce((memo, input, i) => {
@@ -72,7 +73,14 @@
       window.addEventListener('click', saveState);
     }, 0);  // may need to open all sections before scroll position can be reinstated
   }
-  window.addEventListener('tlsdone', restoreState);
+
+  import { https, postgres } from './index.js';
+  // https('https://google.com').then(() => restoreState());
+
+  postgres(location.hash.slice(1));
+
+  // https('https://neon-cf-pg-test.jawj.workers.dev');
+  // https('https://neon-vercel-demo-heritage.vercel.app');  // encrypted handshake is split across multiple messages
+  // https('https://developers.cloudflare.com');
+  // https('https://guardian.co.uk');
 </script>
-<div id="logs"></div>
-<script src="index.js"></script>

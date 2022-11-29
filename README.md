@@ -1,25 +1,25 @@
 # subtls
 
-A TypeScript TLS 1.3 client of limited scope. Non-compliant with the spec in various ways. Built using SubtleCrypto with no other dependencies.
+A TypeScript TLS 1.3 client of limited scope, built using SubtleCrypto and no other dependencies. Non-compliant with the spec in various ways.
 
 ## Current scope
 
 * TLS 1.3 only
 * Client only
-* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there's currently no SubtleCrypto support for Curve25519 and x448)
-* Ciphers: TLS_AES_128_GCM_SHA256 only (TLS_AES_256_GCM_SHA384 would be easy to add; there's currently no SubtleCrypto support for TLS_CHACHA20_POLY1305_SHA256)
-* End-user certificate verify: ECDSA (P-256) + SHA256 and RSA_PSS_RSAE_SHA256 only
-* Certificate chain verify: ECDSA (P-256/384) + SHA256/384 and RSASSA_PKCS1-v1_5 + SHA-256 only
+* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add, but there's currently no SubtleCrypto support for Curve25519 and x448)
+* Ciphers: TLS_AES_128_GCM_SHA256 only (TLS_AES_256_GCM_SHA384 would be easy to add, but there's currently no SubtleCrypto support for TLS_CHACHA20_POLY1305_SHA256)
+* End-user certificate verify: ECDSA (P-256) + SHA256 and RSA_PSS_RSAE_SHA256 only (some others would be easy to add)
+* Certificate chain verify: ECDSA (P-256/384) + SHA256/384 and RSASSA_PKCS1-v1_5 + SHA-256 only (some others would be easy to add)
 * No cert chain building: each cert must sign the preceding one, leading to a trusted root
 * No client certificates
 * No session tickets
 * No Pre-Shared Keys
 * Limited ability to deal with message fragmentation across records
-* Never sends alert records: simply throws on error
+* Never sends alert records, simply throws on error
 
 ## Features
 
-* Annotated binary input/output (when built in 'chatty' mode)
+* Annotated binary input and output (when built in 'chatty' mode)
 
 ## Resources
 

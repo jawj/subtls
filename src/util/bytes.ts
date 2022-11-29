@@ -63,6 +63,14 @@ export default class Bytes {
     return s;
   }
 
+  readUTF8StringNullTerminated() {
+    let endOffset = this.offset;
+    while (this.data[endOffset] !== 0) endOffset++;
+    const str = this.readUTF8String(endOffset - this.offset);
+    this.expectUint8(0x00, 'end of string');
+    return str;
+  }
+
   readUint8(comment?: string) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
@@ -116,6 +124,12 @@ export default class Bytes {
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
 
+  expectUint32(expectedValue: number, comment?: string) {
+    const actualValue = this.readUint32();
+    if (chatty && comment) this.comment(comment);
+    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
+
   expectLength(length: number, indentDelta = 1) {
     const startOffset = this.offset;
     const endOffset = startOffset + length;
@@ -150,6 +164,36 @@ export default class Bytes {
     return this.expectLength(length);
   }
 
+  expectLengthUint32(comment?: string) {
+    const length = this.readUint32();
+    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    return this.expectLength(length);
+  }
+
+  expectLengthUint8Incl(comment?: string) {
+    const length = this.readUint8();
+    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} start here`);
+    return this.expectLength(length - 1);
+  }
+
+  expectLengthUint16Incl(comment?: string) {
+    const length = this.readUint16();
+    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} start here`);
+    return this.expectLength(length - 2);
+  }
+
+  expectLengthUint24Incl(comment?: string) {
+    const length = this.readUint24();
+    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} start here`);
+    return this.expectLength(length - 3);
+  }
+
+  expectLengthUint32Incl(comment?: string) {
+    const length = this.readUint32();
+    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} start here`);
+    return this.expectLength(length - 4);
+  }
+
   // writing
 
   writeBytes(bytes: number[] | Uint8Array) {
@@ -179,39 +223,67 @@ export default class Bytes {
     return this;
   }
 
+  writeUint32(value: number, comment?: string): Bytes {
+    this.dataView.setUint32(this.offset, value);
+    this.offset += 4;
+    if (chatty && comment) this.comment(comment);
+    return this;
+  }
+
   // forward-looking lengths
 
-  _writeLengthGeneric(lengthBytes: 1 | 2 | 3, comment?: string) {
+  _writeLengthGeneric(lengthBytes: 1 | 2 | 3 | 4, inclusive: boolean, comment?: string) {
     const startOffset = this.offset;
     this.offset += lengthBytes;
     const endOffset = this.offset;
     this.indent += 1;
     this.indents[endOffset] = this.indent;
     return () => {
-      const length = this.offset - endOffset;
+      const length = this.offset - (inclusive ? startOffset : endOffset);
       if (lengthBytes === 1) this.dataView.setUint8(startOffset, length);
       else if (lengthBytes === 2) this.dataView.setUint16(startOffset, length);
       else if (lengthBytes === 3) {
         this.dataView.setUint8(startOffset, (length & 0xff0000) >> 16);
         this.dataView.setUint16(startOffset + 1, length & 0xffff);
       }
+      else if (lengthBytes === 4) this.dataView.setUint32(startOffset, length);
       else throw new Error(`Invalid length for length field: ${lengthBytes}`);
-      chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`, endOffset);
+      chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} ${inclusive ? 'start here' : 'follow'}`, endOffset);
       this.indent -= 1;
       this.indents[this.offset] = this.indent;
     };
   }
 
   writeLengthUint8(comment?: string) {
-    return this._writeLengthGeneric(1, comment);
+    return this._writeLengthGeneric(1, false, comment);
   }
 
   writeLengthUint16(comment?: string) {
-    return this._writeLengthGeneric(2, comment);
+    return this._writeLengthGeneric(2, false, comment);
   }
 
   writeLengthUint24(comment?: string) {
-    return this._writeLengthGeneric(3, comment);
+    return this._writeLengthGeneric(3, false, comment);
+  }
+
+  writeLengthUint32(comment?: string) {
+    return this._writeLengthGeneric(4, false, comment);
+  }
+
+  writeLengthUint8Incl(comment?: string) {
+    return this._writeLengthGeneric(1, true, comment);
+  }
+
+  writeLengthUint16Incl(comment?: string) {
+    return this._writeLengthGeneric(2, true, comment);
+  }
+
+  writeLengthUint24Incl(comment?: string) {
+    return this._writeLengthGeneric(3, true, comment);
+  }
+
+  writeLengthUint32Incl(comment?: string) {
+    return this._writeLengthGeneric(4, true, comment);
   }
 
   // output

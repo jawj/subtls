@@ -1,6 +1,6 @@
 import Bytes from '../util/bytes';
 
-export default function makeClientHello(host: string, publicKey: ArrayBuffer, sessionId: Uint8Array) {
+export default function makeClientHello(host: string, publicKey: ArrayBuffer, sessionId: Uint8Array, useSNI = true) {
   const h = new Bytes(1024);
 
   h.writeUint8(0x16);
@@ -36,17 +36,19 @@ export default function makeClientHello(host: string, publicKey: ArrayBuffer, se
 
   const endExtensions = h.writeLengthUint16(chatty && 'extensions');
 
-  h.writeUint16(0x0000);
-  chatty && h.comment('extension type: SNI');
-  const endSNIExt = h.writeLengthUint16(chatty && 'SNI data');
-  const endSNI = h.writeLengthUint16(chatty && 'SNI records');
-  h.writeUint8(0x00);
-  chatty && h.comment('list entry type: DNS hostname');
-  const endHostname = h.writeLengthUint16(chatty && 'hostname');
-  h.writeUTF8String(host);
-  endHostname();
-  endSNI();
-  endSNIExt();
+  if (useSNI) {
+    h.writeUint16(0x0000);
+    chatty && h.comment('extension type: SNI');
+    const endSNIExt = h.writeLengthUint16(chatty && 'SNI data');
+    const endSNI = h.writeLengthUint16(chatty && 'SNI records');
+    h.writeUint8(0x00);
+    chatty && h.comment('list entry type: DNS hostname');
+    const endHostname = h.writeLengthUint16(chatty && 'hostname');
+    h.writeUTF8String(host);
+    endHostname();
+    endSNI();
+    endSNIExt();
+  }
 
   h.writeUint16(0x000b);
   chatty && h.comment('extension type: EC point formats');

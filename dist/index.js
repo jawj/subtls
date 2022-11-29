@@ -144,6 +144,14 @@ var Bytes = class {
     this.comment('"' + s.replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"');
     return s;
   }
+  readUTF8StringNullTerminated() {
+    let endOffset = this.offset;
+    while (this.data[endOffset] !== 0)
+      endOffset++;
+    const str = this.readUTF8String(endOffset - this.offset);
+    this.expectUint8(0, "end of string");
+    return str;
+  }
   readUint8(comment) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
@@ -201,6 +209,13 @@ var Bytes = class {
     if (actualValue !== expectedValue)
       throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
+  expectUint32(expectedValue, comment) {
+    const actualValue = this.readUint32();
+    if (comment)
+      this.comment(comment);
+    if (actualValue !== expectedValue)
+      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+  }
   expectLength(length, indentDelta = 1) {
     const startOffset = this.offset;
     const endOffset = startOffset + length;
@@ -233,6 +248,31 @@ var Bytes = class {
     this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
     return this.expectLength(length);
   }
+  expectLengthUint32(comment) {
+    const length = this.readUint32();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
+    return this.expectLength(length);
+  }
+  expectLengthUint8Incl(comment) {
+    const length = this.readUint8();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
+    return this.expectLength(length - 1);
+  }
+  expectLengthUint16Incl(comment) {
+    const length = this.readUint16();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
+    return this.expectLength(length - 2);
+  }
+  expectLengthUint24Incl(comment) {
+    const length = this.readUint24();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
+    return this.expectLength(length - 3);
+  }
+  expectLengthUint32Incl(comment) {
+    const length = this.readUint32();
+    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
+    return this.expectLength(length - 4);
+  }
   writeBytes(bytes) {
     this.data.set(bytes, this.offset);
     this.offset += bytes.length;
@@ -258,14 +298,21 @@ var Bytes = class {
       this.comment(comment);
     return this;
   }
-  _writeLengthGeneric(lengthBytes, comment) {
+  writeUint32(value, comment) {
+    this.dataView.setUint32(this.offset, value);
+    this.offset += 4;
+    if (comment)
+      this.comment(comment);
+    return this;
+  }
+  _writeLengthGeneric(lengthBytes, inclusive, comment) {
     const startOffset = this.offset;
     this.offset += lengthBytes;
     const endOffset = this.offset;
     this.indent += 1;
     this.indents[endOffset] = this.indent;
     return () => {
-      const length = this.offset - endOffset;
+      const length = this.offset - (inclusive ? startOffset : endOffset);
       if (lengthBytes === 1)
         this.dataView.setUint8(startOffset, length);
       else if (lengthBytes === 2)
@@ -273,21 +320,38 @@ var Bytes = class {
       else if (lengthBytes === 3) {
         this.dataView.setUint8(startOffset, (length & 16711680) >> 16);
         this.dataView.setUint16(startOffset + 1, length & 65535);
-      } else
+      } else if (lengthBytes === 4)
+        this.dataView.setUint32(startOffset, length);
+      else
         throw new Error(`Invalid length for length field: ${lengthBytes}`);
-      this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`, endOffset);
+      this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} ${inclusive ? "start here" : "follow"}`, endOffset);
       this.indent -= 1;
       this.indents[this.offset] = this.indent;
     };
   }
   writeLengthUint8(comment) {
-    return this._writeLengthGeneric(1, comment);
+    return this._writeLengthGeneric(1, false, comment);
   }
   writeLengthUint16(comment) {
-    return this._writeLengthGeneric(2, comment);
+    return this._writeLengthGeneric(2, false, comment);
   }
   writeLengthUint24(comment) {
-    return this._writeLengthGeneric(3, comment);
+    return this._writeLengthGeneric(3, false, comment);
+  }
+  writeLengthUint32(comment) {
+    return this._writeLengthGeneric(4, false, comment);
+  }
+  writeLengthUint8Incl(comment) {
+    return this._writeLengthGeneric(1, true, comment);
+  }
+  writeLengthUint16Incl(comment) {
+    return this._writeLengthGeneric(2, true, comment);
+  }
+  writeLengthUint24Incl(comment) {
+    return this._writeLengthGeneric(3, true, comment);
+  }
+  writeLengthUint32Incl(comment) {
+    return this._writeLengthGeneric(4, true, comment);
   }
   array() {
     return this.data.subarray(0, this.offset);
@@ -376,7 +440,7 @@ function log(...args) {
 }
 
 // src/tls/makeClientHello.ts
-function makeClientHello(host, publicKey, sessionId) {
+function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const h = new Bytes(1024);
   h.writeUint8(22);
   h.comment("record type: handshake");
@@ -403,17 +467,19 @@ function makeClientHello(host, publicKey, sessionId) {
   h.comment("compression method: none");
   endCompressionMethods();
   const endExtensions = h.writeLengthUint16("extensions");
-  h.writeUint16(0);
-  h.comment("extension type: SNI");
-  const endSNIExt = h.writeLengthUint16("SNI data");
-  const endSNI = h.writeLengthUint16("SNI records");
-  h.writeUint8(0);
-  h.comment("list entry type: DNS hostname");
-  const endHostname = h.writeLengthUint16("hostname");
-  h.writeUTF8String(host);
-  endHostname();
-  endSNI();
-  endSNIExt();
+  if (useSNI) {
+    h.writeUint16(0);
+    h.comment("extension type: SNI");
+    const endSNIExt = h.writeLengthUint16("SNI data");
+    const endSNI = h.writeLengthUint16("SNI records");
+    h.writeUint8(0);
+    h.comment("list entry type: DNS hostname");
+    const endHostname = h.writeLengthUint16("hostname");
+    h.writeUTF8String(host);
+    endHostname();
+    endSNI();
+    endSNIExt();
+  }
   h.writeUint16(11);
   h.comment("extension type: EC point formats");
   const endFormatTypesExt = h.writeLengthUint16("formats data");
@@ -1697,15 +1763,21 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
 }
 
 // src/tls/startTls.ts
-async function startTls(host, networkRead, networkWrite) {
+async function startTls(host, networkRead, networkWrite, useSNI = true, writePreData, expectPreData) {
   const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
-  const clientHello = makeClientHello(host, rawPublicKey, sessionId);
+  const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
   log(...highlightBytes(clientHello.commentedString(), "#8cc" /* client */));
   const clientHelloData = clientHello.array();
-  networkWrite(clientHelloData);
+  const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
+  networkWrite(initialData);
+  if (expectPreData) {
+    const receivedPreData = await networkRead(expectPreData.length);
+    if (!receivedPreData || !equal(receivedPreData, expectPreData))
+      throw new Error("Pre data did not match expectation");
+  }
   const serverHelloRecord = await readTlsRecord(networkRead, 22 /* Handshake */);
   if (serverHelloRecord === void 0)
     throw new Error("Connection closed while awaiting server hello");
@@ -1767,7 +1839,14 @@ async function startTls(host, networkRead, networkWrite) {
   const serverApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
   let wroteFinishedRecords = false;
-  const read = () => readEncryptedTlsRecord(networkRead, applicationDecrypter);
+  const read = () => {
+    if (!wroteFinishedRecords) {
+      const finishedRecords = concat(clientCipherChangeData, ...encryptedClientFinished);
+      networkWrite(finishedRecords);
+      wroteFinishedRecords = true;
+    }
+    return readEncryptedTlsRecord(networkRead, applicationDecrypter);
+  };
   const write = async (data) => {
     const encryptedRecords = await makeEncryptedTlsRecords(data, applicationEncrypter, 23 /* Application */);
     const allRecords = wroteFinishedRecords ? concat(...encryptedRecords) : concat(clientCipherChangeData, ...encryptedClientFinished, ...encryptedRecords);
@@ -1777,8 +1856,16 @@ async function startTls(host, networkRead, networkWrite) {
   return [read, write];
 }
 
-// src/index.ts
-async function start(host, port) {
+// src/https.ts
+var txtDec2 = new TextDecoder();
+async function https(urlStr, method = "GET") {
+  const t0 = Date.now();
+  const url = new URL(urlStr);
+  if (url.protocol !== "https:")
+    throw new Error("Wrong protocol");
+  const host = url.hostname;
+  const port = url.port || 443;
+  const reqPath = url.pathname + url.search;
   const ws = await new Promise((resolve) => {
     const ws2 = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
@@ -1791,22 +1878,140 @@ async function start(host, port) {
     });
   });
   const reader = new ReadQueue(ws);
-  const t0 = Date.now();
   const [read, write] = await startTls(host, reader.read.bind(reader), ws.send.bind(ws));
   const request = new Bytes(1024);
-  request.writeUTF8String(`HEAD / HTTP/1.0\r
+  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
 Host:${host}\r
 \r
 `);
   log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
   write(request.array());
-  let serverResponse;
+  let responseData;
+  let response = "";
   do {
-    serverResponse = await read();
-    if (serverResponse)
-      log(new TextDecoder().decode(serverResponse));
-  } while (serverResponse);
+    responseData = await read();
+    if (responseData) {
+      const responseText = txtDec2.decode(responseData);
+      response += responseText;
+      log(responseText);
+    }
+  } while (responseData);
   log(`time taken: ${Date.now() - t0}ms`);
-  window.dispatchEvent(new Event("tlsdone"));
+  return response;
 }
-start("google.com", 443);
+
+// src/postgres.ts
+var txtDec3 = new TextDecoder();
+async function postgres(urlStr) {
+  const t0 = Date.now();
+  const url = parse(urlStr);
+  const host = url.hostname;
+  const port = url.port || 5432;
+  const user = url.username;
+  const password = `project=${host.match(/^[^.]+/)[0]};${url.password}`;
+  const db = url.pathname.slice(1);
+  const ws = await new Promise((resolve) => {
+    const ws2 = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
+    ws2.binaryType = "arraybuffer";
+    ws2.addEventListener("open", () => resolve(ws2));
+    ws2.addEventListener("error", (err) => {
+      console.log("ws error:", err);
+    });
+    ws2.addEventListener("close", () => {
+      log("connection closed");
+    });
+  });
+  const reader = new ReadQueue(ws);
+  const networkRead = reader.read.bind(reader);
+  const networkWrite = ws.send.bind(ws);
+  const sslRequest = new Bytes(8);
+  const endSslRequest = sslRequest.writeLengthUint32Incl("ssl request");
+  sslRequest.writeUint32(80877103);
+  endSslRequest();
+  log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
+  const writePreData = sslRequest.array();
+  const sslResponse = new Bytes(1);
+  sslResponse.writeUTF8String("S");
+  const expectPreData = sslResponse.array();
+  console.log("expectPreData", expectPreData, expectPreData.length);
+  const [read, write] = await startTls(host, networkRead, networkWrite, false, writePreData, expectPreData);
+  const msg = new Bytes(1024);
+  const endStartupMessage = msg.writeLengthUint32Incl("startup message");
+  msg.writeUint32(196608, "protocol version");
+  msg.writeUTF8String("user");
+  msg.writeUint8(0, "end of string");
+  msg.writeUTF8String(user);
+  msg.writeUint8(0, "end of string");
+  msg.writeUTF8String("database");
+  msg.writeUint8(0, "end of string");
+  msg.writeUTF8String(db);
+  msg.writeUint8(0, "end of string");
+  msg.writeUint8(0, "end of message");
+  endStartupMessage();
+  msg.writeUTF8String("p");
+  msg.comment("= password");
+  const endPasswordMessage = msg.writeLengthUint32Incl("password message");
+  msg.writeUTF8String(password);
+  msg.writeUint8(0, "end of string");
+  endPasswordMessage();
+  log(...highlightBytes(msg.commentedString(), "#8cc" /* client */));
+  write(msg.array());
+  const preAuthResponse = await read();
+  const preAuthBytes = new Bytes(preAuthResponse);
+  preAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
+  const [endAuthReq] = preAuthBytes.expectLengthUint32Incl("request");
+  preAuthBytes.expectUint32(3, "request cleartext password auth");
+  endAuthReq();
+  log(...highlightBytes(preAuthBytes.commentedString(true), "#8cc" /* client */));
+  const postAuthResponse = await read();
+  const postAuthBytes = new Bytes(postAuthResponse);
+  postAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
+  const [endAuthOK] = postAuthBytes.expectLengthUint32Incl("result");
+  postAuthBytes.expectUint32(0, "authentication successful");
+  endAuthOK();
+  while (postAuthBytes.remaining() > 0) {
+    const msgType = postAuthBytes.readUTF8String(1);
+    if (msgType === "S") {
+      postAuthBytes.comment("= parameter status");
+      const [endParams, paramsRemaining] = postAuthBytes.expectLengthUint32Incl("run-time parameters");
+      while (paramsRemaining() > 0) {
+        const k = postAuthBytes.readUTF8StringNullTerminated();
+        const v = postAuthBytes.readUTF8StringNullTerminated();
+      }
+      endParams();
+    } else if (msgType === "K") {
+      postAuthBytes.comment("= back-end key data");
+      const [endKeyData] = postAuthBytes.expectLengthUint32Incl();
+      postAuthBytes.readUint32("backend process ID");
+      postAuthBytes.readUint32("backend secret key");
+      endKeyData();
+    } else if (msgType === "Z") {
+      postAuthBytes.comment("= ready for query");
+      const [endStatus] = postAuthBytes.expectLengthUint32Incl("status");
+      postAuthBytes.expectUint8("I".charCodeAt(0), '"I" = idle');
+      endStatus();
+    }
+  }
+  log(...highlightBytes(postAuthBytes.commentedString(true), "#8cc" /* client */));
+  let responseData;
+  do {
+    responseData = await read();
+    if (responseData) {
+      log(hexFromU8(responseData, " "));
+    }
+  } while (responseData);
+  log(`time taken: ${Date.now() - t0}ms`);
+}
+function parse(url, parseQueryString = false) {
+  const { protocol } = new URL(url);
+  const httpUrl = "http:" + url.substring(protocol.length);
+  let { username, password, hostname, port, pathname, search, searchParams, hash } = new URL(httpUrl);
+  password = decodeURIComponent(password);
+  const auth = username + ":" + password;
+  const query = parseQueryString ? Object.fromEntries(searchParams.entries()) : search;
+  return { href: url, protocol, auth, username, password, hostname, port, pathname, search, query, hash };
+}
+export {
+  https,
+  postgres
+};
