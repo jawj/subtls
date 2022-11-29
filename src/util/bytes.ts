@@ -209,6 +209,15 @@ export default class Bytes {
     return this;
   }
 
+  writeUTF8StringNullTerminated(s: string) {
+    const bytes = txtEnc.encode(s);
+    this.writeBytes(bytes);
+    chatty && this.comment('"' + s.replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"');
+    this.writeUint8(0x00);
+    chatty && this.comment('end of string');
+    return this;
+  }
+
   writeUint8(value: number, comment?: string): Bytes {
     this.dataView.setUint8(this.offset, value);
     this.offset += 1;

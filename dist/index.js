@@ -284,6 +284,14 @@ var Bytes = class {
     this.comment('"' + s.replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"');
     return this;
   }
+  writeUTF8StringNullTerminated(s) {
+    const bytes = txtEnc.encode(s);
+    this.writeBytes(bytes);
+    this.comment('"' + s.replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"');
+    this.writeUint8(0);
+    this.comment("end of string");
+    return this;
+  }
   writeUint8(value, comment) {
     this.dataView.setUint8(this.offset, value);
     this.offset += 1;
@@ -1933,27 +1941,26 @@ async function postgres(urlStr) {
   const sslResponse = new Bytes(1);
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();
-  console.log("expectPreData", expectPreData, expectPreData.length);
   const [read, write] = await startTls(host, networkRead, networkWrite, false, writePreData, expectPreData);
   const msg = new Bytes(1024);
   const endStartupMessage = msg.writeLengthUint32Incl("startup message");
   msg.writeUint32(196608, "protocol version");
-  msg.writeUTF8String("user");
-  msg.writeUint8(0, "end of string");
-  msg.writeUTF8String(user);
-  msg.writeUint8(0, "end of string");
-  msg.writeUTF8String("database");
-  msg.writeUint8(0, "end of string");
-  msg.writeUTF8String(db);
-  msg.writeUint8(0, "end of string");
+  msg.writeUTF8StringNullTerminated("user");
+  msg.writeUTF8StringNullTerminated(user);
+  msg.writeUTF8StringNullTerminated("database");
+  msg.writeUTF8StringNullTerminated(db);
   msg.writeUint8(0, "end of message");
   endStartupMessage();
   msg.writeUTF8String("p");
   msg.comment("= password");
   const endPasswordMessage = msg.writeLengthUint32Incl("password message");
-  msg.writeUTF8String(password);
-  msg.writeUint8(0, "end of string");
+  msg.writeUTF8StringNullTerminated(password);
   endPasswordMessage();
+  msg.writeUTF8String("Q");
+  msg.comment("= simple query");
+  const endQuery = msg.writeLengthUint32Incl("query");
+  msg.writeUTF8StringNullTerminated("SELECT now();");
+  endQuery();
   log(...highlightBytes(msg.commentedString(), "#8cc" /* client */));
   write(msg.array());
   const preAuthResponse = await read();
@@ -1993,13 +2000,52 @@ async function postgres(urlStr) {
     }
   }
   log(...highlightBytes(postAuthBytes.commentedString(true), "#8cc" /* client */));
-  let responseData;
-  do {
-    responseData = await read();
-    if (responseData) {
-      log(hexFromU8(responseData, " "));
+  const queryResult = await read();
+  const queryResultBytes = new Bytes(queryResult);
+  queryResultBytes.expectUint8("T".charCodeAt(0), '"T" = row description');
+  const [endRowDescription] = queryResultBytes.expectLengthUint32Incl();
+  const fieldsPerRow = queryResultBytes.readUint16("fields per row");
+  for (let i = 0; i < fieldsPerRow; i++) {
+    const columnName = queryResultBytes.readUTF8StringNullTerminated();
+    queryResultBytes.comment("column name");
+    const tableOID = queryResultBytes.readUint32("table OID");
+    const colAttrNum = queryResultBytes.readUint16("column attribute number");
+    const dataTypeOID = queryResultBytes.readUint32("data type OID");
+    const dataTypeSize = queryResultBytes.readUint16("data type size");
+    const dataTypeModifier = queryResultBytes.readUint32("data type modifier");
+    const formatCode = queryResultBytes.readUint16("format code");
+  }
+  endRowDescription();
+  while (queryResultBytes.remaining() > 0) {
+    const msgType = queryResultBytes.readUTF8String(1);
+    if (msgType === "D") {
+      postAuthBytes.comment("= data row");
+      const [endDataRow] = queryResultBytes.expectLengthUint32Incl();
+      const columnsToFollow = queryResultBytes.readUint16("columns to follow");
+      for (let i = 0; i < columnsToFollow; i++) {
+        const [endColumn, columnRemaining] = queryResultBytes.expectLengthUint32();
+        const columnData = queryResultBytes.readUTF8String(columnRemaining());
+        log(columnData);
+        queryResultBytes.comment("column value");
+        endColumn();
+      }
+      endDataRow();
+    } else if (msgType === "C") {
+      postAuthBytes.comment("= close command");
+      const [endClose] = queryResultBytes.expectLengthUint32Incl();
+      queryResultBytes.readUTF8StringNullTerminated();
+      queryResultBytes.comment("= command tag");
+      endClose();
+    } else if (msgType === "Z") {
+      postAuthBytes.comment("= ready for query");
+      const [endReady] = queryResultBytes.expectLengthUint32Incl();
+      queryResultBytes.expectUint8("I".charCodeAt(0), '"I" = idle');
+      endReady();
+    } else {
+      throw new Error(`Unexpected message type: ${msgType}`);
     }
-  } while (responseData);
+  }
+  log(...highlightBytes(queryResultBytes.commentedString(true), "#8cc" /* client */));
   log(`time taken: ${Date.now() - t0}ms`);
 }
 function parse(url, parseQueryString = false) {
