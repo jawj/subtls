@@ -123,9 +123,12 @@ export async function startTls(
   const serverApplicationKey = await crypto.subtle.importKey('raw', applicationKeys.serverApplicationKey, { name: 'AES-GCM' }, false, ['decrypt']);
   const applicationDecrypter = new Crypter('decrypt', serverApplicationKey, applicationKeys.serverApplicationIV);
 
+
+
   let wroteFinishedRecords = false;
 
   chatty && log('The TLS connection is established, and server and client can start exchanging encrypted application data.');
+
   const read = () => {
     if (!wroteFinishedRecords) {
       const finishedRecords = concat(clientCipherChangeData, ...encryptedClientFinished);
@@ -134,6 +137,7 @@ export async function startTls(
     }
     return readEncryptedTlsRecord(networkRead, applicationDecrypter)
   };
+
   const write = async (data: Uint8Array) => {
     const encryptedRecords = await makeEncryptedTlsRecords(data, applicationEncrypter, RecordType.Application);
 

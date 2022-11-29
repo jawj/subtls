@@ -53,7 +53,7 @@ export class Cert {
   extKeyUsage?: { clientTls?: true; serverTls?: true };
   authorityKeyIdentifier?: Uint8Array;
   subjectKeyIdentifier?: Uint8Array;
-  basicConstraints?: { critical: boolean; ca?: boolean; pathLength?: number } | undefined;
+  basicConstraints?: { critical?: boolean; ca?: boolean; pathLength?: number } | undefined;
   signedData: Uint8Array;
 
   constructor(certData: Uint8Array | ASN1Bytes) {
@@ -231,10 +231,16 @@ export class Cert {
         endSubjectKeyIdDer();
 
       } else if (extOID === '2.5.29.19') {  // basicConstraints
-        cb.expectUint8(universalTypeBoolean, chatty && 'boolean');
-        const basicConstraintsCritical = cb.readASN1Boolean();
-        chatty && cb.comment('<- critical');
-        cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
+        let basicConstraintsCritical;
+        let bcNextType = cb.readUint8();
+        if (bcNextType === universalTypeBoolean) {
+          chatty && cb.comment('boolean');
+          basicConstraintsCritical = cb.readASN1Boolean();
+          chatty && cb.comment('= critical');
+          bcNextType = cb.readUint8();
+        }
+        if (bcNextType !== universalTypeOctetString) throw new Error('Unexpected type in certificate basic constraints');
+        chatty && cb.comment('octet string');
         const [endBasicConstraintsDer] = cb.expectASN1Length(chatty && 'DER document');
         cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
         const [endConstraintsSeq, constraintsSeqRemaining] = cb.expectASN1Length();

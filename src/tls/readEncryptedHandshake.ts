@@ -12,24 +12,57 @@ import { verifyCerts } from './verifyCerts';
 
 const txtEnc = new TextEncoder();
 
-export async function readEncryptedHandshake(host: string, readHandshakeRecord: () => Promise<Uint8Array>, serverSecret: Uint8Array, hellos: Uint8Array, rootCerts: TrustedCert[]) {
+export async function readEncryptedHandshake(
+  host: string, readHandshakeRecord: () => Promise<Uint8Array>,
+  serverSecret: Uint8Array,
+  hellos: Uint8Array,
+  rootCerts: TrustedCert[]
+) {
   const hs = new ASN1Bytes(await readHandshakeRecord());
 
   hs.expectUint8(0x08, chatty && 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
   const [eeMessageEnd] = hs.expectLengthUint24();
   const [extEnd, extRemaining] = hs.expectLengthUint16(chatty && 'extensions');
-  /* 
-   "A server that receives a client hello containing the "server_name"
-   extension MAY use the information contained in the extension to guide
-   its selection of an appropriate certificate to return to the client,
-   and / or other aspects of security policy. In this event, the server
-   SHALL include an extension of type "server_name" in the (extended)
-   server hello. The "extension_data" field of this extension SHALL be empty.
-   - https://datatracker.ietf.org/doc/html/rfc6066#section-3
-  */
-  if (extRemaining() > 0) {
-    hs.expectUint16(0x00, chatty && 'extension type: SNI');
-    hs.expectUint16(0x00, chatty && 'no extension data');
+
+  while (extRemaining() > 0) {
+    const extType = hs.readUint16(chatty && 'extension type: ');
+
+    if (extType === 0x0000) {
+      /*
+      "A server that receives a client hello containing the "server_name"
+      extension MAY use the information contained in the extension to guide
+      its selection of an appropriate certificate to return to the client,
+      and / or other aspects of security policy. In this event, the server
+      SHALL include an extension of type "server_name" in the (extended)
+      server hello. The "extension_data" field of this extension SHALL be empty.
+      - https://datatracker.ietf.org/doc/html/rfc6066#section-3
+      */
+      chatty && hs.comment('SNI');
+      hs.expectUint16(0x0000, chatty && 'no extension data');
+
+    } else if (extType === 0x000a) {
+      /*
+      As of TLS 1.3, servers are permitted to send the "supported_groups"
+      extension to the client.  Clients MUST NOT act upon any information
+      found in "supported_groups" prior to successful completion of the
+      handshake but MAY use the information learned from a successfully
+      completed handshake to change what groups they use in their
+      "key_share" extension in subsequent connections.  If the server has a
+      group it prefers to the ones in the "key_share" extension but is
+      still willing to accept the ClientHello, it SHOULD send
+      "supported_groups" to update the client's view of its preferences;
+      this extension SHOULD contain all groups the server supports,
+      regardless of whether they are currently supported by the client.
+      - https://www.rfc-editor.org/rfc/rfc8446#section-4.2
+      */
+      chatty && hs.comment('supported groups');
+      const [endGroups, groupsRemaining] = hs.expectLengthUint16('groups data');
+      hs.skip(groupsRemaining(), 'ignored');
+      endGroups()
+
+    } else {
+      throw new Error(`Unsupported server encrypted extension type 0x${hexFromU8([extType]).padStart(4, '0')}`);
+    }
   }
   extEnd();
   eeMessageEnd();

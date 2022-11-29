@@ -50,7 +50,7 @@ export async function readTlsRecord(read: (length: number) => Promise<Uint8Array
   return { headerData, header, type, version, length, content };
 }
 
-export async function readEncryptedTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, decrypter: Crypter, expectedType?: RecordType) {
+export async function readEncryptedTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, decrypter: Crypter, expectedType?: RecordType): Promise<Uint8Array | undefined> {
   const encryptedRecord = await readTlsRecord(read, RecordType.Application, maxCiphertextRecordLength);
   if (encryptedRecord === undefined) return;
 
@@ -71,9 +71,15 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   const type = decryptedRecord[recordTypeIndex];
   const record = decryptedRecord.subarray(0, recordTypeIndex /* exclusive */);
 
-  if (type === 0x15) {
-    chatty && log(`%cTLS 0x15 alert record: ${hexFromU8(record, ' ')}`, `color: ${LogColours.header}`);
-    if (record.length === 2 && record[0] === 0x01 && record[1] === 0x00) return undefined;  // 0x00 is close_notify
+  if (type === RecordType.Alert) {
+    const closeNotify = record.length === 2 && record[0] === 0x01 && record[1] === 0x00;
+    chatty && log(`%cTLS 0x15 alert record: ${hexFromU8(record, ' ')}` + (closeNotify ? ' (close notify)' : ''), `color: ${LogColours.header}`);
+    if (closeNotify) return undefined;  // 0x00 is close_notify
+  }
+
+  if (type === RecordType.Handshake && record[0] === 0x04) {  // new session ticket message: always ignore these
+    chatty && log(...highlightBytes(hexFromU8(record, ' ') + '  session ticket message: ignored', LogColours.server));
+    return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
 
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);

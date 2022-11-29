@@ -5,6 +5,12 @@ import { LogColours } from './presentation/appearance';
 import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
+import { TrustedCert } from './tls/cert';
+
+// @ts-ignore
+import isrgrootx1 from './roots/isrg-root-x1.pem';
+// @ts-ignore
+import digicertg2 from './roots/globalsign-r3.pem';
 
 const txtDec = new TextDecoder();
 
@@ -17,7 +23,6 @@ export async function https(urlStr: string, method = 'GET') {
   const port = url.port || 443;  // not `?? 443`, because it's an empty string if unspecified
   const reqPath = url.pathname + url.search;
 
-  // host: string, port: number
   const ws = await new Promise<WebSocket>(resolve => {
     const ws = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
     ws.binaryType = 'arraybuffer';
@@ -27,7 +32,8 @@ export async function https(urlStr: string, method = 'GET') {
   });
   const reader = new ReadQueue(ws);
 
-  const [read, write] = await startTls(host, reader.read.bind(reader), ws.send.bind(ws));
+  const rootCert = TrustedCert.fromPEM(isrgrootx1 + digicertg2);
+  const [read, write] = await startTls(host, rootCert, reader.read.bind(reader), ws.send.bind(ws));
 
   const request = new Bytes(1024);
   request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r\nHost:${host}\r\n\r\n`);
@@ -45,6 +51,6 @@ export async function https(urlStr: string, method = 'GET') {
     }
   } while (responseData);
 
-  chatty && log(`time taken: ${Date.now() - t0}ms`);
+  chatty || log(`time taken: ${Date.now() - t0}ms`);
   return response;
 }

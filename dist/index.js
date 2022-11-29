@@ -674,10 +674,15 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
     throw new Error("Decrypted message has no record type indicator (all zeroes)");
   const type = decryptedRecord[recordTypeIndex];
   const record = decryptedRecord.subarray(0, recordTypeIndex);
-  if (type === 21) {
-    log(`%cTLS 0x15 alert record: ${hexFromU8(record, " ")}`, `color: ${"#c88" /* header */}`);
-    if (record.length === 2 && record[0] === 1 && record[1] === 0)
+  if (type === 21 /* Alert */) {
+    const closeNotify = record.length === 2 && record[0] === 1 && record[1] === 0;
+    log(`%cTLS 0x15 alert record: ${hexFromU8(record, " ")}` + (closeNotify ? " (close notify)" : ""), `color: ${"#c88" /* header */}`);
+    if (closeNotify)
       return void 0;
+  }
+  if (type === 22 /* Handshake */ && record[0] === 4) {
+    log(...highlightBytes(hexFromU8(record, " ") + "  session ticket message: ignored", "#88c" /* server */));
+    return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
   if (expectedType !== void 0 && type !== expectedType)
     throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
@@ -1438,10 +1443,17 @@ var Cert = class {
         endSubjectKeyId();
         endSubjectKeyIdDer();
       } else if (extOID === "2.5.29.19") {
-        cb.expectUint8(universalTypeBoolean, "boolean");
-        const basicConstraintsCritical = cb.readASN1Boolean();
-        cb.comment("<- critical");
-        cb.expectUint8(universalTypeOctetString, "octet string");
+        let basicConstraintsCritical;
+        let bcNextType = cb.readUint8();
+        if (bcNextType === universalTypeBoolean) {
+          cb.comment("boolean");
+          basicConstraintsCritical = cb.readASN1Boolean();
+          cb.comment("= critical");
+          bcNextType = cb.readUint8();
+        }
+        if (bcNextType !== universalTypeOctetString)
+          throw new Error("Unexpected type in certificate basic constraints");
+        cb.comment("octet string");
         const [endBasicConstraintsDer] = cb.expectASN1Length("DER document");
         cb.expectUint8(constructedUniversalTypeSequence, "sequence");
         const [endConstraintsSeq, constraintsSeqRemaining] = cb.expectASN1Length();
@@ -1617,7 +1629,7 @@ async function verifyCerts(host, certs, rootCerts) {
     if (signingCert === void 0)
       signingCert = certs[i + 1];
     if (signingCert === void 0)
-      throw new Error("Ran out of certificates");
+      throw new Error("Ran out of certificates before reaching trusted root");
     log("matched certificates on key id %s", hexFromU8(subjectAuthKeyId, " "));
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
     if (signingCert.isValidAtMoment() !== true)
@@ -1642,12 +1654,13 @@ async function verifyCerts(host, certs, rootCerts) {
         throw new Error("Unsupported signing key curve");
       const sb = new ASN1Bytes(subjectCert.signature);
       await ecdsaVerify(sb, signingCert.publicKey.all, subjectCert.signedData, namedCurve, hash);
-    } else if (subjectCert.algorithm === "1.2.840.113549.1.1.11") {
-      const signatureKey = await crypto.subtle.importKey("spki", signingCert.publicKey.all, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    } else if (subjectCert.algorithm === "1.2.840.113549.1.1.11" || subjectCert.algorithm === "1.2.840.113549.1.1.12") {
+      const hash = subjectCert.algorithm === "1.2.840.113549.1.1.11" ? "SHA-256" : "SHA-384";
+      const signatureKey = await crypto.subtle.importKey("spki", signingCert.publicKey.all, { name: "RSASSA-PKCS1-v1_5", hash }, false, ["verify"]);
       const certVerifyResult = await crypto.subtle.verify({ name: "RSASSA-PKCS1-v1_5" }, signatureKey, subjectCert.signature, subjectCert.signedData);
       if (certVerifyResult !== true)
         throw new Error("RSASSA_PKCS1-v1_5-SHA256 certificate verify failed");
-      log(`%c\u2713 RSASAA-PKCS1-v1_5-SHA256 signature verified`, "color: #8c8;");
+      log(`%c\u2713 RSASAA-PKCS1-v1_5 signature verified`, "color: #8c8;");
     } else {
       throw new Error("Unsupported signing algorithm");
     }
@@ -1666,9 +1679,19 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   hs.expectUint8(8, "handshake record type: encrypted extensions");
   const [eeMessageEnd] = hs.expectLengthUint24();
   const [extEnd, extRemaining] = hs.expectLengthUint16("extensions");
-  if (extRemaining() > 0) {
-    hs.expectUint16(0, "extension type: SNI");
-    hs.expectUint16(0, "no extension data");
+  while (extRemaining() > 0) {
+    const extType = hs.readUint16("extension type: ");
+    if (extType === 0) {
+      hs.comment("SNI");
+      hs.expectUint16(0, "no extension data");
+    } else if (extType === 10) {
+      hs.comment("supported groups");
+      const [endGroups, groupsRemaining] = hs.expectLengthUint16("groups data");
+      hs.skip(groupsRemaining(), "ignored");
+      endGroups();
+    } else {
+      throw new Error(`Unsupported server encrypted extension type 0x${hexFromU8([extType]).padStart(4, "0")}`);
+    }
   }
   extEnd();
   eeMessageEnd();
@@ -1854,6 +1877,12 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   return [read, write];
 }
 
+// src/roots/isrg-root-x1.pem
+var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\nTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\ncmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\nWhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\nZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\nMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\nh77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\nA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\nT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\nB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\nB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\nKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\nOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\njh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\nqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\nrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\nHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\nhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\nubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\nNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\nORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\nTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\njNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\noyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\nmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\nemyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n";
+
+// src/roots/globalsign-r3.pem
+var globalsign_r3_default = "-----BEGIN CERTIFICATE-----\r\nMIIDXzCCAkegAwIBAgILBAAAAAABIVhTCKIwDQYJKoZIhvcNAQELBQAwTDEgMB4G\r\nA1UECxMXR2xvYmFsU2lnbiBSb290IENBIC0gUjMxEzARBgNVBAoTCkdsb2JhbFNp\r\nZ24xEzARBgNVBAMTCkdsb2JhbFNpZ24wHhcNMDkwMzE4MTAwMDAwWhcNMjkwMzE4\r\nMTAwMDAwWjBMMSAwHgYDVQQLExdHbG9iYWxTaWduIFJvb3QgQ0EgLSBSMzETMBEG\r\nA1UEChMKR2xvYmFsU2lnbjETMBEGA1UEAxMKR2xvYmFsU2lnbjCCASIwDQYJKoZI\r\nhvcNAQEBBQADggEPADCCAQoCggEBAMwldpB5BngiFvXAg7aEyiie/QV2EcWtiHL8\r\nRgJDx7KKnQRfJMsuS+FggkbhUqsMgUdwbN1k0ev1LKMPgj0MK66X17YUhhB5uzsT\r\ngHeMCOFJ0mpiLx9e+pZo34knlTifBtc+ycsmWQ1z3rDI6SYOgxXG71uL0gRgykmm\r\nKPZpO/bLyCiR5Z2KYVc3rHQU3HTgOu5yLy6c+9C7v/U9AOEGM+iCK65TpjoWc4zd\r\nQQ4gOsC0p6Hpsk+QLjJg6VfLuQSSaGjlOCZgdbKfd/+RFO+uIEn8rUAVSNECMWEZ\r\nXriX7613t2Saer9fwRPvm2L7DWzgVGkWqQPabumDk3F2xmmFghcCAwEAAaNCMEAw\r\nDgYDVR0PAQH/BAQDAgEGMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI/wS3+o\r\nLkUkrk1Q+mOai97i3Ru8MA0GCSqGSIb3DQEBCwUAA4IBAQBLQNvAUKr+yAzv95ZU\r\nRUm7lgAJQayzE4aGKAczymvmdLm6AC2upArT9fHxD4q/c2dKg8dEe3jgr25sbwMp\r\njjM5RcOO5LlXbKr8EpbsU8Yt5CRsuZRj+9xTaGdWPoO4zzUhw8lo/s7awlOqzJCK\r\n6fBdRoyV3XpYKBovHd7NADdBj+1EbddTKJd+82cEHhXXipa0095MJ6RMG3NzdvQX\r\nmcIfeg7jLQitChws/zyrVQ4PkX4268NXSb7hLi18YIvDQVETI53O9zJrlAGomecs\r\nMx86OyXShkDOOyyGeMlhLxS67ttVb9+E7gUJTb0o2HLO02JQZR7rkpeDMdmztcpH\r\nWD9f\r\n-----END CERTIFICATE-----\r\n";
+
 // src/https.ts
 var txtDec2 = new TextDecoder();
 async function https(urlStr, method = "GET") {
@@ -1876,7 +1905,8 @@ async function https(urlStr, method = "GET") {
     });
   });
   const reader = new ReadQueue(ws);
-  const [read, write] = await startTls(host, reader.read.bind(reader), ws.send.bind(ws));
+  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + globalsign_r3_default);
+  const [read, write] = await startTls(host, rootCert, reader.read.bind(reader), ws.send.bind(ws));
   const request = new Bytes(1024);
   request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
 Host:${host}\r
@@ -1894,12 +1924,8 @@ Host:${host}\r
       log(responseText);
     }
   } while (responseData);
-  log(`time taken: ${Date.now() - t0}ms`);
   return response;
 }
-
-// src/roots/isrg-root-x1.pem
-var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\nTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\ncmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\nWhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\nZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\nMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\nh77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\nA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\nT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\nB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\nB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\nKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\nOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\njh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\nqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\nrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\nHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\nhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\nubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\nNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\nORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\nTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\njNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\noyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\nmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\nemyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n";
 
 // src/postgres.ts
 async function postgres(urlStr) {

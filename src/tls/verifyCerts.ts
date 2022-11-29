@@ -49,7 +49,7 @@ export async function verifyCerts(host: string, certs: Cert[], rootCerts: Truste
     if (signingCert === undefined) signingCert = certs[i + 1];
 
     // if we still didn't find a signing certificate, give up
-    if (signingCert === undefined) throw new Error('Ran out of certificates');
+    if (signingCert === undefined) throw new Error('Ran out of certificates before reaching trusted root');
 
     chatty && log('matched certificates on key id %s', hexFromU8(subjectAuthKeyId, ' '));
 
@@ -73,11 +73,12 @@ export async function verifyCerts(host: string, certs: Cert[], rootCerts: Truste
       const sb = new ASN1Bytes(subjectCert.signature);
       await ecdsaVerify(sb, signingCert.publicKey.all, subjectCert.signedData, namedCurve, hash);
 
-    } else if (subjectCert.algorithm === '1.2.840.113549.1.1.11') {  // RSASSA_PKCS1-v1_5 + SHA-256
-      const signatureKey = await crypto.subtle.importKey('spki', signingCert.publicKey.all, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+    } else if (subjectCert.algorithm === '1.2.840.113549.1.1.11' || subjectCert.algorithm === '1.2.840.113549.1.1.12') {  // RSASSA_PKCS1-v1_5 + SHA-256/384
+      const hash = subjectCert.algorithm === '1.2.840.113549.1.1.11' ? 'SHA-256' : 'SHA-384';
+      const signatureKey = await crypto.subtle.importKey('spki', signingCert.publicKey.all, { name: 'RSASSA-PKCS1-v1_5', hash }, false, ['verify']);
       const certVerifyResult = await crypto.subtle.verify({ name: 'RSASSA-PKCS1-v1_5' }, signatureKey, subjectCert.signature, subjectCert.signedData);
       if (certVerifyResult !== true) throw new Error('RSASSA_PKCS1-v1_5-SHA256 certificate verify failed');
-      chatty && log(`%c✓ RSASAA-PKCS1-v1_5-SHA256 signature verified`, 'color: #8c8;');
+      chatty && log(`%c✓ RSASAA-PKCS1-v1_5 signature verified`, 'color: #8c8;');
 
     } else {
       throw new Error('Unsupported signing algorithm');
