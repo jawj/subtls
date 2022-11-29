@@ -75,16 +75,10 @@
   }
 
   import { https, postgres } from './index.js';
-  // https('https://google.com').then(() => restoreState());
 
   const urlStr = location.hash.slice(1);
   const url = new URL(urlStr);
 
   if (url.protocol === 'https:') https(urlStr, 'GET');
   else postgres(urlStr);
-
-  // https('https://neon-cf-pg-test.jawj.workers.dev');
-  // https('https://neon-vercel-demo-heritage.vercel.app');  // encrypted handshake is split across multiple messages
-  // https('https://developers.cloudflare.com');
-  // https('https://guardian.co.uk');
 </script>

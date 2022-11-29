@@ -10,7 +10,7 @@ import { TrustedCert } from './tls/cert';
 // @ts-ignore
 import isrgrootx1 from './roots/isrg-root-x1.pem';
 // @ts-ignore
-import digicertg2 from './roots/globalsign-r3.pem';
+import isrgrootx2 from './roots/isrg-root-x2.pem';
 
 const txtDec = new TextDecoder();
 
@@ -32,7 +32,7 @@ export async function https(urlStr: string, method = 'GET') {
   });
   const reader = new ReadQueue(ws);
 
-  const rootCert = TrustedCert.fromPEM(isrgrootx1 + digicertg2);
+  const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
   const [read, write] = await startTls(host, rootCert, reader.read.bind(reader), ws.send.bind(ws));
 
   const request = new Bytes(1024);
