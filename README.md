@@ -10,8 +10,8 @@ A TypeScript TLS 1.3 client of limited scope.
 
 * TLS 1.3 only
 * Client only
-* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there's currently no SubtleCrypto support for Curve25519 and x448)
-* Ciphers: TLS_AES_128_GCM_SHA256 only (TLS_AES_256_GCM_SHA384 would be easy to add; there's currently no SubtleCrypto support for TLS_CHACHA20_POLY1305_SHA256)
+* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there’s currently no SubtleCrypto support for Curve25519 and x448)
+* Ciphers: TLS_AES_128_GCM_SHA256 only (TLS_AES_256_GCM_SHA384 would be easy to add; there’s currently no SubtleCrypto support for TLS_CHACHA20_POLY1305_SHA256)
 * End-user certificate verify: ECDSA (P-256) + SHA256 and RSA_PSS_RSAE_SHA256 only (some others would be easy to add)
 * Certificate chain verify: ECDSA (P-256/384) + SHA256/384 and RSASSA_PKCS1-v1_5 + SHA-256 only (some others would be easy to add)
 * No cert chain building: each cert must sign the preceding one, leading to a trusted root
@@ -25,19 +25,19 @@ Fundamentally, there’s not much of a state machine here: the code just expects
 
 ## Features
 
-* Annotated and indented binary input and output (when built in 'chatty' mode)
+* Annotated and indented binary input and output (when built in ‘chatty’ mode)
 
 ## How could this ever be useful?
 
-Why would we need a JS implementation of TLS? On Node.js, there’s `tls.connect`. In browsers, TLS-secured connections are easy using WebSockets and the `fetch` API ... and in any case, there's no TCP!
+Why would we need a JS implementation of TLS? On Node.js, there’s `tls.connect`. In browsers, TLS-secured connections are easy using WebSockets and the `fetch` API ... and in any case, there’s no TCP!
 
-Well, this library arose out of wanting to speak TCP-based protocols (e.g. Postgres) from browsers and V8 isolate-based serverless environments which don't do TCP.
+Well, this library arose out of wanting to speak TCP-based protocols (e.g. Postgres) from browsers and V8 isolate-based serverless environments which don’t do TCP.
 
-It's pretty easy to [tunnel TCP traffic over WebSockets](https://github.com/neondatabase/wsproxy). But if you need that traffic encrypted, **either** you need secure `wss:` WebSockets to the proxy (plus something to keep the onward TCP traffic safe), **or** you need a userspace TLS implementation to encrypt the data end-to-end before you send it to the proxy.
+It’s pretty easy to [tunnel TCP traffic over WebSockets](https://github.com/neondatabase/wsproxy). But if you need that traffic encrypted, **either** you need secure `wss:` WebSockets to the proxy (plus something to keep the onward TCP traffic safe), **or** you need a userspace TLS implementation to encrypt the data end-to-end before you send it to the proxy.
 
 This could be that userspace TLS implementation. 
 
-Plus, there's potentially some pedagogical value, which we build on by optionally producing beautifully annotated and indented binary data.
+There’s also potentially some pedagogical value, which we build on by optionally producing beautifully annotated and indented binary data.
 
 ## Crypto
 
@@ -55,7 +55,7 @@ This code really needs testing.
 
 For an outline of the code, start in `tls/startTls.ts`, which orchestrates most of it.
 
-You'll notice heavy use of the `Bytes` class (found in `util/bytes.ts`) throughout. This is used for writing and parsing binary data, and is a wrapper around a `Uint8Array` and a `DataView`, offering three key additional features:
+You’ll notice heavy use of the `Bytes` class (found in `util/bytes.ts`) throughout. This is used for writing and parsing binary data, and is a wrapper around a `Uint8Array` and a `DataView`, offering three key additional features:
 
 * **A cursor** &nbsp; It keeps an `offset` property up to date, making it easy to write a sequence of binary data types.
 
@@ -91,9 +91,9 @@ You'll notice heavy use of the `Bytes` class (found in `util/bytes.ts`) througho
 
   The call to `endCert` here checks that the parsing code inside the `Cert` constructor has read exactly the number of bytes that were indicated in the 3-byte length field (it will throw if not).
 
-  The `writeLength` methods return a tuple of two functions, of which only the first us used in the example above. We call the first function when we think we've read the amount of data promised. We can call the second for a running tally of how much of the promised data is left.
+  The `writeLength` methods return a tuple of two functions, of which only the first us used in the example above. We call the first function when we think we’ve read the amount of data promised. We can call the second for a running tally of how much of the promised data is left.
 
-* **Comments and indentation** &nbsp; For debugging purposes, it's useful to be able to attach comments following sections of binary data, and the `Bytes` class supports this. Sometimes it’s automatic: for instance, `writeUTF8String` automatically adds the quoted string as a comment.
+* **Comments and indentation** &nbsp; For debugging purposes, it’s useful to be able to attach comments following sections of binary data, and the `Bytes` class supports this. Sometimes it’s automatic: for instance, `writeUTF8String` automatically adds the quoted string as a comment.
 
   More often, you specify the comment yourself. This is nice, because the comment then exists **both** in the code **and** in the binary data produced.
 
@@ -136,7 +136,7 @@ Finally, there’s also an `ASN1Bytes` subclass of `Bytes` that adds various met
 
 ## Alternatives
 
-The only alternative JS TLS implementation I'm aware of is forge. This is pure JS, without SubtleCrypto, making it somewhat slow. More importantly, its TLS parts are not very actively maintained. There is a fork that supports up to TLS 1.2, but even that supports none of the modern and secure ciphers you’d want to use.
+The only alternative JS TLS implementation I’m aware of is forge. This is pure JS, without SubtleCrypto, making it somewhat slow. More importantly, its TLS parts are not very actively maintained. There is a fork that supports up to TLS 1.2, but even that supports none of the modern and secure ciphers you’d want to use.
 
 ## Name
 
