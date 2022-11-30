@@ -28,7 +28,7 @@ export async function https(urlStr: string, method = 'GET') {
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('error', (err) => { console.log('ws error:', err); });
-    ws.addEventListener('close', () => { chatty && log('connection closed'); })
+    ws.addEventListener('close', () => { console.log('connection closed'); })
   });
   const reader = new ReadQueue(ws);
 

@@ -441,25 +441,21 @@ function htmlFromLogArgs(...args) {
   result += "</span>";
   return result;
 }
+var c = 0;
 function log(...args) {
   console.log(...args);
-  element.innerHTML += '<label><input type="checkbox"><div class="section">' + htmlFromLogArgs(...args) + "</div></label>";
-  document.body.scrollTo({ top: 999999 });
+  element.innerHTML += `<label><input type="checkbox" name="c${c++}"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
 }
 
 // src/tls/makeClientHello.ts
 function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const h = new Bytes(1024);
-  h.writeUint8(22);
-  h.comment("record type: handshake");
-  h.writeUint16(769);
-  h.comment("TLS protocol version 1.0");
+  h.writeUint8(22, "record type: handshake");
+  h.writeUint16(769, "TLS protocol version 1.0");
   const endRecordHeader = h.writeLengthUint16();
-  h.writeUint8(1);
-  h.comment("handshake type: client hello");
+  h.writeUint8(1, "handshake type: client hello");
   const endHandshakeHeader = h.writeLengthUint24();
-  h.writeUint16(771);
-  h.comment("TLS version 1.2 (middlebox compatibility)");
+  h.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
   crypto.getRandomValues(h.subarray(32));
   h.comment("client random");
   const endSessionId = h.writeLengthUint8("session ID");
@@ -467,67 +463,52 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   h.comment("session ID (middlebox compatibility)");
   endSessionId();
   const endCiphers = h.writeLengthUint16("ciphers");
-  h.writeUint16(4865);
-  h.comment("cipher: TLS_AES_128_GCM_SHA256");
+  h.writeUint16(4865, "cipher: TLS_AES_128_GCM_SHA256");
   endCiphers();
   const endCompressionMethods = h.writeLengthUint8("compression methods");
-  h.writeUint8(0);
-  h.comment("compression method: none");
+  h.writeUint8(0, "compression method: none");
   endCompressionMethods();
   const endExtensions = h.writeLengthUint16("extensions");
   if (useSNI) {
-    h.writeUint16(0);
-    h.comment("extension type: SNI");
+    h.writeUint16(0, "extension type: SNI");
     const endSNIExt = h.writeLengthUint16("SNI data");
     const endSNI = h.writeLengthUint16("SNI records");
-    h.writeUint8(0);
-    h.comment("list entry type: DNS hostname");
+    h.writeUint8(0, "list entry type: DNS hostname");
     const endHostname = h.writeLengthUint16("hostname");
     h.writeUTF8String(host);
     endHostname();
     endSNI();
     endSNIExt();
   }
-  h.writeUint16(11);
-  h.comment("extension type: EC point formats");
+  h.writeUint16(11, "extension type: EC point formats");
   const endFormatTypesExt = h.writeLengthUint16("formats data");
   const endFormatTypes = h.writeLengthUint8("formats");
-  h.writeUint8(0);
-  h.comment("format: uncompressed");
+  h.writeUint8(0, "format: uncompressed");
   endFormatTypes();
   endFormatTypesExt();
-  h.writeUint16(10);
-  h.comment("extension type: supported groups (curves)");
+  h.writeUint16(10, "extension type: supported groups (curves)");
   const endGroupsExt = h.writeLengthUint16("groups data");
   const endGroups = h.writeLengthUint16("groups");
-  h.writeUint16(23);
-  h.comment("curve secp256r1 (NIST P-256)");
+  h.writeUint16(23, "curve secp256r1 (NIST P-256)");
   endGroups();
   endGroupsExt();
-  h.writeUint16(13);
-  h.comment("extension type: signature algorithms");
+  h.writeUint16(13, "extension type: signature algorithms");
   const endSigsExt = h.writeLengthUint16("signature algorithms data");
   const endSigs = h.writeLengthUint16("signature algorithms");
-  h.writeUint16(1027);
-  h.comment("ecdsa_secp256r1_sha256");
-  h.writeUint16(2052);
-  h.comment("rsa_pss_rsae_sha256");
+  h.writeUint16(1027, "ecdsa_secp256r1_sha256");
+  h.writeUint16(2052, "rsa_pss_rsae_sha256");
   endSigs();
   endSigsExt();
-  h.writeUint16(43);
-  h.comment("extension type: supported TLS versions");
+  h.writeUint16(43, "extension type: supported TLS versions");
   const endVersionsExt = h.writeLengthUint16("TLS versions data");
   const endVersions = h.writeLengthUint8("TLS versions");
-  h.writeUint16(772);
-  h.comment("TLS version 1.3");
+  h.writeUint16(772, "TLS version 1.3");
   endVersions();
   endVersionsExt();
-  h.writeUint16(51);
-  h.comment("extension type: key share");
+  h.writeUint16(51, "extension type: key share");
   const endKeyShareExt = h.writeLengthUint16("key share data");
   const endKeyShares = h.writeLengthUint16("key shares");
-  h.writeUint16(23);
-  h.comment("secp256r1 (NIST P-256) key share");
+  h.writeUint16(23, "secp256r1 (NIST P-256) key share");
   const endKeyShare = h.writeLengthUint16("key share");
   h.writeBytes(new Uint8Array(publicKey));
   h.comment("key");
@@ -1805,7 +1786,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
   endCipherPayload();
-  log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends a meaningless cipher change record:");
+  log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends us a meaningless cipher change record:");
   log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
   log("Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:");
   log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations");
@@ -1817,7 +1798,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const handshakeDecrypter = new Crypter("decrypt", serverHandshakeKey, handshakeKeys.serverHandshakeIV);
   const clientHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
-  log("The server sends one or more encrypted records containing the rest of its handshake messages. These include the \u2018certificate verify\u2019 message, which we check on the spot, and the full certificate chain, which we verify a bit later on:");
+  log("The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the \u2018certificate verify\u2019 message, which we check on the spot, and the full certificate chain, which we verify a bit later on:");
   const readHandshakeRecord = async () => {
     const tlsRecord = await readEncryptedTlsRecord(networkRead, handshakeDecrypter, 22 /* Handshake */);
     if (tlsRecord === void 0)
@@ -1901,7 +1882,7 @@ async function https(urlStr, method = "GET") {
       console.log("ws error:", err);
     });
     ws2.addEventListener("close", () => {
-      log("connection closed");
+      console.log("connection closed");
     });
   });
   const reader = new ReadQueue(ws);
@@ -1944,7 +1925,7 @@ async function postgres(urlStr) {
       console.log("ws error:", err);
     });
     ws2.addEventListener("close", () => {
-      log("connection closed");
+      console.log("connection closed");
     });
   });
   const reader = new ReadQueue(ws);
@@ -1958,6 +1939,7 @@ async function postgres(urlStr) {
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
   const writePreData = sslRequest.array();
   log("We don\u2019t need to wait for the reply: we run this server, so we know it\u2019s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a \u2018client hello\u2019:");
+  log("*** Hint: click the handshake log message below to expand. ***");
   const sslResponse = new Bytes(1);
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();

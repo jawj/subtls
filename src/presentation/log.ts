@@ -49,9 +49,10 @@ function htmlFromLogArgs(...args: string[]) {
   return result;
 }
 
+let c = 0;
 export function log(...args: any[]) {
   // if (!chatty) throw new Error('No logs should be emitted outside of chatty mode');
   console.log(...args);
-  element.innerHTML += '<label><input type="checkbox"><div class="section">' + htmlFromLogArgs(...args) + '</div></label>';
-  document.body.scrollTo({ top: 999999 });
+  element.innerHTML += `<label><input type="checkbox" name="c${c++}"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
+  // document.body.scrollTo({ top: 999999 });
 }

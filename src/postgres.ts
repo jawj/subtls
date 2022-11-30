@@ -25,7 +25,7 @@ export async function postgres(urlStr: string) {
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('error', (err) => { console.log('ws error:', err); });
-    ws.addEventListener('close', () => { chatty && log('connection closed'); })
+    ws.addEventListener('close', () => { console.log('connection closed'); })
   });
   const reader = new ReadQueue(ws);
   const networkRead = reader.read.bind(reader);
@@ -44,6 +44,8 @@ export async function postgres(urlStr: string) {
   const writePreData = sslRequest.array();
 
   chatty && log('We don’t need to wait for the reply: we run this server, so we know it’s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a ‘client hello’:');
+
+  chatty && log('*** Hint: click the handshake log message below to expand. ***');
 
   const sslResponse = new Bytes(1);
   sslResponse.writeUTF8String('S');

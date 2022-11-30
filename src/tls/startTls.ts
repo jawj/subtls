@@ -56,7 +56,7 @@ export async function startTls(
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
   endCipherPayload();
-  chatty && log('For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends a meaningless cipher change record:');
+  chatty && log('For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends us a meaningless cipher change record:');
   chatty && log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), LogColours.server));
 
   // handshake keys, encryption/decryption instances
@@ -71,7 +71,7 @@ export async function startTls(
   const clientHandshakeKey = await crypto.subtle.importKey('raw', handshakeKeys.clientHandshakeKey, { name: 'AES-GCM' }, false, ['encrypt']);
   const handshakeEncrypter = new Crypter('encrypt', clientHandshakeKey, handshakeKeys.clientHandshakeIV);
 
-  chatty && log('The server sends one or more encrypted records containing the rest of its handshake messages. These include the ‘certificate verify’ message, which we check on the spot, and the full certificate chain, which we verify a bit later on:');
+  chatty && log('The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the ‘certificate verify’ message, which we check on the spot, and the full certificate chain, which we verify a bit later on:');
   const readHandshakeRecord = async () => {
     const tlsRecord = await readEncryptedTlsRecord(networkRead, handshakeDecrypter, RecordType.Handshake);
     if (tlsRecord === undefined) throw new Error('Premature end of encrypted server handshake');
@@ -123,8 +123,6 @@ export async function startTls(
   const serverApplicationKey = await crypto.subtle.importKey('raw', applicationKeys.serverApplicationKey, { name: 'AES-GCM' }, false, ['decrypt']);
   const applicationDecrypter = new Crypter('decrypt', serverApplicationKey, applicationKeys.serverApplicationIV);
 
-
-
   let wroteFinishedRecords = false;
 
   chatty && log('The TLS connection is established, and server and client can start exchanging encrypted application data.');
@@ -135,7 +133,7 @@ export async function startTls(
       networkWrite(finishedRecords);
       wroteFinishedRecords = true;
     }
-    return readEncryptedTlsRecord(networkRead, applicationDecrypter)
+    return readEncryptedTlsRecord(networkRead, applicationDecrypter);
   };
 
   const write = async (data: Uint8Array) => {
