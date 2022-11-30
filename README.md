@@ -1,6 +1,6 @@
 # subtls
 
-A TypeScript TLS 1.3 client of limited scope.
+A TypeScript TLS 1.3 client with limited scope.
 
 * Built using the JS [SubtleCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto), with no external dependencies.
 * Non-compliant with [the spec](https://www.rfc-editor.org/rfc/rfc8446) in various ways.
@@ -33,17 +33,17 @@ Why would we need a JS implementation of TLS? On Node.js, there’s `tls.connect
 
 Well, this library arose out of wanting to speak TCP-based protocols (e.g. Postgres) from browsers and V8 isolate-based serverless environments which don’t do TCP.
 
-It’s pretty easy to [tunnel TCP traffic over WebSockets](https://github.com/neondatabase/wsproxy). But if you need that traffic encrypted, **either** you need secure `wss:` WebSockets to the proxy (plus something to keep the onward TCP traffic safe), **or** you need a userspace TLS implementation to encrypt the data end-to-end before you send it to the proxy.
+It’s pretty easy to [tunnel TCP traffic over WebSockets](https://github.com/neondatabase/wsproxy). But if you need that traffic encrypted, **either** you need secure `wss:` WebSockets to the proxy (plus something to keep the onward TCP traffic safe), **or** you need a userspace TLS implementation to encrypt the data before you pass it to the WebSocket and on through the proxy.
 
 This could be that userspace TLS implementation. 
 
-There’s also potentially some pedagogical value, which we build on by optionally producing beautifully annotated and indented binary data.
+There’s some potential pedagogical value, which we build on by optionally producing beautifully annotated and indented binary data.
 
 ## Crypto
 
 Thankfully, almost no actual crypto is implemented here: SubtleCrypto covers almost everything we need. 
 
-The one exception is the HKDF functions in `tls/keys.ts`. The SubtleCrypto documentation is not very good, but from what I could make out [its HKDF support](https://developer.mozilla.org/en-US/docs/Web/API/HkdfParams) is not quite flexible enough (I may revisit this question in future, because I may be wrong).
+The one exception is the HKDF functions in `tls/keys.ts`. SubtleCrypto’s documentation is not very good, but from what I could make out [its HKDF support](https://developer.mozilla.org/en-US/docs/Web/API/HkdfParams) is not quite flexible enough to use here (I may revisit this question in future, because I may be wrong).
 
 Of course, my HKDF implementation leans heavily on HMAC calculations which are themselves punted to SubtleCrypto.
 
@@ -91,7 +91,7 @@ You’ll notice heavy use of the `Bytes` class (found in `util/bytes.ts`) throug
 
   The call to `endCert` here checks that the parsing code inside the `Cert` constructor has read exactly the number of bytes that were indicated in the 3-byte length field (it will throw if not).
 
-  The `writeLength` methods return a tuple of two functions, of which only the first us used in the example above. We call the first function when we think we’ve read the amount of data promised. We can call the second for a running tally of how much of the promised data is left.
+  The `writeLength` methods return a tuple of two functions (only the first is used in the example above). We call the first function when we think we should have read the amount of data that was promised. We can call the second for a running tally of how much of the promised data is remaining.
 
 * **Comments and indentation** &nbsp; For debugging purposes, it’s useful to be able to attach comments following sections of binary data, and the `Bytes` class supports this. Sometimes it’s automatic: for instance, `writeUTF8String` automatically adds the quoted string as a comment.
 
@@ -105,7 +105,7 @@ You’ll notice heavy use of the `Bytes` class (found in `util/bytes.ts`) throug
   endCiphers();
   ```
 
-  Here, we provide a description of what the `writeLength` method is writing the length of (a list of ciphers), and an explanation of the magic value `0x1301`, so that when printing the `commentedString()` of the `Bytes` instance, we get this:
+  Here, we provide a description of what the `writeLength` method is writing the length of (a list of ciphers), and an explanation of the magic value `0x1301`, so that when logging the result of `commentedString()` we get this:
 
   ```
   00 02  2 bytes of ciphers follow
@@ -114,7 +114,7 @@ You’ll notice heavy use of the `Bytes` class (found in `util/bytes.ts`) throug
 
   Also in evidence here is the other thing the `writeLength` and `expectLength` methods do for us: they maintain an indentation level for the binary data, indicating which parts of the binary data are subordinate to which other parts.
 
-  For example, thanks to the use of `writeLength` methods and commenting, the first few bytes of the ClientHello can be logged like so:
+  For example, due to the use of the `writeLength` methods and commenting, the first few bytes of the ClientHello can be logged like so:
 
   ```
   16  record type: handshake
@@ -136,7 +136,7 @@ Finally, there’s also an `ASN1Bytes` subclass of `Bytes` that adds various met
 
 ## Alternatives
 
-The only alternative JS TLS implementation I’m aware of is forge. This is pure JS, without SubtleCrypto, making it somewhat slow. More importantly, its TLS parts are not very actively maintained. There is a fork that supports up to TLS 1.2, but even that supports none of the modern and secure ciphers you’d want to use.
+The only alternative JS TLS implementation I’m aware of is [Forge](https://github.com/digitalbazaar/forge). This is pure JS, without SubtleCrypto, making it somewhat slow. More importantly, its TLS parts are not very actively maintained. The main project supports up to TLS 1.1. There’s a fork that supports up to TLS 1.2, but even that supports none of the modern and secure ciphers you’d want to use.
 
 ## Name
 
@@ -150,7 +150,7 @@ Second, there are example uses in `https.ts` and `postgres.ts`.
 
 Essentially, you call `startTls` with a hostname, one or more PEM-format root certificates, and functions it can use to read and write unencrypted data to and from the network.
 
-It gives you back a `Promise` of two functions, which you can use to read and write data via the TLS connection. Note that the TLS connection will not be fully established until you call one of those functions.
+It gives you back a `Promise` of two functions, which you can use to read and write data via the TLS connection. Note that the TLS connection will not be fully established until you call one of these.
 
 ## Useful resources
 
@@ -178,9 +178,11 @@ Testing
 * https://github.com/tlsfuzzer/tlsfuzzer
 * https://badssl.com (but no TLS 1.3 support yet)
 
-## [MIT](https://opensource.org/licenses/MIT) licence
+## Licence
 
 Copyright &copy; 2022 George MacKerron.
+
+Licenced under the [MIT licence](https://opensource.org/licenses/MIT).
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
