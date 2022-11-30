@@ -71,8 +71,8 @@
 </div>
 <div id="preamble">
   <h1>The Annotated Postgres+TLS Session</h1>
-  <p>Inspired by <a href="https://tls13.xargs.org/">The Illustrated TLS 1.3 Connection</a> and <a href="https://jvns.ca/blog/2022/03/23/a-toy-version-of-tls/">Julia Evans</a>, this page provides an annotated TLS session using <a href="https://github.com/jawj/subtls">subtls</a>.
-  <p>A pure-JS TLS library, <a href="https://github.com/jawj/subtls">subtls</a> makes good use of SubtleCrypto but has no other dependencies.</p>
+  <p>Inspired by <a href="https://tls13.xargs.org/">The Illustrated TLS 1.3 Connection</a> and <a href="https://jvns.ca/blog/2022/03/23/a-toy-version-of-tls/">Julia Evans</a>, this page provides an annotated Postgres+TLS session using <a href="https://github.com/jawj/subtls">subtls</a>.
+  <p>A pure-JS TLS library, <a href="https://github.com/jawj/subtls">subtls</a> makes heavy use of SubtleCrypto but has no other dependencies.</p>
   <p>In principle, we could follow a simple HTTPS session or a simple Postgres query. In practice, we are using a WebSocket proxy provided by <a href="https://neon.tech">Neon</a>, so we’re limited to connecting to a Neon Postgres database.</p>
   <p>To get started, simply add a database connection string as the hash part of the URL and follow along.</p>
   <h3>Notes</h3>
