@@ -31,13 +31,15 @@ Fundamentally, there’s not much of a state machine here: the code just expects
 
 Why would we need a JS implementation of TLS? On Node.js, there’s `tls.connect`. In browsers, TLS-secured connections are easy using WebSockets and the `fetch` API ... and in any case, there’s no TCP!
 
-Well, this library arose out of wanting to speak TCP-based protocols (e.g. Postgres) from browsers and V8 isolate-based serverless environments which don’t do TCP.
+Well, this library arose out of wanting to speak TCP-based protocols (e.g. Postgres) from V8 isolate-based serverless environments which don’t do TCP.
 
 It’s pretty easy to [tunnel TCP traffic over WebSockets](https://github.com/neondatabase/wsproxy). But if you need that traffic encrypted, **either** you need secure `wss:` WebSockets to the proxy (plus something to keep the onward TCP traffic safe), **or** you need a userspace TLS implementation to encrypt the data before you pass it to the WebSocket and on through the proxy.
 
 This could be that userspace TLS implementation. 
 
-There’s some potential pedagogical value, which we build on by optionally producing beautifully annotated and indented binary data.
+There’s also some potential pedagogical value, which we build on by optionally producing beautifully annotated and indented binary data.
+
+Note: this project isn’t useful in web browsers. From an `https:` page you can’t open an insecure `ws:` WebSocket, and from an `http:` page there’s no access to SubtleCrypto.
 
 ## Crypto
 
