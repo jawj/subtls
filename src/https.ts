@@ -24,7 +24,7 @@ export async function https(urlStr: string, method = 'GET') {
   const reqPath = url.pathname + url.search;
 
   const ws = await new Promise<WebSocket>(resolve => {
-    const ws = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
+    const ws = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('error', (err) => { console.log('ws error:', err); });
@@ -32,14 +32,20 @@ export async function https(urlStr: string, method = 'GET') {
   });
   const reader = new ReadQueue(ws);
 
+  chatty && log('We begin the TLS handshake by sending a client hello message:');
+  chatty && log('*** Hint: click the handshake log message below to expand. ***');
+
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
   const [read, write] = await startTls(host, rootCert, reader.read.bind(reader), ws.send.bind(ws));
 
+  chatty && log('Here’s a GET request:');
   const request = new Bytes(1024);
   request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r\nHost:${host}\r\n\r\n`);
   chatty && log(...highlightBytes(request.commentedString(), LogColours.client));
-  write(request.array());
+  chatty && log('Which goes to the server encrypted like so:');
+  await write(request.array());
 
+  chatty && log('The server replies:');
   let responseData;
   let response = '';
   do {

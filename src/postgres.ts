@@ -9,6 +9,8 @@ import { TrustedCert } from './tls/cert';
 
 // @ts-ignore
 import isrgrootx1 from './roots/isrg-root-x1.pem';
+// @ts-ignore
+import isrgrootx2 from './roots/isrg-root-x2.pem';
 
 export async function postgres(urlStr: string) {
   const t0 = Date.now();
@@ -21,7 +23,7 @@ export async function postgres(urlStr: string) {
   const db = url.pathname.slice(1);
 
   const ws = await new Promise<WebSocket>(resolve => {
-    const ws = new WebSocket(`ws://ws.neon.build/v1?address=${host}:${port}`);
+    const ws = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('error', (err) => { console.log('ws error:', err); });
@@ -51,7 +53,7 @@ export async function postgres(urlStr: string) {
   sslResponse.writeUTF8String('S');
   const expectPreData = sslResponse.array();
 
-  const rootCert = TrustedCert.fromPEM(isrgrootx1);
+  const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
   const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, false, writePreData, expectPreData, '"S" = SSL connection supported');
 
   const msg = new Bytes(1024);

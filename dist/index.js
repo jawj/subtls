@@ -702,22 +702,25 @@ async function makeEncryptedTlsRecords(plaintext, encrypter, type) {
   return encryptedRecords;
 }
 
+// src/util/cryptoProxy.ts
+var cryptoProxy_default = crypto.subtle;
+
 // src/tls/keys.ts
 var txtEnc2 = new TextEncoder();
 async function hkdfExtract(salt, keyMaterial, hashBits) {
-  const hmacKey = await crypto.subtle.importKey("raw", salt, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
-  var prk = new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey, keyMaterial));
+  const hmacKey = await cryptoProxy_default.importKey("raw", salt, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
+  var prk = new Uint8Array(await cryptoProxy_default.sign("HMAC", hmacKey, keyMaterial));
   return prk;
 }
 async function hkdfExpand(key, info, length, hashBits) {
   const hashBytes = hashBits >> 3;
   const n = Math.ceil(length / hashBytes);
   const okm = new Uint8Array(n * hashBytes);
-  const hmacKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
+  const hmacKey = await cryptoProxy_default.importKey("raw", key, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
   let tPrev = new Uint8Array(0);
   for (let i = 0; i < n; i++) {
     const hmacData = concat(tPrev, info, [i + 1]);
-    const tiBuffer = await crypto.subtle.sign("HMAC", hmacKey, hmacData);
+    const tiBuffer = await cryptoProxy_default.sign("HMAC", hmacKey, hmacData);
     const ti = new Uint8Array(tiBuffer);
     okm.set(ti, hashBytes * i);
     tPrev = ti;
@@ -740,16 +743,16 @@ async function hkdfExpandLabel(key, label, context, length, hashBits) {
 async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, keyLength) {
   const hashBytes = hashBits >> 3;
   const zeroKey = new Uint8Array(hashBytes);
-  const publicKey = await crypto.subtle.importKey("raw", serverPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
-  const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: "ECDH", public: publicKey }, privateKey, 256);
+  const publicKey = await cryptoProxy_default.importKey("raw", serverPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const sharedSecretBuffer = await cryptoProxy_default.deriveBits({ name: "ECDH", public: publicKey }, privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
   log(...highlightColonList("shared secret: " + hexFromU8(sharedSecret)));
-  const hellosHashBuffer = await crypto.subtle.digest("SHA-256", hellos);
+  const hellosHashBuffer = await cryptoProxy_default.digest("SHA-256", hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
   log(...highlightColonList("hellos hash: " + hexFromU8(hellosHash)));
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
   log(...highlightColonList("early secret: " + hexFromU8(new Uint8Array(earlySecret))));
-  const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
+  const emptyHashBuffer = await cryptoProxy_default.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
   log(...highlightColonList("empty hash: " + hexFromU8(emptyHash)));
   const derivedSecret = await hkdfExpandLabel(earlySecret, "derived", emptyHash, hashBytes, hashBits);
@@ -773,7 +776,7 @@ async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, k
 async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyLength) {
   const hashBytes = hashBits >> 3;
   const zeroKey = new Uint8Array(hashBytes);
-  const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
+  const emptyHashBuffer = await cryptoProxy_default.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
   log(...highlightColonList("empty hash: " + hexFromU8(emptyHash)));
   const derivedSecret = await hkdfExpandLabel(handshakeSecret, "derived", emptyHash, hashBytes, hashBits);
@@ -823,7 +826,7 @@ var Crypter = class {
     this.recordsDecrypted += 1;
     const authTagBits = authTagLength << 3;
     const algorithm = { name: "AES-GCM", iv: this.currentIv, tagLength: authTagBits, additionalData };
-    const resultBuffer = await crypto.subtle[this.mode](algorithm, this.key, data);
+    const resultBuffer = await cryptoProxy_default[this.mode](algorithm, this.key, data);
     const result = new Uint8Array(resultBuffer);
     return result;
   }
@@ -1571,8 +1574,8 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
   const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : x;
   const intLength = namedCurve === "P-256" ? 32 : 48;
   const signature = concat(clampToLength(sigR, intLength), clampToLength(sigS, intLength));
-  const signatureKey = await crypto.subtle.importKey("spki", publicKey, { name: "ECDSA", namedCurve }, false, ["verify"]);
-  const certVerifyResult = await crypto.subtle.verify({ name: "ECDSA", hash }, signatureKey, signature, signedData);
+  const signatureKey = await cryptoProxy_default.importKey("spki", publicKey, { name: "ECDSA", namedCurve }, false, ["verify"]);
+  const certVerifyResult = await cryptoProxy_default.verify({ name: "ECDSA", hash }, signatureKey, signature, signedData);
   if (certVerifyResult !== true)
     throw new Error("ECDSA-SECP256R1-SHA256 certificate verify failed");
   log(`%c\u2713 ECDSA signature verified (curve ${namedCurve}, hash ${hash})`, "color: #8c8;");
@@ -1637,8 +1640,8 @@ async function verifyCerts(host, certs, rootCerts) {
       await ecdsaVerify(sb, signingCert.publicKey.all, subjectCert.signedData, namedCurve, hash);
     } else if (subjectCert.algorithm === "1.2.840.113549.1.1.11" || subjectCert.algorithm === "1.2.840.113549.1.1.12") {
       const hash = subjectCert.algorithm === "1.2.840.113549.1.1.11" ? "SHA-256" : "SHA-384";
-      const signatureKey = await crypto.subtle.importKey("spki", signingCert.publicKey.all, { name: "RSASSA-PKCS1-v1_5", hash }, false, ["verify"]);
-      const certVerifyResult = await crypto.subtle.verify({ name: "RSASSA-PKCS1-v1_5" }, signatureKey, subjectCert.signature, subjectCert.signedData);
+      const signatureKey = await cryptoProxy_default.importKey("spki", signingCert.publicKey.all, { name: "RSASSA-PKCS1-v1_5", hash }, false, ["verify"]);
+      const certVerifyResult = await cryptoProxy_default.verify({ name: "RSASSA-PKCS1-v1_5" }, signatureKey, subjectCert.signature, subjectCert.signedData);
       if (certVerifyResult !== true)
         throw new Error("RSASSA_PKCS1-v1_5-SHA256 certificate verify failed");
       log(`%c\u2713 RSASAA-PKCS1-v1_5 signature verified`, "color: #8c8;");
@@ -1699,7 +1702,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const userCert = certs[0];
   const certVerifyHandshakeData = hs.data.subarray(0, hs.offset);
   const certVerifyData = concat(hellos, certVerifyHandshakeData);
-  const certVerifyHashBuffer = await crypto.subtle.digest("SHA-256", certVerifyData);
+  const certVerifyHashBuffer = await cryptoProxy_default.digest("SHA-256", certVerifyData);
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
   const certVerifySignedData = concat(txtEnc3.encode(" ".repeat(64) + "TLS 1.3, server CertificateVerify"), [0], certVerifyHash);
   if (hs.remaining() === 0)
@@ -1719,8 +1722,8 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     const signature = hs.subarray(signatureRemaining());
     hs.comment("signature");
     endSignature();
-    const signatureKey = await crypto.subtle.importKey("spki", userCert.publicKey.all, { name: "RSA-PSS", hash: "SHA-256" }, false, ["verify"]);
-    const certVerifyResult = await crypto.subtle.verify({ name: "RSA-PSS", saltLength: 32 }, signatureKey, signature, certVerifySignedData);
+    const signatureKey = await cryptoProxy_default.importKey("spki", userCert.publicKey.all, { name: "RSA-PSS", hash: "SHA-256" }, false, ["verify"]);
+    const certVerifyResult = await cryptoProxy_default.verify({ name: "RSA-PSS", saltLength: 32 }, signatureKey, signature, certVerifySignedData);
     if (certVerifyResult !== true)
       throw new Error("RSA-PSS-RSAE-SHA256 certificate verify failed");
   } else {
@@ -1731,9 +1734,9 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const verifyHandshakeData = hs.data.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, "finished", new Uint8Array(0), 32, 256);
-  const finishedHash = await crypto.subtle.digest("SHA-256", verifyData);
-  const hmacKey = await crypto.subtle.importKey("raw", finishedKey, { name: "HMAC", hash: { name: `SHA-256` } }, false, ["sign"]);
-  const correctVerifyHashBuffer = await crypto.subtle.sign("HMAC", hmacKey, finishedHash);
+  const finishedHash = await cryptoProxy_default.digest("SHA-256", verifyData);
+  const hmacKey = await cryptoProxy_default.importKey("raw", finishedKey, { name: "HMAC", hash: { name: `SHA-256` } }, false, ["sign"]);
+  const correctVerifyHashBuffer = await cryptoProxy_default.sign("HMAC", hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
   if (hs.remaining() === 0)
     hs.extend(await readHandshakeRecord());
@@ -1747,7 +1750,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true)
     throw new Error("Invalid server verify hash");
-  log("Decrypted using the server handshake key, the server\u2019s handshake messages are then parsed as follows. This is a long section, since X.509 certificates are quite complex and there will be several of them:");
+  log("Decrypted using the server handshake key, the server\u2019s handshake messages are parsed as follows. This is a long section, since X.509 certificates are quite complex and there will be several of them:");
   log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);
   if (!verifiedToTrustedRoot)
@@ -1757,8 +1760,8 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
 
 // src/tls/startTls.ts
 async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = true, writePreData, expectPreData, commentPreData) {
-  const ecdhKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
-  const rawPublicKey = await crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
+  const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
+  const rawPublicKey = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
@@ -1766,11 +1769,11 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
   networkWrite(initialData);
+  log("The server responds:");
   if (expectPreData) {
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData))
       throw new Error("Pre data did not match expectation");
-    log("The server responds:");
     log(...highlightBytes(hexFromU8(receivedPreData) + "  " + commentPreData, "#88c" /* server */));
   }
   const serverHelloRecord = await readTlsRecord(networkRead, 22 /* Handshake */);
@@ -1794,9 +1797,9 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const serverHelloContent = serverHelloRecord.content;
   const hellos = concat(clientHelloContent, serverHelloContent);
   const handshakeKeys = await getHandshakeKeys(serverPublicKey, ecdhKeys.privateKey, hellos, 256, 16);
-  const serverHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.serverHandshakeKey, { name: "AES-GCM" }, false, ["decrypt"]);
+  const serverHandshakeKey = await cryptoProxy_default.importKey("raw", handshakeKeys.serverHandshakeKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const handshakeDecrypter = new Crypter("decrypt", serverHandshakeKey, handshakeKeys.serverHandshakeIV);
-  const clientHandshakeKey = await crypto.subtle.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
+  const clientHandshakeKey = await cryptoProxy_default.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
   log("The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the \u2018certificate verify\u2019 message, which we check on the spot, and the full certificate chain, which we verify a bit later on:");
   const readHandshakeRecord = async () => {
@@ -1815,13 +1818,13 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   endClientCipherChangePayload();
   log(...highlightBytes(clientCipherChange.commentedString(), "#8cc" /* client */));
   const clientCipherChangeData = clientCipherChange.array();
-  log("Next, we send a \u2019handshake finished\u2019 message, which includes an HMAC of (nearly) the whole handshake to date. This is how it looks before encryption:");
+  log("Next, we send a \u2018handshake finished\u2019 message, which includes an HMAC of (nearly) the whole handshake to date. This is how it looks before encryption:");
   const wholeHandshake = concat(hellos, serverHandshake);
-  const wholeHandshakeHashBuffer = await crypto.subtle.digest("SHA-256", wholeHandshake);
+  const wholeHandshakeHashBuffer = await cryptoProxy_default.digest("SHA-256", wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
   const finishedKey = await hkdfExpandLabel(handshakeKeys.clientSecret, "finished", new Uint8Array(0), 32, 256);
-  const verifyHmacKey = await crypto.subtle.importKey("raw", finishedKey, { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
-  const verifyDataBuffer = await crypto.subtle.sign("HMAC", verifyHmacKey, wholeHandshakeHash);
+  const verifyHmacKey = await cryptoProxy_default.importKey("raw", finishedKey, { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
+  const verifyDataBuffer = await cryptoProxy_default.sign("HMAC", verifyHmacKey, wholeHandshakeHash);
   const verifyData = new Uint8Array(verifyDataBuffer);
   const clientFinishedRecord = new Bytes(36);
   clientFinishedRecord.writeUint8(20, "handshake message type: finished");
@@ -1835,9 +1838,9 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   log("Both parties now have what they need to calculate the keys and IVs that will protect the application data:");
   log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
-  const clientApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
+  const clientApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const applicationEncrypter = new Crypter("encrypt", clientApplicationKey, applicationKeys.clientApplicationIV);
-  const serverApplicationKey = await crypto.subtle.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
+  const serverApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
   let wroteFinishedRecords = false;
   log("The TLS connection is established, and server and client can start exchanging encrypted application data.");
@@ -1864,61 +1867,17 @@ var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAII
 // src/roots/isrg-root-x2.pem
 var isrg_root_x2_default = "-----BEGIN CERTIFICATE-----\nMIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\nCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\nR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\nMDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\nZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\nEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\nItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\nAQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\nzj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\ntL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n/q4AaOeMSQ+2b1tbFfLn\n-----END CERTIFICATE-----\n";
 
-// src/https.ts
-var txtDec2 = new TextDecoder();
-async function https(urlStr, method = "GET") {
-  const t0 = Date.now();
-  const url = new URL(urlStr);
-  if (url.protocol !== "https:")
-    throw new Error("Wrong protocol");
-  const host = url.hostname;
-  const port = url.port || 443;
-  const reqPath = url.pathname + url.search;
-  const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`ws://localhost:9876/v1?address=${host}:${port}`);
-    ws2.binaryType = "arraybuffer";
-    ws2.addEventListener("open", () => resolve(ws2));
-    ws2.addEventListener("error", (err) => {
-      console.log("ws error:", err);
-    });
-    ws2.addEventListener("close", () => {
-      console.log("connection closed");
-    });
-  });
-  const reader = new ReadQueue(ws);
-  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
-  const [read, write] = await startTls(host, rootCert, reader.read.bind(reader), ws.send.bind(ws));
-  const request = new Bytes(1024);
-  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
-Host:${host}\r
-\r
-`);
-  log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
-  write(request.array());
-  let responseData;
-  let response = "";
-  do {
-    responseData = await read();
-    if (responseData) {
-      const responseText = txtDec2.decode(responseData);
-      response += responseText;
-      log(responseText);
-    }
-  } while (responseData);
-  return response;
-}
-
 // src/postgres.ts
-async function postgres(urlStr) {
+async function postgres(urlStr2) {
   const t0 = Date.now();
-  const url = parse(urlStr);
+  const url = parse(urlStr2);
   const host = url.hostname;
   const port = url.port || 5432;
   const user = url.username;
   const password = `project=${host.match(/^[^.]+/)[0]};${url.password}`;
   const db = url.pathname.slice(1);
   const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`ws://ws.neon.build/v1?address=${host}:${port}`);
+    const ws2 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
     ws2.addEventListener("open", () => resolve(ws2));
     ws2.addEventListener("error", (err) => {
@@ -1943,7 +1902,7 @@ async function postgres(urlStr) {
   const sslResponse = new Bytes(1);
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();
-  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default);
+  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
   const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, false, writePreData, expectPreData, '"S" = SSL connection supported');
   const msg = new Bytes(1024);
   const endStartupMessage = msg.writeLengthUint32Incl("startup message");
@@ -2078,7 +2037,74 @@ function parse(url, parseQueryString = false) {
   const query = parseQueryString ? Object.fromEntries(searchParams.entries()) : search;
   return { href: url, protocol, auth, username, password, hostname, port, pathname, search, query, hash };
 }
-export {
-  https,
-  postgres
-};
+
+// src/https.ts
+var txtDec2 = new TextDecoder();
+async function https(urlStr2, method = "GET") {
+  const t0 = Date.now();
+  const url = new URL(urlStr2);
+  if (url.protocol !== "https:")
+    throw new Error("Wrong protocol");
+  const host = url.hostname;
+  const port = url.port || 443;
+  const reqPath = url.pathname + url.search;
+  const ws = await new Promise((resolve) => {
+    const ws2 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
+    ws2.binaryType = "arraybuffer";
+    ws2.addEventListener("open", () => resolve(ws2));
+    ws2.addEventListener("error", (err) => {
+      console.log("ws error:", err);
+    });
+    ws2.addEventListener("close", () => {
+      console.log("connection closed");
+    });
+  });
+  const reader = new ReadQueue(ws);
+  log("We begin the TLS handshake by sending a client hello message:");
+  log("*** Hint: click the handshake log message below to expand. ***");
+  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
+  const [read, write] = await startTls(host, rootCert, reader.read.bind(reader), ws.send.bind(ws));
+  log("Here\u2019s a GET request:");
+  const request = new Bytes(1024);
+  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
+Host:${host}\r
+\r
+`);
+  log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
+  log("Which goes to the server encrypted like so:");
+  await write(request.array());
+  log("The server replies:");
+  let responseData;
+  let response = "";
+  do {
+    responseData = await read();
+    if (responseData) {
+      const responseText = txtDec2.decode(responseData);
+      response += responseText;
+      log(responseText);
+    }
+  } while (responseData);
+  return response;
+}
+
+// src/index.ts
+var urlStr = location.hash.slice(1);
+var pg = urlStr && urlStr.startsWith("postgres");
+var goBtn = document.getElementById("go");
+if (pg) {
+  goBtn.value = "Ask Postgres the time over TLS";
+  document.getElementById("extra").innerHTML = `
+    <b>Postgres version</b> &nbsp; 
+    To minimise latency, we pipeline the outgoing Postgres traffic into only three transmissions. 
+    The first combines a Postgres SSL request and (without awaiting a reply) a TLS ClientHello. 
+    The second combines a Postgres startup message, a password message and a SELECT query. 
+    The third simply closes the connection. 
+    (You can follow this I/O by opening Chrome\u2019s developer tools, picking the 
+    Network tab, and selecting the WebSocket connection: <code>v1?address=...</code>).`;
+}
+goBtn.addEventListener("click", () => {
+  if (pg)
+    postgres(urlStr);
+  else
+    https("https://subtls.pages.dev");
+});

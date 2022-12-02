@@ -11,7 +11,7 @@ import { LogColours } from '../presentation/appearance';
 import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { TrustedCert } from './cert';
-
+import cs from '../util/cryptoProxy';
 
 export async function startTls(
   host: string,
@@ -23,8 +23,8 @@ export async function startTls(
   expectPreData?: Uint8Array,
   commentPreData?: string,
 ) {
-  const ecdhKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
-  const rawPublicKey = await crypto.subtle.exportKey('raw', ecdhKeys.publicKey);
+  const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
+  const rawPublicKey = await cs.exportKey('raw', ecdhKeys.publicKey);
 
   // client hello
   const sessionId = new Uint8Array(32);
@@ -35,10 +35,10 @@ export async function startTls(
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
   networkWrite(initialData);
 
+  chatty && log('The server responds:');
   if (expectPreData) {
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData)) throw new Error('Pre data did not match expectation');
-    chatty && log('The server responds:');
     chatty && log(...highlightBytes(hexFromU8(receivedPreData) + '  ' + commentPreData, LogColours.server));
   }
 
@@ -66,9 +66,9 @@ export async function startTls(
   const serverHelloContent = serverHelloRecord.content;    // 5-byte record header is already excluded
   const hellos = concat(clientHelloContent, serverHelloContent);
   const handshakeKeys = await getHandshakeKeys(serverPublicKey, ecdhKeys.privateKey, hellos, 256, 16);  // would be 384, 32 for AES256_SHA384
-  const serverHandshakeKey = await crypto.subtle.importKey('raw', handshakeKeys.serverHandshakeKey, { name: 'AES-GCM' }, false, ['decrypt']);
+  const serverHandshakeKey = await cs.importKey('raw', handshakeKeys.serverHandshakeKey, { name: 'AES-GCM' }, false, ['decrypt']);
   const handshakeDecrypter = new Crypter('decrypt', serverHandshakeKey, handshakeKeys.serverHandshakeIV);
-  const clientHandshakeKey = await crypto.subtle.importKey('raw', handshakeKeys.clientHandshakeKey, { name: 'AES-GCM' }, false, ['encrypt']);
+  const clientHandshakeKey = await cs.importKey('raw', handshakeKeys.clientHandshakeKey, { name: 'AES-GCM' }, false, ['encrypt']);
   const handshakeEncrypter = new Crypter('encrypt', clientHandshakeKey, handshakeKeys.clientHandshakeIV);
 
   chatty && log('The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the ‘certificate verify’ message, which we check on the spot, and the full certificate chain, which we verify a bit later on:');
@@ -90,17 +90,17 @@ export async function startTls(
   chatty && log(...highlightBytes(clientCipherChange.commentedString(), LogColours.client));
   const clientCipherChangeData = clientCipherChange.array();  // to be sent below
 
-  chatty && log('Next, we send a ’handshake finished’ message, which includes an HMAC of (nearly) the whole handshake to date. This is how it looks before encryption:');
+  chatty && log('Next, we send a ‘handshake finished’ message, which includes an HMAC of (nearly) the whole handshake to date. This is how it looks before encryption:');
 
   // hash of whole handshake (note: dummy cipher change is excluded)
   const wholeHandshake = concat(hellos, serverHandshake);
-  const wholeHandshakeHashBuffer = await crypto.subtle.digest('SHA-256', wholeHandshake);
+  const wholeHandshakeHashBuffer = await cs.digest('SHA-256', wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
 
   // client handshake finished
   const finishedKey = await hkdfExpandLabel(handshakeKeys.clientSecret, 'finished', new Uint8Array(0), 32 /* = hashBytes */, 256);
-  const verifyHmacKey = await crypto.subtle.importKey('raw', finishedKey, { name: 'HMAC', hash: { name: 'SHA-256' } }, false, ['sign']);
-  const verifyDataBuffer = await crypto.subtle.sign('HMAC', verifyHmacKey, wholeHandshakeHash);
+  const verifyHmacKey = await cs.importKey('raw', finishedKey, { name: 'HMAC', hash: { name: 'SHA-256' } }, false, ['sign']);
+  const verifyDataBuffer = await cs.sign('HMAC', verifyHmacKey, wholeHandshakeHash);
   const verifyData = new Uint8Array(verifyDataBuffer);
 
   const clientFinishedRecord = new Bytes(36);
@@ -118,9 +118,9 @@ export async function startTls(
   chatty && log('Both parties now have what they need to calculate the keys and IVs that will protect the application data:');
   chatty && log('%c%s', `color: ${LogColours.header}`, 'application key computations');
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
-  const clientApplicationKey = await crypto.subtle.importKey('raw', applicationKeys.clientApplicationKey, { name: 'AES-GCM' }, false, ['encrypt']);
+  const clientApplicationKey = await cs.importKey('raw', applicationKeys.clientApplicationKey, { name: 'AES-GCM' }, false, ['encrypt']);
   const applicationEncrypter = new Crypter('encrypt', clientApplicationKey, applicationKeys.clientApplicationIV);
-  const serverApplicationKey = await crypto.subtle.importKey('raw', applicationKeys.serverApplicationKey, { name: 'AES-GCM' }, false, ['decrypt']);
+  const serverApplicationKey = await cs.importKey('raw', applicationKeys.serverApplicationKey, { name: 'AES-GCM' }, false, ['decrypt']);
   const applicationDecrypter = new Crypter('decrypt', serverApplicationKey, applicationKeys.serverApplicationIV);
 
   let wroteFinishedRecords = false;

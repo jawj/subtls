@@ -2,6 +2,7 @@ import { hexFromU8 } from '../util/hex';
 import { concat } from '../util/array';
 import { log } from '../presentation/log';
 import { highlightColonList } from '../presentation/highlights';
+import cs from '../util/cryptoProxy';
 
 const txtEnc = new TextEncoder();
 
@@ -28,8 +29,8 @@ export async function hkdfExtract(salt: Uint8Array, keyMaterial: Uint8Array, has
   PRK = HMAC-Hash(salt, IKM)
   */
 
-  const hmacKey = await crypto.subtle.importKey('raw', salt, { name: 'HMAC', hash: { name: `SHA-${hashBits}` } }, false, ['sign']);
-  var prk = new Uint8Array(await crypto.subtle.sign('HMAC', hmacKey, keyMaterial));  // yes, the key material is used as the input data, not the key
+  const hmacKey = await cs.importKey('raw', salt, { name: 'HMAC', hash: { name: `SHA-${hashBits}` } }, false, ['sign']);
+  var prk = new Uint8Array(await cs.sign('HMAC', hmacKey, keyMaterial));  // yes, the key material is used as the input data, not the key
   return prk;
 }
 
@@ -75,12 +76,12 @@ export async function hkdfExpand(key: Uint8Array, info: Uint8Array, length: numb
   const n = Math.ceil(length / hashBytes);
 
   const okm = new Uint8Array(n * hashBytes);
-  const hmacKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: { name: `SHA-${hashBits}` } }, false, ['sign']);
+  const hmacKey = await cs.importKey('raw', key, { name: 'HMAC', hash: { name: `SHA-${hashBits}` } }, false, ['sign']);
 
   let tPrev = new Uint8Array(0);
   for (let i = 0; i < n; i++) {
     const hmacData = concat(tPrev, info, [i + 1]);
-    const tiBuffer = await crypto.subtle.sign('HMAC', hmacKey, hmacData);
+    const tiBuffer = await cs.sign('HMAC', hmacKey, hmacData);
     const ti = new Uint8Array(tiBuffer);
     okm.set(ti, hashBytes * i);
     tPrev = ti;
@@ -119,19 +120,19 @@ export async function getHandshakeKeys(serverPublicKey: Uint8Array, privateKey: 
   const hashBytes = hashBits >> 3;
   const zeroKey = new Uint8Array(hashBytes);
 
-  const publicKey = await crypto.subtle.importKey('raw', serverPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false /* extractable */, []);
-  const sharedSecretBuffer = await crypto.subtle.deriveBits({ name: 'ECDH', public: publicKey }, privateKey, 256);
+  const publicKey = await cs.importKey('raw', serverPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false /* extractable */, []);
+  const sharedSecretBuffer = await cs.deriveBits({ name: 'ECDH', public: publicKey }, privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
   chatty && log(...highlightColonList('shared secret: ' + hexFromU8(sharedSecret)));
 
-  const hellosHashBuffer = await crypto.subtle.digest('SHA-256', hellos);
+  const hellosHashBuffer = await cs.digest('SHA-256', hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
   chatty && log(...highlightColonList('hellos hash: ' + hexFromU8(hellosHash)));
 
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
   chatty && log(...highlightColonList('early secret: ' + hexFromU8(new Uint8Array(earlySecret))));
 
-  const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
+  const emptyHashBuffer = await cs.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
   chatty && log(...highlightColonList('empty hash: ' + hexFromU8(emptyHash)));
 
@@ -166,7 +167,7 @@ export async function getApplicationKeys(handshakeSecret: Uint8Array, handshakeH
   const hashBytes = hashBits >> 3;
   const zeroKey = new Uint8Array(hashBytes);
 
-  const emptyHashBuffer = await crypto.subtle.digest(`SHA-${hashBits}`, new Uint8Array(0));
+  const emptyHashBuffer = await cs.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
   chatty && log(...highlightColonList('empty hash: ' + hexFromU8(emptyHash)));
 

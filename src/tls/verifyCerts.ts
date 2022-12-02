@@ -6,7 +6,7 @@ import { highlightColonList } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { ASN1Bytes } from '../util/asn1bytes';
 import { ecdsaVerify } from './ecdsa';
-
+import cs from '../util/cryptoProxy';
 
 export async function verifyCerts(host: string, certs: Cert[], rootCerts: TrustedCert[]) {
 
@@ -75,8 +75,8 @@ export async function verifyCerts(host: string, certs: Cert[], rootCerts: Truste
 
     } else if (subjectCert.algorithm === '1.2.840.113549.1.1.11' || subjectCert.algorithm === '1.2.840.113549.1.1.12') {  // RSASSA_PKCS1-v1_5 + SHA-256/384
       const hash = subjectCert.algorithm === '1.2.840.113549.1.1.11' ? 'SHA-256' : 'SHA-384';
-      const signatureKey = await crypto.subtle.importKey('spki', signingCert.publicKey.all, { name: 'RSASSA-PKCS1-v1_5', hash }, false, ['verify']);
-      const certVerifyResult = await crypto.subtle.verify({ name: 'RSASSA-PKCS1-v1_5' }, signatureKey, subjectCert.signature, subjectCert.signedData);
+      const signatureKey = await cs.importKey('spki', signingCert.publicKey.all, { name: 'RSASSA-PKCS1-v1_5', hash }, false, ['verify']);
+      const certVerifyResult = await cs.verify({ name: 'RSASSA-PKCS1-v1_5' }, signatureKey, subjectCert.signature, subjectCert.signedData);
       if (certVerifyResult !== true) throw new Error('RSASSA_PKCS1-v1_5-SHA256 certificate verify failed');
       chatty && log(`%c✓ RSASAA-PKCS1-v1_5 signature verified`, 'color: #8c8;');
 

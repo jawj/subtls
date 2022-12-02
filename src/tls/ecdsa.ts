@@ -2,6 +2,7 @@ import { log } from '../presentation/log';
 import { concat } from '../util/array';
 import { ASN1Bytes } from '../util/asn1bytes';
 import { constructedUniversalTypeSequence, universalTypeInteger } from './certUtils';
+import cs from '../util/cryptoProxy';
 
 export async function ecdsaVerify(sb: ASN1Bytes /* signature */, publicKey: Uint8Array, signedData: Uint8Array, namedCurve: 'P-256' | 'P-384', hash: 'SHA-256' | 'SHA-384') {
   sb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
@@ -36,8 +37,8 @@ export async function ecdsaVerify(sb: ASN1Bytes /* signature */, publicKey: Uint
   const intLength = namedCurve === 'P-256' ? 32 : 48;
   const signature = concat(clampToLength(sigR, intLength), clampToLength(sigS, intLength));
 
-  const signatureKey = await crypto.subtle.importKey('spki', publicKey, { name: 'ECDSA', namedCurve }, false, ['verify']);
-  const certVerifyResult = await crypto.subtle.verify({ name: 'ECDSA', hash }, signatureKey, signature, signedData);
+  const signatureKey = await cs.importKey('spki', publicKey, { name: 'ECDSA', namedCurve }, false, ['verify']);
+  const certVerifyResult = await cs.verify({ name: 'ECDSA', hash }, signatureKey, signature, signedData);
 
   if (certVerifyResult !== true) throw new Error('ECDSA-SECP256R1-SHA256 certificate verify failed');
   chatty && log(`%c✓ ECDSA signature verified (curve ${namedCurve}, hash ${hash})`, 'color: #8c8;');

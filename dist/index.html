@@ -1,120 +1,100 @@
-<meta charset="utf-8">
-<style>
-  body {
-    font: 400 15px/1.5 Georgia, serif;
-    padding: 0;
-    margin: 0;
-  }
+<!DOCTYPE html>
+<html>
 
-  a {
-    color: #58e;
-    text-decoration: none;
-  }
-
-  #preamble {
-    padding: 3ex 5ex;
-  }
-
-  #logs input[type=checkbox] {
-    display: none;
-  }
-
-  #logs label {
-    display: block;
-  }
-
-  #logs,
-  code {
-    font: 400 11px/1.5 Monaco, Menlo, Consolas, 'Courier New', monospace;
-    white-space: pre-wrap;
-  }
-
-  code {
-    background: #eee;
-  }
-
-  #logs .section {
-    border-top: 1px solid #ddd;
-    padding: 0.75ex 5ex;
-    max-height: 9ex;
-    overflow-y: hidden;
-    background: #f8f8f8;
-  }
-
-  #logs input[type=checkbox]:checked+.section {
-    max-height: 10000em;
-    background: #fff;
-  }
-
-  #controls {
-    position: fixed;
-    top: 0;
-    right: 0;
-    padding: 1ex 3ex;
-    border-bottom-left-radius: 2ex;
-    background: rgba(255, 255, 255, 0.75);
-    backdrop-filter: blur(10px);
-    text-transform: uppercase;
-    font-size: 10px;
-    letter-spacing: .5px;
-  }
-
-  #controls a {
-    color: #000;
-  }
-</style>
-<div id="controls">
-  <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = true); return false;">Expand all</a> &nbsp;
-  <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = false); return false;">Collapse all</a> &nbsp;
-  <a href="#" onclick="document.body.scrollTo({ top: 0 }); return false;">Top</a> &nbsp;
-  <a href="#" onclick="document.body.scrollTo({ top: 999999 }); return false;">Bottom</a>
-</div>
-<div id="preamble">
-  <h1>The Annotated Postgres+TLS Session</h1>
-  <p>Inspired by <a href="https://tls13.xargs.org/">The Illustrated TLS 1.3 Connection</a> and <a href="https://jvns.ca/blog/2022/03/23/a-toy-version-of-tls/">Julia Evans</a>, this page provides an annotated Postgres+TLS session using <a href="https://github.com/jawj/subtls">subtls</a>.
-  <p>A pure-JS TLS library, <a href="https://github.com/jawj/subtls">subtls</a> makes heavy use of SubtleCrypto but has no other dependencies.</p>
-  <p>In principle, we could follow a simple HTTPS session or a simple Postgres query. In practice, we are using a WebSocket proxy provided by <a href="https://neon.tech">Neon</a>, so we’re limited to connecting to a Neon Postgres database.</p>
-  <p>To get started, simply add a database connection string as the hash part of the URL and follow along.</p>
-  <h3>Notes</h3>
-  <ul>
-    <li>You can expand or collapse each log message by clicking it. There are additional controls at top right.</li>
-    <li>To minimise latency, we heavily pipeline outgoing Postgres traffic into only three transmissions. The first combines a Postgres SSL request and (without awaiting a reply) the TLS ClientHello. The second combines the startup message, the password message and a SELECT query. The third simply closes the connection. (You can follow this I/O by opening Chrome’s developer tools, picking the Network tab, and selecting the WebSocket connection: <code>v1?address=...</code>).</li>
-  </ul>
-
-</div>
-<div id="logs"></div>
-<script type="module">
-  import { https, postgres } from './index.js';
-
-  const urlStr = location.hash.slice(1);
-  const url = new URL(urlStr);
-
-  (url.protocol === 'https:' ?
-    https(urlStr, 'GET') :
-    postgres(urlStr)
-  ).then(restoreState);
-
-  function saveState() {
-    const inputs = document.querySelectorAll('input');
-    const state = Array.from(inputs).reduce((memo, input, i) => {
-      if (input.checked) memo.push(i);
-      return memo;
-    }, [document.body.scrollTop]).join(',');
-    window.name = state;
-  }
-
-  function restoreState() {
-    console.log('restore page state');
-    const state = window.name;
-    if (state) {
-      const [y, ...checked] = state.split(',').map(x => parseFloat(x));
-      const inputs = document.querySelectorAll('input');
-      checked.forEach(index => {
-        if (inputs[index]) inputs[index].checked = true;
-      });
-      setTimeout(() => { document.body.scrollTop = y; }, 0);
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font: 400 15px/1.5 Georgia, serif;
+      padding: 0;
+      margin: 0;
     }
-    window.addEventListener('scroll', saveState);
-    window.addEventListener('click', saveState);
-  }
-</script>
+
+    a {
+      color: #58e;
+      text-decoration: none;
+    }
+
+    .discussion {
+      padding: 3ex 5ex;
+    }
+
+    #logs input[type=checkbox] {
+      display: none;
+    }
+
+    #logs label {
+      display: block;
+    }
+
+    #logs,
+    code {
+      font: 400 11px/1.5 Monaco, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+    }
+
+    code {
+      background: #eee;
+    }
+
+    #logs .section {
+      border-top: 1px solid #ddd;
+      padding: 0.75ex 5ex;
+      max-height: 9ex;
+      overflow-y: hidden;
+      background: #f8f8f8;
+    }
+
+    #logs input[type=checkbox]:checked+.section {
+      max-height: 10000em;
+      background: #fff;
+    }
+
+    #controls {
+      position: fixed;
+      top: 0;
+      right: 0;
+      padding: 1ex 3ex;
+      border-bottom-left-radius: 2ex;
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(10px);
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: .5px;
+    }
+
+    #controls a {
+      color: #000;
+    }
+
+    .easter {
+      color: #ccc;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="controls">
+    <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = true); return false;">Expand all</a> &nbsp;
+    <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = false); return false;">Collapse all</a> &nbsp;
+    <a href="#" onclick="document.body.scrollTo({ top: 0 }); return false;">Top</a> &nbsp;
+    <a href="#" onclick="document.body.scrollTo({ top: 999999 }); return false;">Bottom</a>
+  </div>
+  <div class="discussion">
+    <h1>The Annotated Live TLS 1.3 Session</h1>
+    <ul>
+      <li>Inspired by <a href="https://tls13.xargs.org/">The Illustrated TLS 1.3 Connection</a> and <a href="https://jvns.ca/blog/2022/03/23/a-toy-version-of-tls/">Julia Evans</a>, this page provides a live annotated TLS session.</li>
+      <li>It’s built with <a href="https://github.com/jawj/subtls">subtls</a>, a pure-JS TLS implementation that makes heavy use of <a href="https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto">SubtleCrypto</a> but has no other dependencies. TCP communication is via a <a href="https://github.com/neondatabase/wsproxy">WebSocket proxy</a>.</li>
+      <li>Expand or collapse each log message by clicking it. There are additional controls at top right.</li>
+    </ul>
+    <p id="extra"></p>
+    <input id="go" type="button" value="Get this page over TLS 1.3">
+  </div>
+  <div id="logs"></div>
+  <div class="easter discussion">
+    <p>Easter egg: append a <a href="https://neon.tech">neon.tech</a> PostgreSQL connection string as the # hash part of the URL to follow along a simple PostgreSQL session instead.</p>
+  </div>
+  <script src="index.js"></script>
+</body>
+
+</html>

@@ -1,3 +1,4 @@
+import cs from '../util/cryptoProxy';
 
 const maxRecords = 1 << 30;  // because signed integers 1^31 is max recordsDecrypted value
 
@@ -30,7 +31,7 @@ export class Crypter {
 
     const authTagBits = authTagLength << 3;
     const algorithm = { name: 'AES-GCM', iv: this.currentIv, tagLength: authTagBits, additionalData };
-    const resultBuffer = await crypto.subtle[this.mode](algorithm, this.key, data);
+    const resultBuffer = await cs[this.mode](algorithm, this.key, data);
 
     const result = new Uint8Array(resultBuffer);
     return result;

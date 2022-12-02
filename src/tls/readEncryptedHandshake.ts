@@ -1,7 +1,7 @@
 import { LogColours } from '../presentation/appearance';
 import { hkdfExpandLabel } from './keys';
 import { concat, equal } from '../util/array';
-
+import cs from '../util/cryptoProxy';
 import { Cert, TrustedCert } from './cert';
 import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
@@ -95,7 +95,7 @@ export async function readEncryptedHandshake(
   // certificate verify
   const certVerifyHandshakeData = hs.data.subarray(0, hs.offset);
   const certVerifyData = concat(hellos, certVerifyHandshakeData);
-  const certVerifyHashBuffer = await crypto.subtle.digest('SHA-256', certVerifyData);
+  const certVerifyHashBuffer = await cs.digest('SHA-256', certVerifyData);
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
   const certVerifySignedData = concat(txtEnc.encode(' '.repeat(64) + 'TLS 1.3, server CertificateVerify'), [0x00], certVerifyHash);
 
@@ -128,8 +128,8 @@ export async function readEncryptedHandshake(
     certificate, it MUST use the rsaEncryption OID [RFC5280].
     -- https://www.rfc-editor.org/rfc/rfc8446#section-4.2.3
     */
-    const signatureKey = await crypto.subtle.importKey('spki', userCert.publicKey.all, { name: 'RSA-PSS', hash: 'SHA-256' }, false, ['verify']);
-    const certVerifyResult = await crypto.subtle.verify({ name: 'RSA-PSS', saltLength: 32 /* SHA-256 length in bytes */ }, signatureKey, signature, certVerifySignedData);
+    const signatureKey = await cs.importKey('spki', userCert.publicKey.all, { name: 'RSA-PSS', hash: 'SHA-256' }, false, ['verify']);
+    const certVerifyResult = await cs.verify({ name: 'RSA-PSS', saltLength: 32 /* SHA-256 length in bytes */ }, signatureKey, signature, certVerifySignedData);
     if (certVerifyResult !== true) throw new Error('RSA-PSS-RSAE-SHA256 certificate verify failed');
 
   } else {
@@ -143,9 +143,9 @@ export async function readEncryptedHandshake(
   const verifyHandshakeData = hs.data.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, 'finished', new Uint8Array(0), 32, 256);
-  const finishedHash = await crypto.subtle.digest('SHA-256', verifyData);
-  const hmacKey = await crypto.subtle.importKey('raw', finishedKey, { name: 'HMAC', hash: { name: `SHA-256` } }, false, ['sign']);
-  const correctVerifyHashBuffer = await crypto.subtle.sign('HMAC', hmacKey, finishedHash);
+  const finishedHash = await cs.digest('SHA-256', verifyData);
+  const hmacKey = await cs.importKey('raw', finishedKey, { name: 'HMAC', hash: { name: `SHA-256` } }, false, ['sign']);
+  const correctVerifyHashBuffer = await cs.sign('HMAC', hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
 
   if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
@@ -160,7 +160,7 @@ export async function readEncryptedHandshake(
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true) throw new Error('Invalid server verify hash');
 
-  chatty && log('Decrypted using the server handshake key, the server’s handshake messages are then parsed as follows. This is a long section, since X.509 certificates are quite complex and there will be several of them:');
+  chatty && log('Decrypted using the server handshake key, the server’s handshake messages are parsed as follows. This is a long section, since X.509 certificates are quite complex and there will be several of them:');
   chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
 
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);
