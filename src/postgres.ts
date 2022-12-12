@@ -17,9 +17,12 @@ export async function postgres(urlStr: string) {
 
   const url = parse(urlStr);
   const host = url.hostname;
+
+  const isNeon = /[.]neon[.]tech$/.test(host);
+
   const port = url.port || 5432;  // not `?? 5432`, because it's an empty string if unspecified
   const user = url.username;
-  const password = `project=${host.match(/^[^.]+/)![0]};${url.password}`;
+  const password = isNeon ? `project=${host.match(/^[^.]+/)![0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);
 
   const ws = await new Promise<WebSocket>(resolve => {
@@ -57,7 +60,7 @@ export async function postgres(urlStr: string) {
   const expectPreData = sslResponse.array();
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
-  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, false, /* writePreData, expectPreData, '"S" = SSL connection supported' */);
+  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, !isNeon, /* writePreData, expectPreData, '"S" = SSL connection supported' */);
 
   const msg = new Bytes(1024);
 
@@ -94,17 +97,38 @@ export async function postgres(urlStr: string) {
   const preAuthBytes = new Bytes(preAuthResponse!);
 
   preAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
-  const [endAuthReq] = preAuthBytes.expectLengthUint32Incl('request');
-  preAuthBytes.expectUint32(3, chatty && 'request cleartext password auth');
+  const [endAuthReq, authReqRemaining] = preAuthBytes.expectLengthUint32Incl('request');
+
+  const authMechanism = preAuthBytes.readUint32();
+  if (authMechanism === 3) {
+    chatty && preAuthBytes.comment('request cleartext password auth');
+
+  } else if (authMechanism === 10) {
+    chatty && preAuthBytes.comment('request SASL auth');
+    while (authReqRemaining() > 1) {
+      const mechanism = preAuthBytes.readUTF8StringNullTerminated();
+    }
+    preAuthBytes.expectUint8(0, 'null terminated list');
+
+  } else {
+    throw new Error(`Unsupported auth mechanism (${authMechanism})`);
+  }
+
   endAuthReq();
   chatty && log('Decrypted and parsed:');
   chatty && log(...highlightBytes(preAuthBytes.commentedString(true), LogColours.server));
+
+  if (authMechanism === 10) {
+    chatty && log('We don’t currently support anything except cleartext auth, so we come to an abrupt end here.');
+    throw new Error('Unsupported SCRAM-SHA-256 auth');
+  }
 
   chatty && log('Next, it responds to the password we sent, and provides some other useful data. Encrypted, that’s:');
 
   const postAuthResponse = await read();
   const postAuthBytes = new Bytes(postAuthResponse!);
 
+  chatty && log(...highlightBytes(postAuthBytes.commentedString(true), LogColours.server));
   postAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
   const [endAuthOK] = postAuthBytes.expectLengthUint32Incl(chatty && 'result');
   postAuthBytes.expectUint32(0, chatty && 'authentication successful');

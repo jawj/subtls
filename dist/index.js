@@ -1913,9 +1913,10 @@ async function postgres(urlStr2) {
   const t0 = Date.now();
   const url = parse(urlStr2);
   const host = url.hostname;
+  const isNeon = /[.]neon[.]tech$/.test(host);
   const port = url.port || 5432;
   const user = url.username;
-  const password = `project=${host.match(/^[^.]+/)[0]};${url.password}`;
+  const password = isNeon ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);
   const ws = await new Promise((resolve) => {
     const ws2 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
@@ -1946,7 +1947,7 @@ async function postgres(urlStr2) {
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
-  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, false);
+  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, !isNeon);
   const msg = new Bytes(1024);
   const endStartupMessage = msg.writeLengthUint32Incl("startup message");
   msg.writeUint32(196608, "protocol version");
@@ -1974,14 +1975,30 @@ async function postgres(urlStr2) {
   const preAuthResponse = await read();
   const preAuthBytes = new Bytes(preAuthResponse);
   preAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
-  const [endAuthReq] = preAuthBytes.expectLengthUint32Incl("request");
-  preAuthBytes.expectUint32(3, "request cleartext password auth");
+  const [endAuthReq, authReqRemaining] = preAuthBytes.expectLengthUint32Incl("request");
+  const authMechanism = preAuthBytes.readUint32();
+  if (authMechanism === 3) {
+    preAuthBytes.comment("request cleartext password auth");
+  } else if (authMechanism === 10) {
+    preAuthBytes.comment("request SASL auth");
+    while (authReqRemaining() > 1) {
+      const mechanism = preAuthBytes.readUTF8StringNullTerminated();
+    }
+    preAuthBytes.expectUint8(0, "null terminated list");
+  } else {
+    throw new Error(`Unsupported auth mechanism (${authMechanism})`);
+  }
   endAuthReq();
   log("Decrypted and parsed:");
   log(...highlightBytes(preAuthBytes.commentedString(true), "#88c" /* server */));
+  if (authMechanism === 10) {
+    log("We don\u2019t currently support anything except cleartext auth, so we come to an abrupt end here.");
+    throw new Error("Unsupported SCRAM-SHA-256 auth");
+  }
   log("Next, it responds to the password we sent, and provides some other useful data. Encrypted, that\u2019s:");
   const postAuthResponse = await read();
   const postAuthBytes = new Bytes(postAuthResponse);
+  log(...highlightBytes(postAuthBytes.commentedString(true), "#88c" /* server */));
   postAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
   const [endAuthOK] = postAuthBytes.expectLengthUint32Incl("result");
   postAuthBytes.expectUint32(0, "authentication successful");

@@ -16,14 +16,18 @@ nano /etc/pgbouncer/pgbouncer.ini
 * =
 
 # in [pgbouncer], change or add:
-auth_type = scram-sha-256
+auth_type = hba
+auth_hba_file = /usr/local/pgsql/data/pg_hba.conf
 client_tls_sslmode = allow
 client_tls_key_file = /usr/local/pgsql/data/server.key
 client_tls_cert_file = /usr/local/pgsql/data/server.crt
 
 
-SCRAMPWD=$(echo "SELECT passwd FROM pg_catalog.pg_shadow WHERE usename = 'wsuser'" | sudo -u postgres /usr/local/pgsql/bin/psql -qtAX)
-echo \"wsuser\" \"${SCRAMPWD}\" > /etc/pgbouncer/userlist.txt
+read -r -s -p "wsclear password: " CLEARPWD
+echo
+echo \"wsclear\" \"${CLEARPWD}\" > /etc/pgbouncer/userlist.txt
+SCRAMPWD=$(echo "SELECT passwd FROM pg_catalog.pg_shadow WHERE usename = 'wsscram'" | sudo -u postgres /usr/local/pgsql/bin/psql -qtAX)
+echo \"wsscram\" \"${SCRAMPWD}\" >> /etc/pgbouncer/userlist.txt
 
 
 cp etc/pgbouncer.service /lib/systemd/system/pgbouncer.service

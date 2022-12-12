@@ -56,17 +56,23 @@ WantedBy=multi-user.target
 service postgresql start
 
 /usr/local/pgsql/bin/createdb main
-/usr/local/pgsql/bin/psql main
 
-/usr/local/pgsql/bin/createuser wsuser --pwprompt
+/usr/local/pgsql/bin/createuser wsscram --pwprompt
+/usr/local/pgsql/bin/createuser wsclear --pwprompt
 
 nano /usr/local/pgsql/data/pg_hba.conf
+
 # == replace ==
-# local   all             all                                     trust
+local   all             all                                     trust
+
 # == with ==
-# local   all             postgres                                trust
-# local   all             all                                     scram-sha-256
-# hostssl all             all             127.0.0.1/32            scram-sha-256
+local   all             postgres                                trust
+
+local   all             wsclear                                 password
+local   all             all                                     scram-sha-256
+
+hostssl all             wsclear         127.0.0.1/32            password
+hostssl all             all             127.0.0.1/32            scram-sha-256
 
 echo '
 #!/bin/bash
@@ -90,10 +96,21 @@ ssl_key_file = 'server.key'
 
 service postgresql restart
 
+ln -s /var/run/postgresql/.s.PGSQL.5432 /tmp/  # psql still imagines it's at /tmp/
+
+su - postgres
+
 psql
-grant all privileges on database main to wsuser;
+
+set password_encryption = 'md5';
+alter role wsclear with login password '...';
+
+grant all privileges on database main to wsscram;
+grant all privileges on database main to wsclear;
+
 \c main
-grant all privileges on schema public to wsuser;
+grant all privileges on schema public to wsscram;
+grant all privileges on schema public to wsclear;
 
 echo '127.0.0.1 ws.manipulexity.com' >> /etc/hosts
 
