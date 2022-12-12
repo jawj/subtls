@@ -180,6 +180,10 @@ Testing
 * https://github.com/tlsfuzzer/tlsfuzzer
 * https://badssl.com (but no TLS 1.3 support yet)
 
+## TODO
+
+Compare client state machine: https://www.rfc-editor.org/rfc/rfc8446#appendix-A.1
+
 ## Licence
 
 Copyright &copy; 2022 George MacKerron.

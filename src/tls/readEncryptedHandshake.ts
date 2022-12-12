@@ -67,9 +67,35 @@ export async function readEncryptedHandshake(
   extEnd();
   eeMessageEnd();
 
-  // certificates
+
   if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());  // e.g. Vercel sends certs in a separate record
-  hs.expectUint8(0x0b, chatty && 'handshake message type: server certificate');
+
+  let clientCertRequested = false;
+
+  // certificate request (unusual)
+  let certMsgType = hs.readUint8();
+  if (certMsgType === 0x0d) {
+    chatty && hs.comment('handshake message type: certificate request');
+    clientCertRequested = true;
+
+    const [endCertReq] = hs.expectLengthUint24('certificate request data');
+
+    // // this field SHALL be zero length unless used for the post-handshake authentication exchanges described in Section 4.6.2
+    hs.expectUint8(0x00, chatty && 'length of certificate request context');
+
+    const [endCertReqExts, certReqExtsRemaining] = hs.expectLengthUint16('certificate request extensions');
+    hs.skip(certReqExtsRemaining(), 'certificate request extensions (ignored)');
+    endCertReqExts();
+
+    endCertReq();
+
+    if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+    certMsgType = hs.readUint8();
+  }
+
+  // certificates
+  if (certMsgType !== 0x0b) throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
+  chatty && hs.comment('handshake message type: server certificate');
   const [endCertPayload] = hs.expectLengthUint24(chatty && 'certificate payload');
 
   hs.expectUint8(0x00, chatty && '0 bytes of request context follow');
@@ -166,5 +192,5 @@ export async function readEncryptedHandshake(
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);
   if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in a trusted root');
 
-  return hs.data;
+  return [hs.data, clientCertRequested] as const;
 }

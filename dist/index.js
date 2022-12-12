@@ -306,6 +306,11 @@ var Bytes = class {
       this.comment(comment);
     return this;
   }
+  writeUint24(value, comment) {
+    this.writeUint8((value & 16711680) >> 16);
+    this.writeUint16(value & 65535, comment);
+    return this;
+  }
   writeUint32(value, comment) {
     this.dataView.setUint32(this.offset, value);
     this.offset += 4;
@@ -1681,7 +1686,24 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   eeMessageEnd();
   if (hs.remaining() === 0)
     hs.extend(await readHandshakeRecord());
-  hs.expectUint8(11, "handshake message type: server certificate");
+  let clientCertRequested = false;
+  let certMsgType = hs.readUint8();
+  if (certMsgType === 13) {
+    hs.comment("handshake message type: certificate request");
+    clientCertRequested = true;
+    const [endCertReq] = hs.expectLengthUint24("certificate request data");
+    hs.expectUint8(0, "length of certificate request context");
+    const [endCertReqExts, certReqExtsRemaining] = hs.expectLengthUint16("certificate request extensions");
+    hs.skip(certReqExtsRemaining(), "certificate request extensions (ignored)");
+    endCertReqExts();
+    endCertReq();
+    if (hs.remaining() === 0)
+      hs.extend(await readHandshakeRecord());
+    certMsgType = hs.readUint8();
+  }
+  if (certMsgType !== 11)
+    throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
+  hs.comment("handshake message type: server certificate");
   const [endCertPayload] = hs.expectLengthUint24("certificate payload");
   hs.expectUint8(0, "0 bytes of request context follow");
   const [endCerts, certsRemaining] = hs.expectLengthUint24("certificates");
@@ -1755,7 +1777,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);
   if (!verifiedToTrustedRoot)
     throw new Error("Validated certificate chain did not end in a trusted root");
-  return hs.data;
+  return [hs.data, clientCertRequested];
 }
 
 // src/tls/startTls.ts
@@ -1808,7 +1830,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
       throw new Error("Premature end of encrypted server handshake");
     return tlsRecord;
   };
-  const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
+  const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
   log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, it\u2019s the client\u2019s turn to send a meaningless cipher change record:");
   const clientCipherChange = new Bytes(6);
   clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
@@ -1818,8 +1840,20 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   endClientCipherChangePayload();
   log(...highlightBytes(clientCipherChange.commentedString(), "#8cc" /* client */));
   const clientCipherChangeData = clientCipherChange.array();
+  let clientCertRecordData = new Uint8Array();
+  if (clientCertRequested) {
+    log("Since a client cert was requested, we\u2019re obliged to send a blank one. Here it is unencrypted:");
+    const clientCertRecord = new Bytes(8);
+    clientCertRecord.writeUint8(11, "handshake message type: client certificate");
+    const endClientCerts = clientCertRecord.writeLengthUint24("client certificate data");
+    clientCertRecord.writeUint8(0, "certificate context: none");
+    clientCertRecord.writeUint24(0, "certificate list: empty");
+    endClientCerts();
+    clientCertRecordData = clientCertRecord.array();
+    log(...highlightBytes(clientCertRecord.commentedString(), "#8cc" /* client */));
+  }
   log("Next, we send a \u2018handshake finished\u2019 message, which includes an HMAC of (nearly) the whole handshake to date. This is how it looks before encryption:");
-  const wholeHandshake = concat(hellos, serverHandshake);
+  const wholeHandshake = concat(hellos, serverHandshake, clientCertRecordData);
   const wholeHandshakeHashBuffer = await cryptoProxy_default.digest("SHA-256", wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
   const finishedKey = await hkdfExpandLabel(handshakeKeys.clientSecret, "finished", new Uint8Array(0), 32, 256);
@@ -1832,9 +1866,10 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   clientFinishedRecord.writeBytes(verifyData);
   clientFinishedRecord.comment("verify data");
   clientFinishedRecordEnd();
+  const clientFinishedRecordData = clientFinishedRecord.array();
   log(...highlightBytes(clientFinishedRecord.commentedString(), "#8cc" /* client */));
-  log("And here it is encrypted with the client\u2019s handshake key and ready to go:");
-  const encryptedClientFinished = await makeEncryptedTlsRecords(clientFinishedRecord.array(), handshakeEncrypter, 22 /* Handshake */);
+  log("And here\u2019s the client certificate (if requested) and handshake finished messages encrypted with the client\u2019s handshake key and ready to go:");
+  const encryptedClientFinished = await makeEncryptedTlsRecords(concat(clientCertRecordData, clientFinishedRecordData), handshakeEncrypter, 22 /* Handshake */);
   log("Both parties now have what they need to calculate the keys and IVs that will protect the application data:");
   log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
@@ -1897,13 +1932,15 @@ async function postgres(urlStr2) {
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
   const writePreData = sslRequest.array();
+  networkWrite(writePreData);
+  await networkRead(1);
   log("We don\u2019t need to wait for the reply: we run this server, so we know it\u2019s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a \u2018client hello\u2019:");
   log("*** Hint: click the handshake log message below to expand. ***");
   const sslResponse = new Bytes(1);
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
-  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, false, writePreData, expectPreData, '"S" = SSL connection supported');
+  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, false);
   const msg = new Bytes(1024);
   const endStartupMessage = msg.writeLengthUint32Incl("startup message");
   msg.writeUint32(196608, "protocol version");

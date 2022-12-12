@@ -232,6 +232,12 @@ export default class Bytes {
     return this;
   }
 
+  writeUint24(value: number, comment?: string): Bytes {
+    this.writeUint8((value & 0xff0000) >> 16);
+    this.writeUint16(value & 0x00ffff, comment);
+    return this;
+  }
+
   writeUint32(value: number, comment?: string): Bytes {
     this.dataView.setUint32(this.offset, value);
     this.offset += 4;

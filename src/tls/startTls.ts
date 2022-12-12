@@ -77,7 +77,7 @@ export async function startTls(
     if (tlsRecord === undefined) throw new Error('Premature end of encrypted server handshake');
     return tlsRecord;
   };
-  const serverHandshake = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
+  const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
 
   // dummy cipher change
   chatty && log('For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, it’s the client’s turn to send a meaningless cipher change record:');
@@ -90,10 +90,25 @@ export async function startTls(
   chatty && log(...highlightBytes(clientCipherChange.commentedString(), LogColours.client));
   const clientCipherChangeData = clientCipherChange.array();  // to be sent below
 
+  // empty client certificate, if requested
+  let clientCertRecordData = new Uint8Array();
+  if (clientCertRequested) {
+    chatty && log('Since a client cert was requested, we’re obliged to send a blank one. Here it is unencrypted:');
+
+    const clientCertRecord = new Bytes(8);
+    clientCertRecord.writeUint8(0x0b, chatty && 'handshake message type: client certificate');
+    const endClientCerts = clientCertRecord.writeLengthUint24('client certificate data');
+    clientCertRecord.writeUint8(0x00, chatty && 'certificate context: none');
+    clientCertRecord.writeUint24(0x000000, chatty && 'certificate list: empty');
+    endClientCerts();
+    clientCertRecordData = clientCertRecord.array();
+    chatty && log(...highlightBytes(clientCertRecord.commentedString(), LogColours.client));
+  }
+
   chatty && log('Next, we send a ‘handshake finished’ message, which includes an HMAC of (nearly) the whole handshake to date. This is how it looks before encryption:');
 
   // hash of whole handshake (note: dummy cipher change is excluded)
-  const wholeHandshake = concat(hellos, serverHandshake);
+  const wholeHandshake = concat(hellos, serverHandshake, clientCertRecordData);
   const wholeHandshakeHashBuffer = await cs.digest('SHA-256', wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
 
@@ -109,10 +124,11 @@ export async function startTls(
   clientFinishedRecord.writeBytes(verifyData);
   chatty && clientFinishedRecord.comment('verify data');
   clientFinishedRecordEnd();
+  const clientFinishedRecordData = clientFinishedRecord.array();
   chatty && log(...highlightBytes(clientFinishedRecord.commentedString(), LogColours.client));
 
-  chatty && log('And here it is encrypted with the client’s handshake key and ready to go:');
-  const encryptedClientFinished = await makeEncryptedTlsRecords(clientFinishedRecord.array(), handshakeEncrypter, RecordType.Handshake);  // to be sent below
+  chatty && log('And here’s the client certificate (if requested) and handshake finished messages encrypted with the client’s handshake key and ready to go:');
+  const encryptedClientFinished = await makeEncryptedTlsRecords(concat(clientCertRecordData, clientFinishedRecordData), handshakeEncrypter, RecordType.Handshake);  // to be sent below
 
   // application keys, encryption/decryption instances
   chatty && log('Both parties now have what they need to calculate the keys and IVs that will protect the application data:');

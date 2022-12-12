@@ -45,6 +45,9 @@ export async function postgres(urlStr: string) {
   chatty && log(...highlightBytes(sslRequest.commentedString(), LogColours.client));
   const writePreData = sslRequest.array();
 
+  networkWrite(writePreData);
+  await networkRead(1);
+
   chatty && log('We don’t need to wait for the reply: we run this server, so we know it’s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a ‘client hello’:');
 
   chatty && log('*** Hint: click the handshake log message below to expand. ***');
@@ -54,7 +57,7 @@ export async function postgres(urlStr: string) {
   const expectPreData = sslResponse.array();
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
-  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, false, writePreData, expectPreData, '"S" = SSL connection supported');
+  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, false, /* writePreData, expectPreData, '"S" = SSL connection supported' */);
 
   const msg = new Bytes(1024);
 
