@@ -91,7 +91,7 @@ export async function startTls(
   const clientCipherChangeData = clientCipherChange.array();  // to be sent below
 
   // empty client certificate, if requested
-  let clientCertRecordData = new Uint8Array();
+  let clientCertRecordData = new Uint8Array(0);
   if (clientCertRequested) {
     chatty && log('Since a client cert was requested, we’re obliged to send a blank one. Here it is unencrypted:');
 
@@ -130,10 +130,19 @@ export async function startTls(
   chatty && log('And here’s the client certificate (if requested) and handshake finished messages encrypted with the client’s handshake key and ready to go:');
   const encryptedClientFinished = await makeEncryptedTlsRecords(concat(clientCertRecordData, clientFinishedRecordData), handshakeEncrypter, RecordType.Handshake);  // to be sent below
 
+  // note: if a client cert was requested, the application keys are calculated using a different (smaller) set of messages
+  // than the handshake finished message; namely, the (empty) client cert record is omitted
+  let partialHandshakeHash = wholeHandshakeHash;
+  if (clientCertRecordData.length > 0) {
+    const partialHandshake = wholeHandshake.subarray(0, wholeHandshake.length - clientCertRecordData.length);
+    const partialHandshakeHashBuffer = await cs.digest('SHA-256', partialHandshake);
+    partialHandshakeHash = new Uint8Array(partialHandshakeHashBuffer);
+  }
+
   // application keys, encryption/decryption instances
   chatty && log('Both parties now have what they need to calculate the keys and IVs that will protect the application data:');
   chatty && log('%c%s', `color: ${LogColours.header}`, 'application key computations');
-  const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, wholeHandshakeHash, 256, 16);
+  const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, partialHandshakeHash, 256, 16);
   const clientApplicationKey = await cs.importKey('raw', applicationKeys.clientApplicationKey, { name: 'AES-GCM' }, false, ['encrypt']);
   const applicationEncrypter = new Crypter('encrypt', clientApplicationKey, applicationKeys.clientApplicationIV);
   const serverApplicationKey = await cs.importKey('raw', applicationKeys.serverApplicationKey, { name: 'AES-GCM' }, false, ['decrypt']);
