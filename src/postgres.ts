@@ -21,7 +21,7 @@ export async function postgres(urlStr: string) {
 
   const isNeon = /[.]neon[.]tech$/.test(host);
 
-  const port = url.port || 5432;  // not `?? 5432`, because it's an empty string if unspecified
+  const port = url.port || '5432';  // not `?? '5432'`, because it's an empty string if unspecified
   const user = url.username;
   const password = isNeon ? `project=${host.match(/^[^.]+/)![0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);

@@ -1914,7 +1914,7 @@ async function postgres(urlStr2) {
   const url = parse(urlStr2);
   const host = url.hostname;
   const isNeon = /[.]neon[.]tech$/.test(host);
-  const port = url.port || 5432;
+  const port = url.port || "5432";
   const user = url.username;
   const password = isNeon ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);

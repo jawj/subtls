@@ -57,7 +57,7 @@ export async function readEncryptedHandshake(
       */
       chatty && hs.comment('supported groups');
       const [endGroups, groupsRemaining] = hs.expectLengthUint16('groups data');
-      hs.skip(groupsRemaining(), 'ignored');
+      hs.skip(groupsRemaining(), chatty && 'ignored');
       endGroups()
 
     } else {
@@ -84,7 +84,7 @@ export async function readEncryptedHandshake(
     hs.expectUint8(0x00, chatty && 'length of certificate request context');
 
     const [endCertReqExts, certReqExtsRemaining] = hs.expectLengthUint16('certificate request extensions');
-    hs.skip(certReqExtsRemaining(), 'certificate request extensions (ignored)');
+    hs.skip(certReqExtsRemaining(), chatty && 'certificate request extensions (ignored)');
     endCertReqExts();
 
     endCertReq();
