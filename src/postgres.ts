@@ -11,6 +11,7 @@ import { TrustedCert } from './tls/cert';
 import isrgrootx1 from './roots/isrg-root-x1.pem';
 // @ts-ignore
 import isrgrootx2 from './roots/isrg-root-x2.pem';
+import { hexFromU8 } from './util/hex';
 
 export async function postgres(urlStr: string) {
   const t0 = Date.now();
@@ -48,10 +49,17 @@ export async function postgres(urlStr: string) {
   chatty && log(...highlightBytes(sslRequest.commentedString(), LogColours.client));
   const writePreData = sslRequest.array();
 
-  networkWrite(writePreData);
-  await networkRead(1);
+  if (isNeon) {
+    chatty && log('With Neon, we don’t need to wait for the reply: we run this server, so we know it’s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a ‘client hello’:');
 
-  chatty && log('We don’t need to wait for the reply: we run this server, so we know it’s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a ‘client hello’:');
+  } else {
+    networkWrite(writePreData);
+    const SorN = await networkRead(1);
+    chatty && log('The server responds with an ‘S’ to let us know it supports SSL/TLS.');
+    chatty && log(hexFromU8(SorN!));
+    if (SorN![0] !== 'S'.charCodeAt(0)) throw new Error('Did not receive ‘S’ in response to SSL Request');
+    chatty && log('We then start a TLS handshake, which begins with the ‘client hello’:');
+  }
 
   chatty && log('*** Hint: click the handshake log message below to expand. ***');
 
@@ -60,7 +68,9 @@ export async function postgres(urlStr: string) {
   const expectPreData = sslResponse.array();
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
-  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, !isNeon, /* writePreData, expectPreData, '"S" = SSL connection supported' */);
+  const [read, write] = isNeon ?
+    await startTls(host, rootCert, networkRead, networkWrite, false, writePreData, expectPreData, '"S" = SSL connection supported') :
+    await startTls(host, rootCert, networkRead, networkWrite, true);
 
   const msg = new Bytes(1024);
 

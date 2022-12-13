@@ -1939,15 +1939,23 @@ async function postgres(urlStr2) {
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
   const writePreData = sslRequest.array();
-  networkWrite(writePreData);
-  await networkRead(1);
-  log("We don\u2019t need to wait for the reply: we run this server, so we know it\u2019s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a \u2018client hello\u2019:");
+  if (isNeon) {
+    log("With Neon, we don\u2019t need to wait for the reply: we run this server, so we know it\u2019s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a \u2018client hello\u2019:");
+  } else {
+    networkWrite(writePreData);
+    const SorN = await networkRead(1);
+    log("The server responds with an \u2018S\u2019 to let us know it supports SSL/TLS.");
+    log(hexFromU8(SorN));
+    if (SorN[0] !== "S".charCodeAt(0))
+      throw new Error("Did not receive \u2018S\u2019 in response to SSL Request");
+    log("We then start a TLS handshake, which begins with the \u2018client hello\u2019:");
+  }
   log("*** Hint: click the handshake log message below to expand. ***");
   const sslResponse = new Bytes(1);
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
-  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite, !isNeon);
+  const [read, write] = isNeon ? await startTls(host, rootCert, networkRead, networkWrite, false, writePreData, expectPreData, '"S" = SSL connection supported') : await startTls(host, rootCert, networkRead, networkWrite, true);
   const msg = new Bytes(1024);
   const endStartupMessage = msg.writeLengthUint32Incl("startup message");
   msg.writeUint32(196608, "protocol version");
