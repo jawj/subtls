@@ -1,4 +1,4 @@
-import Bytes from './bytes';
+import { Bytes } from './bytes';
 import { hexFromU8 } from './hex';
 
 export class ASN1Bytes extends Bytes {

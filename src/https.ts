@@ -1,6 +1,6 @@
 
 import { ReadQueue } from './util/readqueue';
-import Bytes from './util/bytes';
+import { Bytes } from './util/bytes';
 import { LogColours } from './presentation/appearance';
 import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';

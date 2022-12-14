@@ -4,7 +4,7 @@ import { makeEncryptedTlsRecords, readEncryptedTlsRecord, readTlsRecord, RecordT
 import { getApplicationKeys, getHandshakeKeys, hkdfExpandLabel } from './keys';
 import { Crypter } from './aesgcm';
 import { readEncryptedHandshake } from './readEncryptedHandshake';
-import Bytes from '../util/bytes';
+import { Bytes } from '../util/bytes';
 import { concat, equal } from '../util/array';
 import { hexFromU8 } from '../util/hex';
 import { LogColours } from '../presentation/appearance';

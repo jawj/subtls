@@ -4,7 +4,7 @@ import { indentChars } from '../presentation/appearance';
 const txtEnc = new TextEncoder();
 const txtDec = new TextDecoder();
 
-export default class Bytes {
+export class Bytes {
   offset: number;
   dataView: DataView;
   data: Uint8Array;

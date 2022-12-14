@@ -27,6 +27,9 @@ su - postgres
 mkdir /var/run/postgresql
 chown postgres /var/run/postgresql
 
+# and for future reboots:
+echo 'd /var/run/postgresql 0755 postgres postgres -' > /usr/lib/tmpfiles.d/postgresql.conf
+
 nano /usr/local/pgsql/data/postgresql.conf
 # change:
 unix_socket_directories = '/var/run/postgresql'

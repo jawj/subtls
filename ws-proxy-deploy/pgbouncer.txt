@@ -37,5 +37,4 @@ nano /lib/systemd/system/pgbouncer.service
 systemctl daemon-reload
 systemctl enable pgbouncer
 
-
 service pgbouncer start

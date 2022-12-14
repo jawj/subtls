@@ -82,5 +82,6 @@ ExecStart=/home/wsproxy/wsproxy/wsproxy
 WantedBy=multi-user.target
 ' > /lib/systemd/system/wsproxy.service
 
+systemctl enable wsproxy
 service wsproxy start
 

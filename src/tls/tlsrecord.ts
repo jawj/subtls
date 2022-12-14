@@ -1,6 +1,6 @@
 import { Crypter } from './aesgcm';
 import { LogColours } from '../presentation/appearance';
-import Bytes from '../util/bytes';
+import { Bytes } from '../util/bytes';
 import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { hexFromU8 } from '../util/hex';

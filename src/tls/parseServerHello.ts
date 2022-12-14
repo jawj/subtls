@@ -1,5 +1,5 @@
 import { equal } from '../util/array';
-import Bytes from '../util/bytes';
+import { Bytes } from '../util/bytes';
 import { hexFromU8 } from '../util/hex';
 
 export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
