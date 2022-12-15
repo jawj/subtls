@@ -45,6 +45,7 @@ export async function startTls(
   // parse server hello
   const serverHelloRecord = await readTlsRecord(networkRead, RecordType.Handshake);
   if (serverHelloRecord === undefined) throw new Error('Connection closed while awaiting server hello');
+
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
   chatty && log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), LogColours.server));
@@ -52,6 +53,7 @@ export async function startTls(
   // parse dummy cipher change
   const changeCipherRecord = await readTlsRecord(networkRead, RecordType.ChangeCipherSpec);
   if (changeCipherRecord === undefined) throw new Error('Connection closed awaiting server cipher change');
+
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
@@ -93,8 +95,6 @@ export async function startTls(
   // empty client certificate, if requested
   let clientCertRecordData = new Uint8Array(0);
   if (clientCertRequested) {
-    chatty && log('Since a client cert was requested, we’re obliged to send a blank one. Here it is unencrypted:');
-
     const clientCertRecord = new Bytes(8);
     clientCertRecord.writeUint8(0x0b, chatty && 'handshake message type: client certificate');
     const endClientCerts = clientCertRecord.writeLengthUint24('client certificate data');
@@ -102,10 +102,12 @@ export async function startTls(
     clientCertRecord.writeUint24(0x000000, chatty && 'certificate list: empty');
     endClientCerts();
     clientCertRecordData = clientCertRecord.array();
+
+    chatty && log('Since a client cert was requested, we’re obliged to send a blank one. Here it is unencrypted:');
     chatty && log(...highlightBytes(clientCertRecord.commentedString(), LogColours.client));
   }
 
-  chatty && log('Next, we send a ‘handshake finished’ message, which includes an HMAC of (nearly) the whole handshake to date. This is how it looks before encryption:');
+  chatty && log('Next, we send a ‘handshake finished’ message, which includes an HMAC of the handshake to date. This is how it looks before encryption:');
 
   // hash of whole handshake (note: dummy cipher change is excluded)
   const wholeHandshake = concat(hellos, serverHandshake, clientCertRecordData);

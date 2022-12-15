@@ -67,7 +67,6 @@ export async function readEncryptedHandshake(
   extEnd();
   eeMessageEnd();
 
-
   if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());  // e.g. Vercel sends certs in a separate record
 
   let clientCertRequested = false;
@@ -126,6 +125,7 @@ export async function readEncryptedHandshake(
   const certVerifySignedData = concat(txtEnc.encode(' '.repeat(64) + 'TLS 1.3, server CertificateVerify'), [0x00], certVerifyHash);
 
   if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+
   hs.expectUint8(0x0f, chatty && 'handshake message type: certificate verify');
   const [endCertVerifyPayload] = hs.expectLengthUint24(chatty && 'handshake message data');
   const sigType = hs.readUint16();
@@ -175,6 +175,7 @@ export async function readEncryptedHandshake(
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
 
   if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+
   hs.expectUint8(0x14, chatty && 'handshake message type: finished');
   const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24(chatty && 'verify hash');
   const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());

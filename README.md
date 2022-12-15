@@ -39,7 +39,7 @@ This could be that userspace TLS implementation.
 
 There’s also some potential pedagogical value, which we build on by optionally producing beautifully annotated and indented binary data.
 
-Note: this project isn’t useful in web browsers. From an `https:` page you can’t open an insecure `ws:` WebSocket, and from an `http:` page there’s no access to SubtleCrypto.
+Note: there are some annoying roadblocks to using this in web browsers. From an `https:` page you can’t open an insecure `ws:` WebSocket, and from an `http:` page there’s no access to SubtleCrypto.
 
 ## Crypto
 
