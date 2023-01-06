@@ -407,16 +407,18 @@ function highlightColonList(s) {
 }
 
 // src/presentation/log.ts
-var element = document.querySelector("#logs");
-var escapes = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&apos;"
-};
-var regexp = new RegExp("[" + Object.keys(escapes).join("") + "]", "g");
+var element;
+var escapes;
+var regexp;
 function htmlEscape(s) {
+  escapes ??= {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&apos;"
+  };
+  regexp ??= new RegExp("[" + Object.keys(escapes).join("") + "]", "g");
   return s.replace(regexp, (match) => escapes[match]);
 }
 function htmlFromLogArgs(...args) {
@@ -449,6 +451,7 @@ function htmlFromLogArgs(...args) {
 var c = 0;
 function log(...args) {
   console.log(...args);
+  element ??= document.querySelector("#logs");
   element.innerHTML += `<label><input type="checkbox" name="c${c++}"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
 }
 
@@ -1842,7 +1845,6 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const clientCipherChangeData = clientCipherChange.array();
   let clientCertRecordData = new Uint8Array(0);
   if (clientCertRequested) {
-    log("Since a client cert was requested, we\u2019re obliged to send a blank one. Here it is unencrypted:");
     const clientCertRecord = new Bytes(8);
     clientCertRecord.writeUint8(11, "handshake message type: client certificate");
     const endClientCerts = clientCertRecord.writeLengthUint24("client certificate data");
@@ -1850,9 +1852,10 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
     clientCertRecord.writeUint24(0, "certificate list: empty");
     endClientCerts();
     clientCertRecordData = clientCertRecord.array();
+    log("Since a client cert was requested, we\u2019re obliged to send a blank one. Here it is unencrypted:");
     log(...highlightBytes(clientCertRecord.commentedString(), "#8cc" /* client */));
   }
-  log("Next, we send a \u2018handshake finished\u2019 message, which includes an HMAC of (nearly) the whole handshake to date. This is how it looks before encryption:");
+  log("Next, we send a \u2018handshake finished\u2019 message, which includes an HMAC of the handshake to date. This is how it looks before encryption:");
   const wholeHandshake = concat(hellos, serverHandshake, clientCertRecordData);
   const wholeHandshakeHashBuffer = await cryptoProxy_default.digest("SHA-256", wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);

@@ -16,16 +16,15 @@ A TypeScript TLS 1.3 client with limited scope.
 * Certificate chain verify: ECDSA (P-256/384) + SHA256/384 and RSASSA_PKCS1-v1_5 + SHA-256 only (some others would be easy to add)
 * No cert chain building: each cert must sign the preceding one, leading to a trusted root
 * No client certificates
-* No Pre-Shared Keys
-* Ignores session tickets
+* No Pre-Shared Keys, ignores session tickets
 * Limited ability to deal with message fragmentation across records
-* Never sends alert records: simply throws on error
+* Never sends alert records: just throws an Error if something goes wrong
 
-Fundamentally, there’s not much of a state machine here: the code just expects a mostly predictable sequence of messages, and throws if it doesn’t get what it expects.
+Fundamentally, there’s not much of a state machine here: we just expect a mostly predictable sequence of messages, and throw if we don’t get what we expect.
 
 ## Features
 
-* Annotated and indented binary input and output (when built in ‘chatty’ mode)
+* [Annotated and indented binary input and output](https://subtls.pages.dev/) (when built in ‘chatty’ mode)
 
 ## How could this ever be useful?
 
@@ -33,9 +32,7 @@ Why would we need a JS implementation of TLS? On Node.js, there’s `tls.connect
 
 Well, this library arose out of wanting to speak TCP-based protocols (e.g. Postgres) from V8 isolate-based serverless environments which don’t do TCP.
 
-It’s pretty easy to [tunnel TCP traffic over WebSockets](https://github.com/neondatabase/wsproxy). But if you need that traffic encrypted, **either** you need secure `wss:` WebSockets to the proxy (plus something to keep the onward TCP traffic safe), **or** you need a userspace TLS implementation to encrypt the data before you pass it to the WebSocket and on through the proxy.
-
-This could be that userspace TLS implementation. 
+It’s pretty easy to [tunnel TCP traffic over WebSockets](https://github.com/neondatabase/wsproxy). But if you need that traffic encrypted, **either** you need secure `wss:` WebSockets to the proxy (plus something to keep the onward TCP traffic safe), **or** you need a userspace TLS implementation to encrypt the data before you pass it to the WebSocket and on through the proxy. This could be that userspace TLS implementation. 
 
 There’s also some potential pedagogical value, which we build on by optionally producing beautifully annotated and indented binary data.
 
@@ -43,15 +40,21 @@ Note: there are some annoying roadblocks to using this in web browsers. From an 
 
 ## Crypto
 
-Thankfully, almost no actual crypto is implemented here: SubtleCrypto covers almost everything we need. 
+Thankfully, almost no actual crypto is implemented here: [SubtleCrypto](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto) covers almost everything we need. 
 
-The one exception is the HKDF functions in `tls/keys.ts`. SubtleCrypto’s documentation is not very good, but from what I could make out [its HKDF support](https://developer.mozilla.org/en-US/docs/Web/API/HkdfParams) is not quite flexible enough to use here (I may revisit this question in future, because I may be wrong).
+The one exception is the HKDF functions in `tls/keys.ts`. SubtleCrypto’s documentation is not very good, but from what I could make out [its HKDF support](https://developer.mozilla.org/en-US/docs/Web/API/HkdfParams) is not quite flexible enough to use here (please tell me if I'm wrong, which is very possible).
 
 Of course, my HKDF implementation leans heavily on HMAC calculations which are themselves punted to SubtleCrypto.
 
 ## Testing
 
-This code really needs testing.
+This code really needs auditing and testing. As a start, it's a shame that https://badssl.com doesn't yet support TLS 1.3.
+
+## SubtleCrypto wishlist
+
+It would be nice if SubtleCrypto added support for Curve25519 and x448, and for ChaCha20 and Poly1305.
+
+It would also be really nice (and save some memory and CPU) if SubtleCrypto offered digest streams. Cloudflare have already noticed this and added [non-standardised support](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/#constructors).
 
 ## Navigating the code
 
@@ -116,7 +119,7 @@ You’ll notice heavy use of the `Bytes` class (found in `util/bytes.ts`) throug
 
   Also in evidence here is the other thing the `writeLength` and `expectLength` methods do for us: they maintain an indentation level for the binary data, indicating which parts of the binary data are subordinate to which other parts.
 
-  For example, due to the use of the `writeLength` methods and commenting, the first few bytes of the ClientHello can be logged like so:
+  For example, due to the use of the `writeLength` methods and commenting, the first few bytes of the ClientHello can be logged like so (you can [see this live](https://subtls.pages.dev/)):
 
   ```
   16  record type: handshake
@@ -176,8 +179,8 @@ SubtleCrypto
 
 Testing
 
-* https://help.mulesoft.com/s/article/How-to-set-up-a-minimal-SSL-TLS-ser
-* https://github.com/tlsfuzzer/tlsfuzzer
+* https://help.mulesoft.com/s/article/How-to-set-up-a-minimal-SSL-TLS-server-from-the-command-line
+* https://github.com/tlsfuzzer/tlsfuzzer (but this checks various things we don't support)
 * https://badssl.com (but no TLS 1.3 support yet)
 
 ## TODO
@@ -186,7 +189,7 @@ Compare client state machine: https://www.rfc-editor.org/rfc/rfc8446#appendix-A.
 
 ## Licence
 
-Copyright &copy; 2022 George MacKerron.
+Copyright &copy; 2022 – 2023 George MacKerron.
 
 Licenced under the [MIT licence](https://opensource.org/licenses/MIT).
 

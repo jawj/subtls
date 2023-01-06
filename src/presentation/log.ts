@@ -1,14 +1,18 @@
-const element = document.querySelector('#logs')!;
 
-const escapes: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&apos;',
-};
-const regexp = new RegExp('[' + Object.keys(escapes).join('') + ']', 'g');
+let
+  element: Element,
+  escapes: Record<string, string>,
+  regexp: RegExp;
+
 function htmlEscape(s: string) {
+  escapes ??= {  // initialize here, not globally, or this appears in exported output
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&apos;',
+  };
+  regexp ??= new RegExp('[' + Object.keys(escapes).join('') + ']', 'g');  // ditto
   return s.replace(regexp, match => escapes[match])
 };
 
@@ -53,6 +57,7 @@ let c = 0;
 export function log(...args: any[]) {
   // if (!chatty) throw new Error('No logs should be emitted outside of chatty mode');
   console.log(...args);
+  element ??= document.querySelector('#logs')!;  // initialize here, not globally, or this appears in exported output
   element.innerHTML += `<label><input type="checkbox" name="c${c++}"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
   // document.body.scrollTo({ top: 999999 });
 }
