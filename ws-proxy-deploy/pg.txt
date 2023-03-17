@@ -85,6 +85,8 @@ DATA_DIR=/usr/local/pgsql/data
 cp /etc/letsencrypt/live/$DOMAIN/fullchain.pem $DATA_DIR/server.crt
 cp /etc/letsencrypt/live/$DOMAIN/privkey.pem $DATA_DIR/server.key
 chown postgres:postgres $DATA_DIR/server.crt $DATA_DIR/server.key
+service postgres restart
+service pgbouncer restart
 ' > /etc/letsencrypt/renewal-hooks/deploy/postgresql.deploy
 
 chmod +x /etc/letsencrypt/renewal-hooks/deploy/postgresql.deploy

@@ -60,7 +60,7 @@ export class ASN1Bytes extends Bytes {
     const [endTime, timeRemaining] = this.expectASN1Length(chatty && 'UTC time');
     const timeStr = this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
-    if (!parts) throw new Error('Unrecognised UTC time format in certificate validity');
+    if (!parts) throw new Error('Unrecognised ASN.1 UTC time format');
     const [, yr2dstr, mth, dy, hr, min, sec] = parts;
     const yr2d = parseInt(yr2dstr, 10);
     const yr = yr2d + (yr2d >= 50 ? 1900 : 2000);  // range is 1950 – 2049

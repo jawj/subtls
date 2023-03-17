@@ -1,6 +1,6 @@
 import cs from '../util/cryptoProxy';
 
-const maxRecords = 1 << 30;  // because signed integers 1^31 is max recordsDecrypted value
+const maxRecords = (2 ** 31) - 1;  // because JS bit-twiddling is done on signed Int32
 
 export class Crypter {
   mode: 'encrypt' | 'decrypt';

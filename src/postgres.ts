@@ -20,10 +20,12 @@ export async function postgres(urlStr: string) {
   const host = url.hostname;
 
   const isNeon = /[.]neon[.]tech$/.test(host);
+  const pipelineSSLRequest = false;  // previously: = isNeon
+  const useSNIHack = isNeon;
 
   const port = url.port || '5432';  // not `?? '5432'`, because it's an empty string if unspecified
   const user = url.username;
-  const password = isNeon ? `project=${host.match(/^[^.]+/)![0]};${url.password}` : url.password;
+  const password = useSNIHack ? `project=${host.match(/^[^.]+/)![0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);
 
   const ws = await new Promise<WebSocket>(resolve => {
@@ -49,7 +51,7 @@ export async function postgres(urlStr: string) {
   chatty && log(...highlightBytes(sslRequest.commentedString(), LogColours.client));
   const writePreData = sslRequest.array();
 
-  if (isNeon) {
+  if (pipelineSSLRequest) {
     chatty && log('With Neon, we don’t need to wait for the reply: we run this server, so we know it’s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a ‘client hello’:');
 
   } else {
@@ -68,9 +70,9 @@ export async function postgres(urlStr: string) {
   const expectPreData = sslResponse.array();
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
-  const [read, write] = isNeon ?
-    await startTls(host, rootCert, networkRead, networkWrite, false, writePreData, expectPreData, '"S" = SSL connection supported') :
-    await startTls(host, rootCert, networkRead, networkWrite, true);
+  const [read, write] = pipelineSSLRequest ?
+    await startTls(host, rootCert, networkRead, networkWrite, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') :
+    await startTls(host, rootCert, networkRead, networkWrite, !useSNIHack);
 
   const msg = new Bytes(1024);
 

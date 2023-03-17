@@ -807,7 +807,7 @@ async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyL
 }
 
 // src/tls/aesgcm.ts
-var maxRecords = 1 << 30;
+var maxRecords = 2 ** 31 - 1;
 var Crypter = class {
   mode;
   key;
@@ -927,7 +927,7 @@ var ASN1Bytes = class extends Bytes {
     const timeStr = this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
     if (!parts)
-      throw new Error("Unrecognised UTC time format in certificate validity");
+      throw new Error("Unrecognised ASN.1 UTC time format");
     const [, yr2dstr, mth, dy, hr, min, sec] = parts;
     const yr2d = parseInt(yr2dstr, 10);
     const yr = yr2d + (yr2d >= 50 ? 1900 : 2e3);
@@ -1917,9 +1917,11 @@ async function postgres(urlStr2) {
   const url = parse(urlStr2);
   const host = url.hostname;
   const isNeon = /[.]neon[.]tech$/.test(host);
+  const pipelineSSLRequest = false;
+  const useSNIHack = isNeon;
   const port = url.port || "5432";
   const user = url.username;
-  const password = isNeon ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
+  const password = useSNIHack ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);
   const ws = await new Promise((resolve) => {
     const ws2 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
@@ -1942,7 +1944,7 @@ async function postgres(urlStr2) {
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
   const writePreData = sslRequest.array();
-  if (isNeon) {
+  if (pipelineSSLRequest) {
     log("With Neon, we don\u2019t need to wait for the reply: we run this server, so we know it\u2019s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a \u2018client hello\u2019:");
   } else {
     networkWrite(writePreData);
@@ -1958,7 +1960,7 @@ async function postgres(urlStr2) {
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
-  const [read, write] = isNeon ? await startTls(host, rootCert, networkRead, networkWrite, false, writePreData, expectPreData, '"S" = SSL connection supported') : await startTls(host, rootCert, networkRead, networkWrite, true);
+  const [read, write] = pipelineSSLRequest ? await startTls(host, rootCert, networkRead, networkWrite, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') : await startTls(host, rootCert, networkRead, networkWrite, !useSNIHack);
   const msg = new Bytes(1024);
   const endStartupMessage = msg.writeLengthUint32Incl("startup message");
   msg.writeUint32(196608, "protocol version");

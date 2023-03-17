@@ -79,7 +79,7 @@ export async function readEncryptedHandshake(
 
     const [endCertReq] = hs.expectLengthUint24('certificate request data');
 
-    // // this field SHALL be zero length unless used for the post-handshake authentication exchanges described in Section 4.6.2
+    // this field SHALL be zero length unless used for the post-handshake authentication exchanges described in Section 4.6.2
     hs.expectUint8(0x00, chatty && 'length of certificate request context');
 
     const [endCertReqExts, certReqExtsRemaining] = hs.expectLengthUint16('certificate request extensions');
