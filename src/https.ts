@@ -11,6 +11,8 @@ import { TrustedCert } from './tls/cert';
 import isrgrootx1 from './roots/isrg-root-x1.pem';
 // @ts-ignore
 import isrgrootx2 from './roots/isrg-root-x2.pem';
+// @ts-ignore
+import baltimoreroot from './roots/baltimore.pem';
 
 const txtDec = new TextDecoder();
 
@@ -35,7 +37,7 @@ export async function https(urlStr: string, method = 'GET') {
   chatty && log('We begin the TLS handshake by sending a client hello message:');
   chatty && log('*** Hint: click the handshake log message below to expand. ***');
 
-  const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
+  const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + baltimoreroot);
   const [read, write] = await startTls(host, rootCert, reader.read.bind(reader), ws.send.bind(ws));
 
   chatty && log('Here’s a GET request:');
