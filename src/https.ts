@@ -42,7 +42,7 @@ export async function https(urlStr: string, method = 'GET') {
 
   chatty && log('Here’s a GET request:');
   const request = new Bytes(1024);
-  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r\nHost:${host}\r\n\r\n`);
+  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r\nHost: ${host}\r\n\r\n`);
   chatty && log(...highlightBytes(request.commentedString(), LogColours.client));
   chatty && log('Which goes to the server encrypted like so:');
   await write(request.array());
