@@ -2143,7 +2143,7 @@ async function https(urlStr2, method = "GET") {
   log("Here\u2019s a GET request:");
   const request = new Bytes(1024);
   request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
-Host:${host}\r
+Host: ${host}\r
 \r
 `);
   log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
