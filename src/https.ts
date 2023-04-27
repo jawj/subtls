@@ -15,7 +15,7 @@ import baltimoreroot from './roots/baltimore.pem';
 
 const txtDec = new TextDecoder();
 
-export async function https(urlStr: string, method = 'GET', transportFactory: typeof wsTransport) {
+export async function https(urlStr: string, method: string, transportFactory: typeof wsTransport) {
   const t0 = Date.now();
 
   const url = new URL(urlStr);

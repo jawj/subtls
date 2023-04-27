@@ -67,6 +67,7 @@ var Bytes = class {
     this.comments[offset] = result;
     return this;
   }
+  // reading
   readBytes(length) {
     return this.data.slice(this.offset, this.offset += length);
   }
@@ -205,6 +206,7 @@ var Bytes = class {
     this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
     return this.expectLength(length - 4);
   }
+  // writing
   writeBytes(bytes) {
     this.data.set(bytes, this.offset);
     this.offset += bytes.length;
@@ -250,6 +252,7 @@ var Bytes = class {
       this.comment(comment);
     return this;
   }
+  // forward-looking lengths
   _writeLengthGeneric(lengthBytes, inclusive, comment) {
     const startOffset = this.offset;
     this.offset += lengthBytes;
@@ -298,6 +301,7 @@ var Bytes = class {
   writeLengthUint32Incl(comment) {
     return this._writeLengthGeneric(4, true, comment);
   }
+  // output
   array() {
     return this.data.subarray(0, this.offset);
   }
@@ -344,6 +348,7 @@ var escapes;
 var regexp;
 function htmlEscape(s) {
   escapes ??= {
+    // initialize here, not globally, or this appears in exported output
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
@@ -478,6 +483,8 @@ function parseServerHello(hello, sessionId) {
   hello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
   const serverRandom = hello.readBytes(32);
   if (equal(serverRandom, [
+    // SHA-256 of "HelloRetryRequest", https://datatracker.ietf.org/doc/html/rfc8446#page-32
+    // see also: echo -n "HelloRetryRequest" | openssl dgst -sha256 -hex
     207,
     33,
     173,
@@ -596,7 +603,11 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   if (recordTypeIndex < 0)
     throw new Error("Decrypted message has no record type indicator (all zeroes)");
   const type = decryptedRecord[recordTypeIndex];
-  const record = decryptedRecord.subarray(0, recordTypeIndex);
+  const record = decryptedRecord.subarray(
+    0,
+    recordTypeIndex
+    /* exclusive */
+  );
   if (type === 21 /* Alert */) {
     const closeNotify = record.length === 2 && record[0] === 1 && record[1] === 0;
     log(`%cTLS 0x15 alert record: ${hexFromU8(record, " ")}` + (closeNotify ? " (close notify)" : ""), `color: ${"#c88" /* header */}`);
@@ -674,6 +685,7 @@ async function hkdfExpandLabel(key, label, context, length, hashBits) {
   const labelData = txtEnc2.encode(label);
   const hkdfLabel = concat(
     [(length & 65280) >> 8, length & 255],
+    // desired length, split into high + low bytes
     [tls13_Bytes.length + labelData.length],
     tls13_Bytes,
     labelData,
@@ -760,6 +772,7 @@ var Crypter = class {
     this.currentIvDataView = new DataView(this.currentIv.buffer, this.currentIv.byteOffset, this.currentIv.byteLength);
     this.initialIvLast32 = this.currentIvDataView.getUint32(this.ivLength - 4);
   }
+  // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
   async process(data, authTagLength, additionalData) {
     if (this.recordsDecrypted === maxRecords)
       throw new Error("Cannot encrypt/decrypt any more records");
@@ -792,7 +805,10 @@ function base64Decode(input) {
     output[outputIdx++] = (enc2 & 15) << 4 | enc3 >> 2;
     output[outputIdx++] = (enc3 & 3) << 6 | enc4;
   }
-  const excessLength = enc2 === 64 ? 0 : enc3 === 64 ? 2 : enc4 === 64 ? 1 : 0;
+  const excessLength = enc2 === 64 ? 0 : (
+    // implies zero-length input
+    enc3 === 64 ? 2 : enc4 === 64 ? 1 : 0
+  );
   return output.subarray(0, outputIdx - excessLength);
 }
 
@@ -865,7 +881,7 @@ var ASN1Bytes = class extends Bytes {
     const [, yr2dstr, mth, dy, hr, min, sec] = parts;
     const yr2d = parseInt(yr2dstr, 10);
     const yr = yr2d + (yr2d >= 50 ? 1900 : 2e3);
-    const time = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);
+    const time = /* @__PURE__ */ new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);
     this.comment("= " + time.toISOString());
     endTime();
     return time;
@@ -1039,12 +1055,14 @@ function algorithmWithOID(oid) {
       name: "RSA-OAEP"
     },
     "1.2.840.10045.2.1": {
+      // dupes
       name: "ECDSA",
       hash: {
         name: "SHA-1"
       }
     },
     "1.2.840.10045.4.1": {
+      // dupes
       name: "ECDSA",
       hash: {
         name: "SHA-1"
@@ -1174,6 +1192,7 @@ function algorithmWithOID(oid) {
     "1.2.840.113549.1.5.12": {
       name: "PBKDF2"
     },
+    // special case: OIDs for ECC curves
     "1.2.840.10045.3.1.7": {
       name: "P-256"
     },
@@ -1203,15 +1222,25 @@ function descriptionForAlgorithm(algo) {
 
 // src/tls/cert.ts
 var allKeyUsages = [
+  // https://www.rfc-editor.org/rfc/rfc3280#section-4.2.1.3
   "digitalSignature",
+  // (0)
   "nonRepudiation",
+  // (1)
   "keyEncipherment",
+  // (2)
   "dataEncipherment",
+  // (3)
   "keyAgreement",
+  // (4)
   "keyCertSign",
+  // (5)
   "cRLSign",
+  // (6)
   "encipherOnly",
+  // (7)
   "decipherOnly"
+  // (8)
 ];
 var Cert = class {
   serialNumber;
@@ -1455,7 +1484,7 @@ var Cert = class {
         return true;
     });
   }
-  isValidAtMoment(moment = new Date()) {
+  isValidAtMoment(moment = /* @__PURE__ */ new Date()) {
     return moment >= this.validityPeriod.notBefore && moment <= this.validityPeriod.notAfter;
   }
   description() {
@@ -1513,7 +1542,13 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
   sb.comment("signature: s");
   endSigSBytes();
   endSigDer();
-  const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : x;
+  const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : (
+    // too long? cut off leftmost bytes (msb)
+    x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : (
+      // too short? left pad with zeroes
+      x
+    )
+  );
   const intLength = namedCurve === "P-256" ? 32 : 48;
   const signature = concat(clampToLength(sigR, intLength), clampToLength(sigS, intLength));
   const signatureKey = await cryptoProxy_default.importKey("spki", publicKey, { name: "ECDSA", namedCurve }, false, ["verify"]);
@@ -1682,7 +1717,11 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     hs.comment("signature");
     endSignature();
     const signatureKey = await cryptoProxy_default.importKey("spki", userCert.publicKey.all, { name: "RSA-PSS", hash: "SHA-256" }, false, ["verify"]);
-    const certVerifyResult = await cryptoProxy_default.verify({ name: "RSA-PSS", saltLength: 32 }, signatureKey, signature, certVerifySignedData);
+    const certVerifyResult = await cryptoProxy_default.verify({
+      name: "RSA-PSS",
+      saltLength: 32
+      /* SHA-256 length in bytes */
+    }, signatureKey, signature, certVerifySignedData);
     if (certVerifyResult !== true)
       throw new Error("RSA-PSS-RSAE-SHA256 certificate verify failed");
   } else {
@@ -2037,7 +2076,7 @@ var baltimore_default = "-----BEGIN CERTIFICATE-----\r\nMIIDdzCCAl+gAwIBAgIEAgAA
 
 // src/https.ts
 var txtDec2 = new TextDecoder();
-async function https(urlStr2, method = "GET", transportFactory) {
+async function https(urlStr2, method, transportFactory) {
   const t0 = Date.now();
   const url = new URL(urlStr2);
   if (url.protocol !== "https:")
@@ -2074,35 +2113,42 @@ Host: ${host}\r
 }
 
 // src/util/readqueue.ts
+var PretendWebSocket = class {
+  addEventListener(...args) {
+  }
+};
 var ReadQueue = class {
   constructor(socket) {
     this.socket = socket;
     this.queue = [];
-    if (socket instanceof WebSocket) {
+    if (socket instanceof (globalThis.WebSocket ?? PretendWebSocket)) {
+      this.socketIsWebSocket = true;
       socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
       socket.addEventListener("close", () => this.dequeue());
     } else {
+      this.socketIsWebSocket = false;
       socket.on("data", (data) => this.enqueue(new Uint8Array(data)));
       socket.on("close", () => this.dequeue());
     }
   }
   queue;
+  socketIsWebSocket;
   outstandingRequest;
   enqueue(data) {
     this.queue.push(data);
     this.dequeue();
   }
-  isNotClosed() {
+  socketIsNotClosed() {
     const { socket } = this;
     const { readyState } = socket;
-    return socket instanceof WebSocket ? readyState <= 1 /* OPEN */ : readyState === "opening" || readyState === "open";
+    return this.socketIsWebSocket ? readyState <= 1 /* OPEN */ : readyState === "opening" || readyState === "open";
   }
   dequeue() {
     if (this.outstandingRequest === void 0)
       return;
     let { resolve, bytes } = this.outstandingRequest;
     const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.isNotClosed())
+    if (bytesInQueue < bytes && this.socketIsNotClosed())
       return;
     bytes = Math.min(bytes, bytesInQueue);
     if (bytes === 0)

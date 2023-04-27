@@ -1,5 +1,3 @@
-
-import { ReadQueue } from './util/readqueue';
 import { Bytes } from './util/bytes';
 import { LogColours } from './presentation/appearance';
 import { highlightBytes } from './presentation/highlights';
