@@ -1,6 +1,6 @@
 {
-  "name": "jstls",
-  "version": "0.1.0",
+  "name": "subtls-dev",
+  "version": "0.1.4",
   "description": "",
   "main": "index.js",
   "type": "module",
@@ -15,7 +15,7 @@
     "nodeQuiet": "esbuild --define:chatty=false src/node.ts --bundle --format=esm --target=es2022 --platform=node --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js"
   },
   "author": "George MacKerron",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
     "@types/node": "^18.16.1",
     "esbuild": "^0.17.18",
