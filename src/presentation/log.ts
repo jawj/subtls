@@ -57,6 +57,8 @@ let c = 0;
 export function log(...args: any[]) {
   // if (!chatty) throw new Error('No logs should be emitted outside of chatty mode');
   console.log(...args);
+  if (typeof document === 'undefined') return;
+
   element ??= document.querySelector('#logs')!;  // initialize here, not globally, or this appears in exported output
   element.innerHTML += `<label><input type="checkbox" name="c${c++}"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
   // document.body.scrollTo({ top: 999999 });

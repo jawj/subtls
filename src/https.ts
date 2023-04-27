@@ -1,4 +1,3 @@
-
 import { ReadQueue } from './util/readqueue';
 import { Bytes } from './util/bytes';
 import { LogColours } from './presentation/appearance';
@@ -33,12 +32,15 @@ export async function https(urlStr: string, method = 'GET') {
     ws.addEventListener('close', () => { console.log('connection closed'); })
   });
   const reader = new ReadQueue(ws);
+  const networkRead = reader.read.bind(reader);
+  const networkWrite = ws.send.bind(ws);
+
 
   chatty && log('We begin the TLS handshake by sending a client hello message:');
   chatty && log('*** Hint: click the handshake log message below to expand. ***');
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + baltimoreroot);
-  const [read, write] = await startTls(host, rootCert, reader.read.bind(reader), ws.send.bind(ws));
+  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite);
 
   chatty && log('Here’s a GET request:');
   const request = new Bytes(1024);
