@@ -8,80 +8,6 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// src/util/readqueue.ts
-var ReadQueue;
-var init_readqueue = __esm({
-  "src/util/readqueue.ts"() {
-    "use strict";
-    ReadQueue = class {
-      constructor(ws) {
-        this.ws = ws;
-        this.queue = [];
-        ws.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
-        ws.addEventListener("close", () => this.dequeue());
-      }
-      queue;
-      outstandingRequest;
-      enqueue(data) {
-        this.queue.push(data);
-        this.dequeue();
-      }
-      dequeue() {
-        if (this.outstandingRequest === void 0)
-          return;
-        let { resolve, bytes } = this.outstandingRequest;
-        const bytesInQueue = this.bytesInQueue();
-        if (bytesInQueue < bytes && this.ws.readyState <= 1 /* OPEN */)
-          return;
-        bytes = Math.min(bytes, bytesInQueue);
-        if (bytes === 0)
-          return resolve(void 0);
-        this.outstandingRequest = void 0;
-        const firstItem = this.queue[0];
-        const firstItemLength = firstItem.length;
-        if (firstItemLength === bytes) {
-          this.queue.shift();
-          return resolve(firstItem);
-        } else if (firstItemLength > bytes) {
-          this.queue[0] = firstItem.subarray(bytes);
-          return resolve(firstItem.subarray(0, bytes));
-        } else {
-          const result = new Uint8Array(bytes);
-          let outstandingBytes = bytes;
-          let offset = 0;
-          while (outstandingBytes > 0) {
-            const nextItem = this.queue[0];
-            const nextItemLength = nextItem.length;
-            if (nextItemLength <= outstandingBytes) {
-              this.queue.shift();
-              result.set(nextItem, offset);
-              offset += nextItemLength;
-              outstandingBytes -= nextItemLength;
-            } else {
-              this.queue[0] = nextItem.subarray(outstandingBytes);
-              result.set(nextItem.subarray(0, outstandingBytes), offset);
-              outstandingBytes -= outstandingBytes;
-              offset += outstandingBytes;
-            }
-          }
-          return resolve(result);
-        }
-      }
-      bytesInQueue() {
-        return this.queue.reduce((memo, arr) => memo + arr.length, 0);
-      }
-      async read(bytes) {
-        if (this.outstandingRequest !== void 0)
-          throw new Error("Can\u2019t read while already awaiting read");
-        return new Promise((resolve) => {
-          this.outstandingRequest = { resolve, bytes };
-          this.dequeue();
-        });
-      }
-    };
-  }
-});
-
 // src/util/array.ts
 function concat(...arrs) {
   if (arrs.length === 1 && arrs[0] instanceof Uint8Array)
@@ -488,7 +414,7 @@ function htmlFromLogArgs(...args) {
   return result;
 }
 function log(...args) {
-  console.log(...args);
+  console.log(...args, "\n");
   if (typeof document === "undefined")
     return;
   element ??= document.querySelector("#logs");
@@ -2123,7 +2049,7 @@ var https_exports = {};
 __export(https_exports, {
   https: () => https
 });
-async function https(urlStr, method = "GET") {
+async function https(urlStr, method = "GET", transportFactory) {
   const t0 = Date.now();
   const url = new URL(urlStr);
   if (url.protocol !== "https:")
@@ -2131,24 +2057,11 @@ async function https(urlStr, method = "GET") {
   const host = url.hostname;
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
-  const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
-    ws2.binaryType = "arraybuffer";
-    ws2.addEventListener("open", () => resolve(ws2));
-    ws2.addEventListener("error", (err) => {
-      console.log("ws error:", err);
-    });
-    ws2.addEventListener("close", () => {
-      console.log("connection closed");
-    });
-  });
-  const reader = new ReadQueue(ws);
-  const networkRead = reader.read.bind(reader);
-  const networkWrite = ws.send.bind(ws);
   log("We begin the TLS handshake by sending a client hello message:");
   log("*** Hint: click the handshake log message below to expand. ***");
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default);
-  const [read, write] = await startTls(host, rootCert, networkRead, networkWrite);
+  const transport = await transportFactory(host, port);
+  const [read, write] = await startTls(host, rootCert, transport.read, transport.write);
   log("Here\u2019s a GET request:");
   const request = new Bytes(1024);
   request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
@@ -2175,7 +2088,6 @@ var txtDec2;
 var init_https = __esm({
   "src/https.ts"() {
     "use strict";
-    init_readqueue();
     init_bytes();
     init_appearance();
     init_highlights();
@@ -2191,11 +2103,115 @@ var init_https = __esm({
 
 // src/node.ts
 import { webcrypto } from "crypto";
-import WebSocket2 from "ws";
+
+// src/util/tcpTransport.ts
+import * as net from "net";
+
+// src/util/readqueue.ts
+var PretendWebSocket = class {
+  addEventListener(...args) {
+  }
+};
+var ReadQueue = class {
+  constructor(socket) {
+    this.socket = socket;
+    this.queue = [];
+    if (socket instanceof (globalThis.WebSocket ?? PretendWebSocket)) {
+      this.webSocket = true;
+      socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+      socket.addEventListener("close", () => this.dequeue());
+    } else {
+      this.webSocket = false;
+      socket.on("data", (data) => this.enqueue(new Uint8Array(data)));
+      socket.on("close", () => this.dequeue());
+    }
+  }
+  queue;
+  webSocket;
+  outstandingRequest;
+  enqueue(data) {
+    this.queue.push(data);
+    this.dequeue();
+  }
+  socketIsNotClosed() {
+    const { socket } = this;
+    const { readyState } = socket;
+    return this.webSocket ? readyState <= 1 /* OPEN */ : readyState === "opening" || readyState === "open";
+  }
+  dequeue() {
+    if (this.outstandingRequest === void 0)
+      return;
+    let { resolve, bytes } = this.outstandingRequest;
+    const bytesInQueue = this.bytesInQueue();
+    if (bytesInQueue < bytes && this.socketIsNotClosed())
+      return;
+    bytes = Math.min(bytes, bytesInQueue);
+    if (bytes === 0)
+      return resolve(void 0);
+    this.outstandingRequest = void 0;
+    const firstItem = this.queue[0];
+    const firstItemLength = firstItem.length;
+    if (firstItemLength === bytes) {
+      this.queue.shift();
+      return resolve(firstItem);
+    } else if (firstItemLength > bytes) {
+      this.queue[0] = firstItem.subarray(bytes);
+      return resolve(firstItem.subarray(0, bytes));
+    } else {
+      const result = new Uint8Array(bytes);
+      let outstandingBytes = bytes;
+      let offset = 0;
+      while (outstandingBytes > 0) {
+        const nextItem = this.queue[0];
+        const nextItemLength = nextItem.length;
+        if (nextItemLength <= outstandingBytes) {
+          this.queue.shift();
+          result.set(nextItem, offset);
+          offset += nextItemLength;
+          outstandingBytes -= nextItemLength;
+        } else {
+          this.queue[0] = nextItem.subarray(outstandingBytes);
+          result.set(nextItem.subarray(0, outstandingBytes), offset);
+          outstandingBytes -= outstandingBytes;
+          offset += outstandingBytes;
+        }
+      }
+      return resolve(result);
+    }
+  }
+  bytesInQueue() {
+    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
+  }
+  async read(bytes) {
+    if (this.outstandingRequest !== void 0)
+      throw new Error("Can\u2019t read while already awaiting read");
+    return new Promise((resolve) => {
+      this.outstandingRequest = { resolve, bytes };
+      this.dequeue();
+    });
+  }
+};
+
+// src/util/tcpTransport.ts
+async function tcpTransport(host, port) {
+  const socket = new net.Socket();
+  await new Promise((resolve) => socket.connect(Number(port), host, resolve));
+  socket.on("error", (err) => {
+    console.log("socket error:", err);
+  });
+  socket.on("close", () => {
+    console.log("connection closed");
+  });
+  const reader = new ReadQueue(socket);
+  const read = reader.read.bind(reader);
+  const write = socket.write.bind(socket);
+  return { read, write };
+}
+
+// src/node.ts
 globalThis.crypto = webcrypto;
-globalThis.WebSocket = WebSocket2;
 var { https: https2 } = await Promise.resolve().then(() => (init_https(), https_exports));
 for (let i = 0; i < 1; i++) {
-  await https2("https://subtls.pages.dev", "GET");
+  await https2("https://subtls.pages.dev", "GET", tcpTransport);
   await new Promise((resolve) => setTimeout(resolve, 500));
 }

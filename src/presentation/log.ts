@@ -56,7 +56,7 @@ function htmlFromLogArgs(...args: string[]) {
 let c = 0;
 export function log(...args: any[]) {
   // if (!chatty) throw new Error('No logs should be emitted outside of chatty mode');
-  console.log(...args);
+  console.log(...args, '\n');
   if (typeof document === 'undefined') return;
 
   element ??= document.querySelector('#logs')!;  // initialize here, not globally, or this appears in exported output

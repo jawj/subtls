@@ -1,71 +1,3 @@
-// src/util/readqueue.ts
-var ReadQueue = class {
-  constructor(ws) {
-    this.ws = ws;
-    this.queue = [];
-    ws.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
-    ws.addEventListener("close", () => this.dequeue());
-  }
-  queue;
-  outstandingRequest;
-  enqueue(data) {
-    this.queue.push(data);
-    this.dequeue();
-  }
-  dequeue() {
-    if (this.outstandingRequest === void 0)
-      return;
-    let { resolve, bytes } = this.outstandingRequest;
-    const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.ws.readyState <= 1 /* OPEN */)
-      return;
-    bytes = Math.min(bytes, bytesInQueue);
-    if (bytes === 0)
-      return resolve(void 0);
-    this.outstandingRequest = void 0;
-    const firstItem = this.queue[0];
-    const firstItemLength = firstItem.length;
-    if (firstItemLength === bytes) {
-      this.queue.shift();
-      return resolve(firstItem);
-    } else if (firstItemLength > bytes) {
-      this.queue[0] = firstItem.subarray(bytes);
-      return resolve(firstItem.subarray(0, bytes));
-    } else {
-      const result = new Uint8Array(bytes);
-      let outstandingBytes = bytes;
-      let offset = 0;
-      while (outstandingBytes > 0) {
-        const nextItem = this.queue[0];
-        const nextItemLength = nextItem.length;
-        if (nextItemLength <= outstandingBytes) {
-          this.queue.shift();
-          result.set(nextItem, offset);
-          offset += nextItemLength;
-          outstandingBytes -= nextItemLength;
-        } else {
-          this.queue[0] = nextItem.subarray(outstandingBytes);
-          result.set(nextItem.subarray(0, outstandingBytes), offset);
-          outstandingBytes -= outstandingBytes;
-          offset += outstandingBytes;
-        }
-      }
-      return resolve(result);
-    }
-  }
-  bytesInQueue() {
-    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
-  }
-  async read(bytes) {
-    if (this.outstandingRequest !== void 0)
-      throw new Error("Can\u2019t read while already awaiting read");
-    return new Promise((resolve) => {
-      this.outstandingRequest = { resolve, bytes };
-      this.dequeue();
-    });
-  }
-};
-
 // src/util/array.ts
 function concat(...arrs) {
   if (arrs.length === 1 && arrs[0] instanceof Uint8Array)
@@ -450,7 +382,9 @@ function htmlFromLogArgs(...args) {
 }
 var c = 0;
 function log(...args) {
-  console.log(...args);
+  console.log(...args, "\n");
+  if (typeof document === "undefined")
+    return;
   element ??= document.querySelector("#logs");
   element.innerHTML += `<label><input type="checkbox" name="c${c++}"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
 }
@@ -1912,7 +1846,7 @@ var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAII
 var isrg_root_x2_default = "-----BEGIN CERTIFICATE-----\nMIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\nCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\nR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\nMDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\nZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\nEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\nItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\nAQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\nzj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\ntL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n/q4AaOeMSQ+2b1tbFfLn\n-----END CERTIFICATE-----\n";
 
 // src/postgres.ts
-async function postgres(urlStr2) {
+async function postgres(urlStr2, transportFactory) {
   const t0 = Date.now();
   const url = parse(urlStr2);
   const host = url.hostname;
@@ -1923,20 +1857,7 @@ async function postgres(urlStr2) {
   const user = url.username;
   const password = useSNIHack ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);
-  const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
-    ws2.binaryType = "arraybuffer";
-    ws2.addEventListener("open", () => resolve(ws2));
-    ws2.addEventListener("error", (err) => {
-      console.log("ws error:", err);
-    });
-    ws2.addEventListener("close", () => {
-      console.log("connection closed");
-    });
-  });
-  const reader = new ReadQueue(ws);
-  const networkRead = reader.read.bind(reader);
-  const networkWrite = ws.send.bind(ws);
+  const transport = await transportFactory(host, port);
   const sslRequest = new Bytes(8);
   const endSslRequest = sslRequest.writeLengthUint32Incl("SSL request");
   sslRequest.writeUint32(80877103, "SSL request code");
@@ -1947,8 +1868,8 @@ async function postgres(urlStr2) {
   if (pipelineSSLRequest) {
     log("With Neon, we don\u2019t need to wait for the reply: we run this server, so we know it\u2019s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a \u2018client hello\u2019:");
   } else {
-    networkWrite(writePreData);
-    const SorN = await networkRead(1);
+    transport.write(writePreData);
+    const SorN = await transport.read(1);
     log("The server responds with an \u2018S\u2019 to let us know it supports SSL/TLS.");
     log(hexFromU8(SorN));
     if (SorN[0] !== "S".charCodeAt(0))
@@ -1960,7 +1881,7 @@ async function postgres(urlStr2) {
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
-  const [read, write] = pipelineSSLRequest ? await startTls(host, rootCert, networkRead, networkWrite, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') : await startTls(host, rootCert, networkRead, networkWrite, !useSNIHack);
+  const [read, write] = pipelineSSLRequest ? await startTls(host, rootCert, transport.read, transport.write, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') : await startTls(host, rootCert, transport.read, transport.write, !useSNIHack);
   const msg = new Bytes(1024);
   const endStartupMessage = msg.writeLengthUint32Incl("startup message");
   msg.writeUint32(196608, "protocol version");
@@ -2116,7 +2037,7 @@ var baltimore_default = "-----BEGIN CERTIFICATE-----\r\nMIIDdzCCAl+gAwIBAgIEAgAA
 
 // src/https.ts
 var txtDec2 = new TextDecoder();
-async function https(urlStr2, method = "GET") {
+async function https(urlStr2, method = "GET", transportFactory) {
   const t0 = Date.now();
   const url = new URL(urlStr2);
   if (url.protocol !== "https:")
@@ -2124,22 +2045,11 @@ async function https(urlStr2, method = "GET") {
   const host = url.hostname;
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
-  const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
-    ws2.binaryType = "arraybuffer";
-    ws2.addEventListener("open", () => resolve(ws2));
-    ws2.addEventListener("error", (err) => {
-      console.log("ws error:", err);
-    });
-    ws2.addEventListener("close", () => {
-      console.log("connection closed");
-    });
-  });
-  const reader = new ReadQueue(ws);
   log("We begin the TLS handshake by sending a client hello message:");
   log("*** Hint: click the handshake log message below to expand. ***");
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default);
-  const [read, write] = await startTls(host, rootCert, reader.read.bind(reader), ws.send.bind(ws));
+  const transport = await transportFactory(host, port);
+  const [read, write] = await startTls(host, rootCert, transport.read, transport.write);
   log("Here\u2019s a GET request:");
   const request = new Bytes(1024);
   request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
@@ -2163,6 +2073,103 @@ Host: ${host}\r
   return response;
 }
 
+// src/util/readqueue.ts
+var ReadQueue = class {
+  constructor(socket) {
+    this.socket = socket;
+    this.queue = [];
+    if (socket instanceof WebSocket) {
+      socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+      socket.addEventListener("close", () => this.dequeue());
+    } else {
+      socket.on("data", (data) => this.enqueue(new Uint8Array(data)));
+      socket.on("close", () => this.dequeue());
+    }
+  }
+  queue;
+  outstandingRequest;
+  enqueue(data) {
+    this.queue.push(data);
+    this.dequeue();
+  }
+  isNotClosed() {
+    const { socket } = this;
+    const { readyState } = socket;
+    return socket instanceof WebSocket ? readyState <= 1 /* OPEN */ : readyState === "opening" || readyState === "open";
+  }
+  dequeue() {
+    if (this.outstandingRequest === void 0)
+      return;
+    let { resolve, bytes } = this.outstandingRequest;
+    const bytesInQueue = this.bytesInQueue();
+    if (bytesInQueue < bytes && this.isNotClosed())
+      return;
+    bytes = Math.min(bytes, bytesInQueue);
+    if (bytes === 0)
+      return resolve(void 0);
+    this.outstandingRequest = void 0;
+    const firstItem = this.queue[0];
+    const firstItemLength = firstItem.length;
+    if (firstItemLength === bytes) {
+      this.queue.shift();
+      return resolve(firstItem);
+    } else if (firstItemLength > bytes) {
+      this.queue[0] = firstItem.subarray(bytes);
+      return resolve(firstItem.subarray(0, bytes));
+    } else {
+      const result = new Uint8Array(bytes);
+      let outstandingBytes = bytes;
+      let offset = 0;
+      while (outstandingBytes > 0) {
+        const nextItem = this.queue[0];
+        const nextItemLength = nextItem.length;
+        if (nextItemLength <= outstandingBytes) {
+          this.queue.shift();
+          result.set(nextItem, offset);
+          offset += nextItemLength;
+          outstandingBytes -= nextItemLength;
+        } else {
+          this.queue[0] = nextItem.subarray(outstandingBytes);
+          result.set(nextItem.subarray(0, outstandingBytes), offset);
+          outstandingBytes -= outstandingBytes;
+          offset += outstandingBytes;
+        }
+      }
+      return resolve(result);
+    }
+  }
+  bytesInQueue() {
+    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
+  }
+  async read(bytes) {
+    if (this.outstandingRequest !== void 0)
+      throw new Error("Can\u2019t read while already awaiting read");
+    return new Promise((resolve) => {
+      this.outstandingRequest = { resolve, bytes };
+      this.dequeue();
+    });
+  }
+};
+
+// src/util/wsTransport.ts
+async function wsTransport(host, port) {
+  const ws = await new Promise((resolve) => {
+    const ws2 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
+    ws2.binaryType = "arraybuffer";
+    ws2.addEventListener("open", () => resolve(ws2));
+    ws2.addEventListener("error", (err) => {
+      console.log("ws error:", err);
+    });
+    ws2.addEventListener("close", () => {
+      console.log("connection closed");
+    });
+  });
+  const reader = new ReadQueue(ws);
+  const read = reader.read.bind(reader);
+  const write = ws.send.bind(ws);
+  return { read, write };
+}
+
 // src/index.ts
 var urlStr = location.hash.slice(1);
 var pg = urlStr && urlStr.startsWith("postgres");
@@ -2172,7 +2179,7 @@ if (pg) {
 }
 goBtn.addEventListener("click", () => {
   if (pg)
-    postgres(urlStr);
+    postgres(urlStr, wsTransport);
   else
-    https("https://subtls.pages.dev");
+    https("https://subtls.pages.dev", "GET", wsTransport);
 });

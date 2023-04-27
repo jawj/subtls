@@ -1,3 +1,5 @@
+import type { Socket } from 'net';
+
 interface DataRequest {
   bytes: number;
   resolve: (data: Uint8Array | undefined) => void;
@@ -10,14 +12,30 @@ enum WebSocketReadyState {
   CLOSED = 3,
 }
 
+class PretendWebSocket {
+  addEventListener(...args: any[]) {
+    void args;
+  }
+}
+
 export class ReadQueue {
   queue: Uint8Array[];
+  socketIsWebSocket: boolean;
   outstandingRequest: DataRequest | undefined;
 
-  constructor(private ws: WebSocket) {
+  constructor(private socket: Socket | WebSocket) {
     this.queue = [];
-    ws.addEventListener('message', (msg) => this.enqueue(new Uint8Array(msg.data)));
-    ws.addEventListener('close', () => this.dequeue());
+
+    if (socket instanceof (globalThis.WebSocket ?? PretendWebSocket)) {
+      this.socketIsWebSocket = true;
+      socket.addEventListener('message', (msg: any) => this.enqueue(new Uint8Array(msg.data)));
+      socket.addEventListener('close', () => this.dequeue());
+
+    } else {
+      this.socketIsWebSocket = false;
+      socket.on('data', (data: Buffer) => this.enqueue(new Uint8Array(data)));
+      socket.on('close', () => this.dequeue());
+    }
   }
 
   enqueue(data: Uint8Array) {
@@ -25,12 +43,20 @@ export class ReadQueue {
     this.dequeue();
   }
 
+  socketIsNotClosed() {
+    const { socket } = this;
+    const { readyState } = socket;
+    return this.socketIsWebSocket ?
+      readyState <= WebSocketReadyState.OPEN :
+      readyState === 'opening' || readyState === 'open';
+  }
+
   dequeue() {
     if (this.outstandingRequest === undefined) return;
 
     let { resolve, bytes } = this.outstandingRequest;
     const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.ws.readyState <= WebSocketReadyState.OPEN) return;  // if socket remains open, wait until requested data size is available
+    if (bytesInQueue < bytes && this.socketIsNotClosed()) return;  // if socket remains open, wait until requested data size is available
 
     bytes = Math.min(bytes, bytesInQueue);
     if (bytes === 0) return resolve(undefined);

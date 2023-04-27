@@ -12,8 +12,9 @@ import isrgrootx1 from './roots/isrg-root-x1.pem';
 // @ts-ignore
 import isrgrootx2 from './roots/isrg-root-x2.pem';
 import { hexFromU8 } from './util/hex';
+import type wsTransport from './util/wsTransport';
 
-export async function postgres(urlStr: string) {
+export async function postgres(urlStr: string, transportFactory: typeof wsTransport) {
   const t0 = Date.now();
 
   const url = parse(urlStr);
@@ -28,16 +29,7 @@ export async function postgres(urlStr: string) {
   const password = useSNIHack ? `project=${host.match(/^[^.]+/)![0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);
 
-  const ws = await new Promise<WebSocket>(resolve => {
-    const ws = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
-    ws.binaryType = 'arraybuffer';
-    ws.addEventListener('open', () => resolve(ws));
-    ws.addEventListener('error', (err) => { console.log('ws error:', err); });
-    ws.addEventListener('close', () => { console.log('connection closed'); })
-  });
-  const reader = new ReadQueue(ws);
-  const networkRead = reader.read.bind(reader);
-  const networkWrite = ws.send.bind(ws);
+  const transport = await transportFactory(host, port);
 
   // https://www.postgresql.org/docs/current/protocol-message-formats.html
 
@@ -55,8 +47,8 @@ export async function postgres(urlStr: string) {
     chatty && log('With Neon, we don’t need to wait for the reply: we run this server, so we know it’s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a ‘client hello’:');
 
   } else {
-    networkWrite(writePreData);
-    const SorN = await networkRead(1);
+    transport.write(writePreData);
+    const SorN = await transport.read(1);
     chatty && log('The server responds with an ‘S’ to let us know it supports SSL/TLS.');
     chatty && log(hexFromU8(SorN!));
     if (SorN![0] !== 'S'.charCodeAt(0)) throw new Error('Did not receive ‘S’ in response to SSL Request');
@@ -71,8 +63,8 @@ export async function postgres(urlStr: string) {
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
   const [read, write] = pipelineSSLRequest ?
-    await startTls(host, rootCert, networkRead, networkWrite, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') :
-    await startTls(host, rootCert, networkRead, networkWrite, !useSNIHack);
+    await startTls(host, rootCert, transport.read, transport.write, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') :
+    await startTls(host, rootCert, transport.read, transport.write, !useSNIHack);
 
   const msg = new Bytes(1024);
 
