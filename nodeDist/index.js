@@ -87,7 +87,7 @@ var init_bytes = __esm({
         return this;
       }
       comment(s, offset = this.offset) {
-        if (false)
+        if (true)
           throw new Error("No comments should be emitted outside of chatty mode");
         const existing = this.comments[offset];
         const result = (existing === void 0 ? "" : existing + " ") + s;
@@ -100,7 +100,6 @@ var init_bytes = __esm({
       readUTF8String(length) {
         const bytes = this.subarray(length);
         const s = txtDec.decode(bytes);
-        this.comment('"' + s.replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"');
         return s;
       }
       readUTF8StringNullTerminated() {
@@ -114,14 +113,14 @@ var init_bytes = __esm({
       readUint8(comment) {
         const result = this.dataView.getUint8(this.offset);
         this.offset += 1;
-        if (comment)
+        if (false)
           this.comment(comment.replace(/%/g, String(result)));
         return result;
       }
       readUint16(comment) {
         const result = this.dataView.getUint16(this.offset);
         this.offset += 2;
-        if (comment)
+        if (false)
           this.comment(comment.replace(/%/g, String(result)));
         return result;
       }
@@ -129,48 +128,48 @@ var init_bytes = __esm({
         const msb = this.readUint8();
         const lsbs = this.readUint16();
         const result = (msb << 16) + lsbs;
-        if (comment)
+        if (false)
           this.comment(comment.replace(/%/g, String(result)));
         return result;
       }
       readUint32(comment) {
         const result = this.dataView.getUint32(this.offset);
         this.offset += 4;
-        if (comment)
+        if (false)
           this.comment(comment.replace(/%/g, String(result)));
         return result;
       }
       expectBytes(expected, comment) {
         const actual = this.readBytes(expected.length);
-        if (comment)
+        if (false)
           this.comment(comment);
         if (!equal(actual, expected))
           throw new Error(`Unexpected bytes`);
       }
       expectUint8(expectedValue, comment) {
         const actualValue = this.readUint8();
-        if (comment)
+        if (false)
           this.comment(comment);
         if (actualValue !== expectedValue)
           throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
       }
       expectUint16(expectedValue, comment) {
         const actualValue = this.readUint16();
-        if (comment)
+        if (false)
           this.comment(comment);
         if (actualValue !== expectedValue)
           throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
       }
       expectUint24(expectedValue, comment) {
         const actualValue = this.readUint24();
-        if (comment)
+        if (false)
           this.comment(comment);
         if (actualValue !== expectedValue)
           throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
       }
       expectUint32(expectedValue, comment) {
         const actualValue = this.readUint32();
-        if (comment)
+        if (false)
           this.comment(comment);
         if (actualValue !== expectedValue)
           throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
@@ -194,42 +193,34 @@ var init_bytes = __esm({
       }
       expectLengthUint8(comment) {
         const length = this.readUint8();
-        this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
         return this.expectLength(length);
       }
       expectLengthUint16(comment) {
         const length = this.readUint16();
-        this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
         return this.expectLength(length);
       }
       expectLengthUint24(comment) {
         const length = this.readUint24();
-        this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
         return this.expectLength(length);
       }
       expectLengthUint32(comment) {
         const length = this.readUint32();
-        this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
         return this.expectLength(length);
       }
       expectLengthUint8Incl(comment) {
         const length = this.readUint8();
-        this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
         return this.expectLength(length - 1);
       }
       expectLengthUint16Incl(comment) {
         const length = this.readUint16();
-        this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
         return this.expectLength(length - 2);
       }
       expectLengthUint24Incl(comment) {
         const length = this.readUint24();
-        this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
         return this.expectLength(length - 3);
       }
       expectLengthUint32Incl(comment) {
         const length = this.readUint32();
-        this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
         return this.expectLength(length - 4);
       }
       writeBytes(bytes) {
@@ -240,28 +231,25 @@ var init_bytes = __esm({
       writeUTF8String(s) {
         const bytes = txtEnc.encode(s);
         this.writeBytes(bytes);
-        this.comment('"' + s.replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"');
         return this;
       }
       writeUTF8StringNullTerminated(s) {
         const bytes = txtEnc.encode(s);
         this.writeBytes(bytes);
-        this.comment('"' + s.replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"');
         this.writeUint8(0);
-        this.comment("end of string");
         return this;
       }
       writeUint8(value, comment) {
         this.dataView.setUint8(this.offset, value);
         this.offset += 1;
-        if (comment)
+        if (false)
           this.comment(comment);
         return this;
       }
       writeUint16(value, comment) {
         this.dataView.setUint16(this.offset, value);
         this.offset += 2;
-        if (comment)
+        if (false)
           this.comment(comment);
         return this;
       }
@@ -273,7 +261,7 @@ var init_bytes = __esm({
       writeUint32(value, comment) {
         this.dataView.setUint32(this.offset, value);
         this.offset += 4;
-        if (comment)
+        if (false)
           this.comment(comment);
         return this;
       }
@@ -296,7 +284,6 @@ var init_bytes = __esm({
             this.dataView.setUint32(startOffset, length);
           else
             throw new Error(`Invalid length for length field: ${lengthBytes}`);
-          this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} ${inclusive ? "start here" : "follow"}`, endOffset);
           this.indent -= 1;
           this.indents[this.offset] = this.indent;
         };
@@ -348,23 +335,6 @@ ${indentChars.repeat(indent)}`;
 });
 
 // src/presentation/highlights.ts
-function highlightBytes(s, colour) {
-  const css = [];
-  s = s.replace(regex, (m) => {
-    css.push(m.startsWith(indentChars) ? "color: #ddd" : `color: ${colour}`, "color: inherit");
-    return `%c${m}%c`;
-  });
-  return [s, ...css];
-}
-function highlightColonList(s) {
-  const css = [];
-  s = s.replace(/^[^:]+:.*$/gm, (m) => {
-    const colonIndex = m.indexOf(":");
-    css.push("color: #aaa", "color: inherit");
-    return `%c${m.slice(0, colonIndex + 1)}%c${m.slice(colonIndex + 1)}`;
-  });
-  return [s, ...css];
-}
 var regex;
 var init_highlights = __esm({
   "src/presentation/highlights.ts"() {
@@ -431,68 +401,65 @@ var init_log = __esm({
 // src/tls/makeClientHello.ts
 function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const h = new Bytes(1024);
-  h.writeUint8(22, "record type: handshake");
-  h.writeUint16(769, "TLS protocol version 1.0");
+  h.writeUint8(22, false);
+  h.writeUint16(769, false);
   const endRecordHeader = h.writeLengthUint16();
-  h.writeUint8(1, "handshake type: client hello");
+  h.writeUint8(1, false);
   const endHandshakeHeader = h.writeLengthUint24();
-  h.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  h.writeUint16(771, false);
   crypto.getRandomValues(h.subarray(32));
-  h.comment("client random");
-  const endSessionId = h.writeLengthUint8("session ID");
+  const endSessionId = h.writeLengthUint8(false);
   h.writeBytes(sessionId);
-  h.comment("session ID (middlebox compatibility)");
   endSessionId();
-  const endCiphers = h.writeLengthUint16("ciphers");
-  h.writeUint16(4865, "cipher: TLS_AES_128_GCM_SHA256");
+  const endCiphers = h.writeLengthUint16(false);
+  h.writeUint16(4865, false);
   endCiphers();
-  const endCompressionMethods = h.writeLengthUint8("compression methods");
-  h.writeUint8(0, "compression method: none");
+  const endCompressionMethods = h.writeLengthUint8(false);
+  h.writeUint8(0, false);
   endCompressionMethods();
-  const endExtensions = h.writeLengthUint16("extensions");
+  const endExtensions = h.writeLengthUint16(false);
   if (useSNI) {
-    h.writeUint16(0, "extension type: SNI");
-    const endSNIExt = h.writeLengthUint16("SNI data");
-    const endSNI = h.writeLengthUint16("SNI records");
-    h.writeUint8(0, "list entry type: DNS hostname");
-    const endHostname = h.writeLengthUint16("hostname");
+    h.writeUint16(0, false);
+    const endSNIExt = h.writeLengthUint16(false);
+    const endSNI = h.writeLengthUint16(false);
+    h.writeUint8(0, false);
+    const endHostname = h.writeLengthUint16(false);
     h.writeUTF8String(host);
     endHostname();
     endSNI();
     endSNIExt();
   }
-  h.writeUint16(11, "extension type: EC point formats");
-  const endFormatTypesExt = h.writeLengthUint16("formats data");
-  const endFormatTypes = h.writeLengthUint8("formats");
-  h.writeUint8(0, "format: uncompressed");
+  h.writeUint16(11, false);
+  const endFormatTypesExt = h.writeLengthUint16(false);
+  const endFormatTypes = h.writeLengthUint8(false);
+  h.writeUint8(0, false);
   endFormatTypes();
   endFormatTypesExt();
-  h.writeUint16(10, "extension type: supported groups (curves)");
-  const endGroupsExt = h.writeLengthUint16("groups data");
-  const endGroups = h.writeLengthUint16("groups");
-  h.writeUint16(23, "curve secp256r1 (NIST P-256)");
+  h.writeUint16(10, false);
+  const endGroupsExt = h.writeLengthUint16(false);
+  const endGroups = h.writeLengthUint16(false);
+  h.writeUint16(23, false);
   endGroups();
   endGroupsExt();
-  h.writeUint16(13, "extension type: signature algorithms");
-  const endSigsExt = h.writeLengthUint16("signature algorithms data");
-  const endSigs = h.writeLengthUint16("signature algorithms");
-  h.writeUint16(1027, "ecdsa_secp256r1_sha256");
-  h.writeUint16(2052, "rsa_pss_rsae_sha256");
+  h.writeUint16(13, false);
+  const endSigsExt = h.writeLengthUint16(false);
+  const endSigs = h.writeLengthUint16(false);
+  h.writeUint16(1027, false);
+  h.writeUint16(2052, false);
   endSigs();
   endSigsExt();
-  h.writeUint16(43, "extension type: supported TLS versions");
-  const endVersionsExt = h.writeLengthUint16("TLS versions data");
-  const endVersions = h.writeLengthUint8("TLS versions");
-  h.writeUint16(772, "TLS version 1.3");
+  h.writeUint16(43, false);
+  const endVersionsExt = h.writeLengthUint16(false);
+  const endVersions = h.writeLengthUint8(false);
+  h.writeUint16(772, false);
   endVersions();
   endVersionsExt();
-  h.writeUint16(51, "extension type: key share");
-  const endKeyShareExt = h.writeLengthUint16("key share data");
-  const endKeyShares = h.writeLengthUint16("key shares");
-  h.writeUint16(23, "secp256r1 (NIST P-256) key share");
-  const endKeyShare = h.writeLengthUint16("key share");
+  h.writeUint16(51, false);
+  const endKeyShareExt = h.writeLengthUint16(false);
+  const endKeyShares = h.writeLengthUint16(false);
+  h.writeUint16(23, false);
+  const endKeyShare = h.writeLengthUint16(false);
   h.writeBytes(new Uint8Array(publicKey));
-  h.comment("key");
   endKeyShare();
   endKeyShares();
   endKeyShareExt();
@@ -523,9 +490,9 @@ function parseServerHello(hello, sessionId) {
   let serverPublicKey;
   let tlsVersionSpecified;
   const [endServerHelloMessage] = hello.expectLength(hello.remaining());
-  hello.expectUint8(2, "handshake type: server hello");
-  const [endServerHello] = hello.expectLengthUint24("server hello");
-  hello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  hello.expectUint8(2, false);
+  const [endServerHello] = hello.expectLengthUint24(false);
+  hello.expectUint16(771, false);
   const serverRandom = hello.readBytes(32);
   if (equal(serverRandom, [
     207,
@@ -562,23 +529,21 @@ function parseServerHello(hello, sessionId) {
     156
   ]))
     throw new Error("Unexpected HelloRetryRequest");
-  hello.comment('server random \u2014 not SHA256("HelloRetryRequest")');
-  hello.expectUint8(sessionId.length, "session ID length (matches client session ID)");
-  hello.expectBytes(sessionId, "session ID (matches client session ID)");
-  hello.expectUint16(4865, "cipher (matches client hello)");
-  hello.expectUint8(0, "no compression");
-  const [endExtensions, extensionsRemaining] = hello.expectLengthUint16("extensions");
+  hello.expectUint8(sessionId.length, false);
+  hello.expectBytes(sessionId, false);
+  hello.expectUint16(4865, false);
+  hello.expectUint8(0, false);
+  const [endExtensions, extensionsRemaining] = hello.expectLengthUint16(false);
   while (extensionsRemaining() > 0) {
-    const extensionType = hello.readUint16("extension type");
-    const [endExtension] = hello.expectLengthUint16("extension");
+    const extensionType = hello.readUint16(false);
+    const [endExtension] = hello.expectLengthUint16(false);
     if (extensionType === 43) {
-      hello.expectUint16(772, "TLS version 1.3");
+      hello.expectUint16(772, false);
       tlsVersionSpecified = true;
     } else if (extensionType === 51) {
-      hello.expectUint16(23, "secp256r1 (NIST P-256) key share");
+      hello.expectUint16(23, false);
       hello.expectUint16(65);
       serverPublicKey = hello.readBytes(65);
-      hello.comment("key");
     } else {
       throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`);
     }
@@ -615,11 +580,10 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
     throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   if (expectedType !== void 0 && type !== expectedType)
     throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
-  header.comment(`record type: ${RecordTypeName[type]}`);
-  const version = header.readUint16("TLS version");
+  const version = header.readUint16(false);
   if ([769, 770, 771].indexOf(version) < 0)
     throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
-  const length = header.readUint16("% bytes of TLS record follow");
+  const length = header.readUint16(false);
   if (length > maxLength)
     throw new Error(`Record too long: ${length} bytes`);
   const content = await read(length);
@@ -633,10 +597,9 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
     return;
   const encryptedBytes = new Bytes(encryptedRecord.content);
   const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remaining());
-  encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
-  encryptedBytes.skip(16, "auth tag");
+  encryptedBytes.skip(encryptedRecord.length - 16, false);
+  encryptedBytes.skip(16, false);
   endEncrypted();
-  log(...highlightBytes(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
   let recordTypeIndex = decryptedRecord.length - 1;
   while (decryptedRecord[recordTypeIndex] === 0)
@@ -647,17 +610,14 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   const record = decryptedRecord.subarray(0, recordTypeIndex);
   if (type === 21 /* Alert */) {
     const closeNotify = record.length === 2 && record[0] === 1 && record[1] === 0;
-    log(`%cTLS 0x15 alert record: ${hexFromU8(record, " ")}` + (closeNotify ? " (close notify)" : ""), `color: ${"#c88" /* header */}`);
     if (closeNotify)
       return void 0;
   }
   if (type === 22 /* Handshake */ && record[0] === 4) {
-    log(...highlightBytes(hexFromU8(record, " ") + "  session ticket message: ignored", "#88c" /* server */));
     return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
   if (expectedType !== void 0 && type !== expectedType)
     throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
-  log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
   return record;
 }
 async function makeEncryptedTlsRecord(plaintext, encrypter, type) {
@@ -667,18 +627,15 @@ async function makeEncryptedTlsRecord(plaintext, encrypter, type) {
   const authTagLength = 16;
   const payloadLength = dataLength + authTagLength;
   const encryptedRecord = new Bytes(headerLength + payloadLength);
-  encryptedRecord.writeUint8(23, "record type: Application (middlebox compatibility)");
-  encryptedRecord.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  encryptedRecord.writeUint8(23, false);
+  encryptedRecord.writeUint16(771, false);
   encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
   const [endEncryptedRecord] = encryptedRecord.expectLength(payloadLength);
   const header = encryptedRecord.array();
   const encryptedData = await encrypter.process(data, 16, header);
   encryptedRecord.writeBytes(encryptedData.subarray(0, encryptedData.length - 16));
-  encryptedRecord.comment("encrypted data");
   encryptedRecord.writeBytes(encryptedData.subarray(encryptedData.length - 16));
-  encryptedRecord.comment("auth tag");
   endEncryptedRecord();
-  log(...highlightBytes(encryptedRecord.commentedString(), "#8cc" /* client */));
   return encryptedRecord.array();
 }
 async function makeEncryptedTlsRecords(plaintext, encrypter, type) {
@@ -691,7 +648,7 @@ async function makeEncryptedTlsRecords(plaintext, encrypter, type) {
   }
   return encryptedRecords;
 }
-var RecordTypeName, maxPlaintextRecordLength, maxCiphertextRecordLength;
+var maxPlaintextRecordLength, maxCiphertextRecordLength;
 var init_tlsRecord = __esm({
   "src/tls/tlsRecord.ts"() {
     "use strict";
@@ -701,13 +658,6 @@ var init_tlsRecord = __esm({
     init_log();
     init_hex();
     init_array();
-    RecordTypeName = {
-      20: "ChangeCipherSpec",
-      21: "Alert",
-      22: "Handshake",
-      23: "Application",
-      24: "Heartbeat"
-    };
     maxPlaintextRecordLength = 1 << 14;
     maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
   }
@@ -761,31 +711,19 @@ async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, k
   const publicKey = await cryptoProxy_default.importKey("raw", serverPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
   const sharedSecretBuffer = await cryptoProxy_default.deriveBits({ name: "ECDH", public: publicKey }, privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
-  log(...highlightColonList("shared secret: " + hexFromU8(sharedSecret)));
   const hellosHashBuffer = await cryptoProxy_default.digest("SHA-256", hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
-  log(...highlightColonList("hellos hash: " + hexFromU8(hellosHash)));
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
-  log(...highlightColonList("early secret: " + hexFromU8(new Uint8Array(earlySecret))));
   const emptyHashBuffer = await cryptoProxy_default.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
-  log(...highlightColonList("empty hash: " + hexFromU8(emptyHash)));
   const derivedSecret = await hkdfExpandLabel(earlySecret, "derived", emptyHash, hashBytes, hashBits);
-  log(...highlightColonList("derived secret: " + hexFromU8(derivedSecret)));
   const handshakeSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
-  log(...highlightColonList("handshake secret: " + hexFromU8(handshakeSecret)));
   const clientSecret = await hkdfExpandLabel(handshakeSecret, "c hs traffic", hellosHash, hashBytes, hashBits);
-  log(...highlightColonList("client secret: " + hexFromU8(clientSecret)));
   const serverSecret = await hkdfExpandLabel(handshakeSecret, "s hs traffic", hellosHash, hashBytes, hashBits);
-  log(...highlightColonList("server secret: " + hexFromU8(serverSecret)));
   const clientHandshakeKey = await hkdfExpandLabel(clientSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log(...highlightColonList("client handshake key: " + hexFromU8(clientHandshakeKey)));
   const serverHandshakeKey = await hkdfExpandLabel(serverSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log(...highlightColonList("server handshake key: " + hexFromU8(serverHandshakeKey)));
   const clientHandshakeIV = await hkdfExpandLabel(clientSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log(...highlightColonList("client handshake iv: " + hexFromU8(clientHandshakeIV)));
   const serverHandshakeIV = await hkdfExpandLabel(serverSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log(...highlightColonList("server handshake iv: " + hexFromU8(serverHandshakeIV)));
   return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV, handshakeSecret, clientSecret, serverSecret };
 }
 async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyLength) {
@@ -793,23 +731,14 @@ async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyL
   const zeroKey = new Uint8Array(hashBytes);
   const emptyHashBuffer = await cryptoProxy_default.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
-  log(...highlightColonList("empty hash: " + hexFromU8(emptyHash)));
   const derivedSecret = await hkdfExpandLabel(handshakeSecret, "derived", emptyHash, hashBytes, hashBits);
-  log(...highlightColonList("derived secret: " + hexFromU8(derivedSecret)));
   const masterSecret = await hkdfExtract(derivedSecret, zeroKey, hashBits);
-  log(...highlightColonList("master secret: " + hexFromU8(masterSecret)));
   const clientSecret = await hkdfExpandLabel(masterSecret, "c ap traffic", handshakeHash, hashBytes, hashBits);
-  log(...highlightColonList("client secret: " + hexFromU8(clientSecret)));
   const serverSecret = await hkdfExpandLabel(masterSecret, "s ap traffic", handshakeHash, hashBytes, hashBits);
-  log(...highlightColonList("server secret: " + hexFromU8(serverSecret)));
   const clientApplicationKey = await hkdfExpandLabel(clientSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log(...highlightColonList("client application key: " + hexFromU8(clientApplicationKey)));
   const serverApplicationKey = await hkdfExpandLabel(serverSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log(...highlightColonList("server application key: " + hexFromU8(serverApplicationKey)));
   const clientApplicationIV = await hkdfExpandLabel(clientSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log(...highlightColonList("client application iv: " + hexFromU8(clientApplicationIV)));
   const serverApplicationIV = await hkdfExpandLabel(serverSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log(...highlightColonList("server application iv: " + hexFromU8(serverApplicationIV)));
   return { serverApplicationKey, serverApplicationIV, clientApplicationKey, clientApplicationIV };
 }
 var txtEnc2, tls13_Bytes;
@@ -905,11 +834,10 @@ var init_asn1bytes = __esm({
       readASN1Length(comment) {
         const byte1 = this.readUint8();
         if (byte1 < 128) {
-          this.comment(`${byte1} bytes${comment ? ` of ${comment}` : ""} follow (ASN.1)`);
           return byte1;
         }
         const lengthBytes = byte1 & 127;
-        const fullComment = `% bytes${comment ? ` of ${comment}` : ""} follow (ASN.1)`;
+        const fullComment = false;
         if (lengthBytes === 1)
           return this.readUint8(fullComment);
         if (lengthBytes === 2)
@@ -925,7 +853,7 @@ var init_asn1bytes = __esm({
         return this.expectLength(length);
       }
       readASN1OID() {
-        const [endOID, OIDRemaining] = this.expectASN1Length("OID");
+        const [endOID, OIDRemaining] = this.expectASN1Length(false);
         const byte1 = this.readUint8();
         let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
         while (OIDRemaining() > 0) {
@@ -939,12 +867,11 @@ var init_asn1bytes = __esm({
           }
           oid += `.${value}`;
         }
-        this.comment(oid);
         endOID();
         return oid;
       }
       readASN1Boolean() {
-        const [endBoolean, booleanRemaining] = this.expectASN1Length("boolean");
+        const [endBoolean, booleanRemaining] = this.expectASN1Length(false);
         const length = booleanRemaining();
         if (length !== 1)
           throw new Error(`Boolean has weird length: ${length}`);
@@ -956,12 +883,11 @@ var init_asn1bytes = __esm({
           result = false;
         else
           throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
-        this.comment(result.toString());
         endBoolean();
         return result;
       }
       readASN1UTCTime() {
-        const [endTime, timeRemaining] = this.expectASN1Length("UTC time");
+        const [endTime, timeRemaining] = this.expectASN1Length(false);
         const timeStr = this.readUTF8String(timeRemaining());
         const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
         if (!parts)
@@ -970,13 +896,12 @@ var init_asn1bytes = __esm({
         const yr2d = parseInt(yr2dstr, 10);
         const yr = yr2d + (yr2d >= 50 ? 1900 : 2e3);
         const time = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);
-        this.comment("= " + time.toISOString());
         endTime();
         return time;
       }
       readASN1BitString() {
-        const [endBitString, bitStringRemaining] = this.expectASN1Length("bit string");
-        const rightPadBits = this.readUint8("right-padding bits");
+        const [endBitString, bitStringRemaining] = this.expectASN1Length(false);
+        const rightPadBits = this.readUint8(false);
         const bytesLength = bitStringRemaining();
         const bitString = this.readBytes(bytesLength);
         if (rightPadBits > 7)
@@ -1010,26 +935,23 @@ function intFromBitString(bs) {
 }
 function readSeqOfSetOfSeq(cb, seqType) {
   const result = {};
-  cb.expectUint8(constructedUniversalTypeSequence, `sequence (${seqType})`);
-  const [endSeq, seqRemaining] = cb.expectASN1Length("sequence");
+  cb.expectUint8(constructedUniversalTypeSequence, false);
+  const [endSeq, seqRemaining] = cb.expectASN1Length(false);
   while (seqRemaining() > 0) {
-    cb.expectUint8(constructedUniversalTypeSet, "set");
-    const [endItemSet] = cb.expectASN1Length("set");
-    cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-    const [endItemSeq] = cb.expectASN1Length("sequence");
-    cb.expectUint8(universalTypeOID, "OID");
+    cb.expectUint8(constructedUniversalTypeSet, false);
+    const [endItemSet] = cb.expectASN1Length(false);
+    cb.expectUint8(constructedUniversalTypeSequence, false);
+    const [endItemSeq] = cb.expectASN1Length(false);
+    cb.expectUint8(universalTypeOID, false);
     const itemOID = cb.readASN1OID();
     const itemName = DNOIDMap[itemOID] ?? itemOID;
-    cb.comment(`= ${itemName}`);
     const valueType = cb.readUint8();
     if (valueType === universalTypePrintableString) {
-      cb.comment("printable string");
     } else if (valueType === universalTypeUTF8String) {
-      cb.comment("UTF8 string");
     } else {
       throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
     }
-    const [endItemString, itemStringRemaining] = cb.expectASN1Length("UTF8 string");
+    const [endItemString, itemStringRemaining] = cb.expectASN1Length(false);
     const itemValue = cb.readUTF8String(itemStringRemaining());
     endItemString();
     endItemSeq();
@@ -1043,17 +965,15 @@ function readSeqOfSetOfSeq(cb, seqType) {
 }
 function readNamesSeq(cb, typeUnionBits = 0) {
   const names = [];
-  const [endNamesSeq, namesSeqRemaining] = cb.expectASN1Length("names sequence");
+  const [endNamesSeq, namesSeqRemaining] = cb.expectASN1Length(false);
   while (namesSeqRemaining() > 0) {
-    const type = cb.readUint8("GeneralNames type");
-    const [endName, nameRemaining] = cb.expectASN1Length("name");
+    const type = cb.readUint8(false);
+    const [endName, nameRemaining] = cb.expectASN1Length(false);
     let name;
     if (type === (typeUnionBits | 2 /* dNSName */)) {
       name = cb.readUTF8String(nameRemaining());
-      cb.comment("= DNS name");
     } else {
       name = cb.readBytes(nameRemaining());
-      cb.comment(`= name (type 0x${hexFromU8([type])})`);
     }
     names.push({ name, type });
     endName();
@@ -1258,7 +1178,7 @@ function _descriptionForAlgorithm(algo, desc = []) {
 function descriptionForAlgorithm(algo) {
   return _descriptionForAlgorithm(algo).join(" / ");
 }
-var universalTypeBoolean, universalTypeInteger, constructedUniversalTypeSequence, constructedUniversalTypeSet, universalTypeOID, universalTypePrintableString, universalTypeUTF8String, universalTypeUTCTime, universalTypeNull, universalTypeOctetString, universalTypeBitString, constructedContextSpecificType, contextSpecificType, DNOIDMap, keyOIDMap, extOIDMap, extKeyUsageOIDMap;
+var universalTypeBoolean, universalTypeInteger, constructedUniversalTypeSequence, constructedUniversalTypeSet, universalTypeOID, universalTypePrintableString, universalTypeUTF8String, universalTypeUTCTime, universalTypeNull, universalTypeOctetString, universalTypeBitString, constructedContextSpecificType, contextSpecificType, DNOIDMap;
 var init_certUtils = __esm({
   "src/tls/certUtils.ts"() {
     "use strict";
@@ -1288,28 +1208,6 @@ var init_certUtils = __esm({
       "2.5.4.43": "I",
       "2.5.4.4": "SN",
       "1.2.840.113549.1.9.1": "E-mail"
-    };
-    keyOIDMap = {
-      "1.2.840.10045.2.1": "ECPublicKey",
-      "1.2.840.10045.3.1.7": "secp256r1",
-      "1.3.132.0.34": "secp384r1",
-      "1.2.840.113549.1.1.1": "RSAES-PKCS1-v1_5"
-    };
-    extOIDMap = {
-      "2.5.29.15": "KeyUsage",
-      "2.5.29.37": "ExtKeyUsage",
-      "2.5.29.19": "BasicConstraints",
-      "2.5.29.14": "SubjectKeyIdentifier",
-      "2.5.29.35": "AuthorityKeyIdentifier",
-      "1.3.6.1.5.5.7.1.1": "AuthorityInfoAccess",
-      "2.5.29.17": "SubjectAltName",
-      "2.5.29.32": "CertificatePolicies",
-      "1.3.6.1.4.1.11129.2.4.2": "SignedCertificateTimestampList",
-      "2.5.29.31": "CRLDistributionPoints"
-    };
-    extKeyUsageOIDMap = {
-      "1.3.6.1.5.5.7.3.2": "TLSCLientAuth",
-      "1.3.6.1.5.5.7.3.1": "TLSServerAuth"
     };
   }
 });
@@ -1351,89 +1249,80 @@ var init_cert = __esm({
       signedData;
       constructor(certData) {
         const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate)");
-        const [endCertSeq] = cb.expectASN1Length("certificate sequence");
+        cb.expectUint8(constructedUniversalTypeSequence, false);
+        const [endCertSeq] = cb.expectASN1Length(false);
         const tbsCertStartOffset = cb.offset;
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate info)");
-        const [endCertInfoSeq] = cb.expectASN1Length("certificate info");
-        cb.expectBytes([160, 3, 2, 1, 2], "certificate version v3");
-        cb.expectUint8(universalTypeInteger, "integer");
-        const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length("serial number");
+        cb.expectUint8(constructedUniversalTypeSequence, false);
+        const [endCertInfoSeq] = cb.expectASN1Length(false);
+        cb.expectBytes([160, 3, 2, 1, 2], false);
+        cb.expectUint8(universalTypeInteger, false);
+        const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length(false);
         this.serialNumber = cb.subarray(serialNumberRemaining());
-        cb.comment("serial number");
         endSerialNumber();
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence (algorithm)");
-        const [endAlgo, algoRemaining] = cb.expectASN1Length("algorithm sequence");
-        cb.expectUint8(universalTypeOID, "OID");
+        cb.expectUint8(constructedUniversalTypeSequence, false);
+        const [endAlgo, algoRemaining] = cb.expectASN1Length(false);
+        cb.expectUint8(universalTypeOID, false);
         this.algorithm = cb.readASN1OID();
-        cb.comment(`= ${descriptionForAlgorithm(algorithmWithOID(this.algorithm))}`);
         if (algoRemaining() > 0) {
-          cb.expectUint8(universalTypeNull, "null");
-          cb.expectUint8(0, "null length");
+          cb.expectUint8(universalTypeNull, false);
+          cb.expectUint8(0, false);
         }
         endAlgo();
         this.issuer = readSeqOfSetOfSeq(cb, "issuer");
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence (validity)");
-        const [endValiditySeq] = cb.expectASN1Length("validity sequence");
-        cb.expectUint8(universalTypeUTCTime, "UTC time (not before)");
+        cb.expectUint8(constructedUniversalTypeSequence, false);
+        const [endValiditySeq] = cb.expectASN1Length(false);
+        cb.expectUint8(universalTypeUTCTime, false);
         const notBefore = cb.readASN1UTCTime();
-        cb.expectUint8(universalTypeUTCTime, "UTC time (not after)");
+        cb.expectUint8(universalTypeUTCTime, false);
         const notAfter = cb.readASN1UTCTime();
         this.validityPeriod = { notBefore, notAfter };
         endValiditySeq();
         this.subject = readSeqOfSetOfSeq(cb, "subject");
         const publicKeyStartOffset = cb.offset;
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence (public key)");
-        const [endPublicKeySeq] = cb.expectASN1Length("public key sequence");
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence (public key params)");
-        const [endKeyOID, keyOIDRemaining] = cb.expectASN1Length("public key params sequence");
+        cb.expectUint8(constructedUniversalTypeSequence, false);
+        const [endPublicKeySeq] = cb.expectASN1Length(false);
+        cb.expectUint8(constructedUniversalTypeSequence, false);
+        const [endKeyOID, keyOIDRemaining] = cb.expectASN1Length(false);
         const publicKeyOIDs = [];
         while (keyOIDRemaining() > 0) {
           const keyParamRecordType = cb.readUint8();
           if (keyParamRecordType === universalTypeOID) {
-            cb.comment("OID");
             const keyOID = cb.readASN1OID();
             publicKeyOIDs.push(keyOID);
-            cb.comment(`= ${keyOIDMap[keyOID]}`);
           } else if (keyParamRecordType === universalTypeNull) {
-            cb.comment("null");
-            cb.expectUint8(0, "null length");
+            cb.expectUint8(0, false);
           }
         }
         endKeyOID();
-        cb.expectUint8(universalTypeBitString, "bit string");
+        cb.expectUint8(universalTypeBitString, false);
         const publicKeyData = cb.readASN1BitString();
-        cb.comment("public key");
         this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.data.subarray(publicKeyStartOffset, cb.offset) };
         endPublicKeySeq();
-        cb.expectUint8(constructedContextSpecificType, "constructed context-specific type");
+        cb.expectUint8(constructedContextSpecificType, false);
         const [endExtsData] = cb.expectASN1Length();
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence (extensions)");
-        const [endExts, extsRemaining] = cb.expectASN1Length("extensions sequence");
+        cb.expectUint8(constructedUniversalTypeSequence, false);
+        const [endExts, extsRemaining] = cb.expectASN1Length(false);
         while (extsRemaining() > 0) {
-          cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+          cb.expectUint8(constructedUniversalTypeSequence, false);
           const [endExt, extRemaining] = cb.expectASN1Length();
-          cb.expectUint8(universalTypeOID, "OID (extension type)");
+          cb.expectUint8(universalTypeOID, false);
           const extOID = cb.readASN1OID();
-          cb.comment(`= ${extOIDMap[extOID]}`);
           if (extOID === "2.5.29.17") {
-            cb.expectUint8(universalTypeOctetString, "octet string");
-            const [endSanDerDoc] = cb.expectASN1Length("DER document");
-            cb.expectUint8(constructedUniversalTypeSequence, "sequence (names)");
+            cb.expectUint8(universalTypeOctetString, false);
+            const [endSanDerDoc] = cb.expectASN1Length(false);
+            cb.expectUint8(constructedUniversalTypeSequence, false);
             const allSubjectAltNames = readNamesSeq(cb, contextSpecificType);
             this.subjectAltNames = allSubjectAltNames.filter((san) => san.type === (2 /* dNSName */ | contextSpecificType)).map((san) => san.name);
             endSanDerDoc();
           } else if (extOID === "2.5.29.15") {
-            cb.expectUint8(universalTypeBoolean, "boolean");
+            cb.expectUint8(universalTypeBoolean, false);
             const keyUsageCritical = cb.readASN1Boolean();
-            cb.comment("<- critical");
-            cb.expectUint8(universalTypeOctetString, "octet string");
-            const [endKeyUsageDer] = cb.expectASN1Length("DER document");
-            cb.expectUint8(universalTypeBitString, "bit string");
+            cb.expectUint8(universalTypeOctetString, false);
+            const [endKeyUsageDer] = cb.expectASN1Length(false);
+            cb.expectUint8(universalTypeBitString, false);
             const keyUsageBitStr = cb.readASN1BitString();
             const keyUsageBitmask = intFromBitString(keyUsageBitStr);
             const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & 1 << i));
-            cb.comment(`key usage: ${keyUsageBitmask} = ${[...keyUsageNames]}`);
             endKeyUsageDer();
             this.keyUsage = {
               critical: keyUsageCritical,
@@ -1441,38 +1330,34 @@ var init_cert = __esm({
             };
           } else if (extOID === "2.5.29.37") {
             this.extKeyUsage = {};
-            cb.expectUint8(universalTypeOctetString, "octet string");
-            const [endExtKeyUsageDer] = cb.expectASN1Length("DER document");
-            cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-            const [endExtKeyUsage, extKeyUsageRemaining] = cb.expectASN1Length("key usage OIDs");
+            cb.expectUint8(universalTypeOctetString, false);
+            const [endExtKeyUsageDer] = cb.expectASN1Length(false);
+            cb.expectUint8(constructedUniversalTypeSequence, false);
+            const [endExtKeyUsage, extKeyUsageRemaining] = cb.expectASN1Length(false);
             while (extKeyUsageRemaining() > 0) {
-              cb.expectUint8(universalTypeOID, "OID");
+              cb.expectUint8(universalTypeOID, false);
               const extKeyUsageOID = cb.readASN1OID();
               if (extKeyUsageOID === "1.3.6.1.5.5.7.3.1")
                 this.extKeyUsage.serverTls = true;
               if (extKeyUsageOID === "1.3.6.1.5.5.7.3.2")
                 this.extKeyUsage.clientTls = true;
-              cb.comment(`= ${extKeyUsageOIDMap[extKeyUsageOID]}`);
             }
             endExtKeyUsage();
             endExtKeyUsageDer();
           } else if (extOID === "2.5.29.35") {
-            cb.expectUint8(universalTypeOctetString, "octet string");
-            const [endAuthKeyIdDer] = cb.expectASN1Length("DER document");
-            cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-            const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = cb.expectASN1Length("sequence");
+            cb.expectUint8(universalTypeOctetString, false);
+            const [endAuthKeyIdDer] = cb.expectASN1Length(false);
+            cb.expectUint8(constructedUniversalTypeSequence, false);
+            const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = cb.expectASN1Length(false);
             while (authKeyIdSeqRemaining() > 0) {
               const authKeyIdDatumType = cb.readUint8();
               if (authKeyIdDatumType === (contextSpecificType | 0)) {
-                cb.comment("context-specific type: key identifier");
-                const [endAuthKeyId, authKeyIdRemaining] = cb.expectASN1Length("authority key identifier");
+                const [endAuthKeyId, authKeyIdRemaining] = cb.expectASN1Length(false);
                 this.authorityKeyIdentifier = cb.readBytes(authKeyIdRemaining());
-                cb.comment("authority key identifier");
                 endAuthKeyId();
               } else if (authKeyIdDatumType === (contextSpecificType | 1) || authKeyIdDatumType === (contextSpecificType | 2)) {
-                cb.comment("context-specific type: authority cert issuer or authority cert serial number");
-                const [endAuthKeyIdExtra, authKeyIdExtraRemaining] = cb.expectASN1Length("authority cert issuer or authority cert serial number");
-                cb.skip(authKeyIdExtraRemaining(), "ignored");
+                const [endAuthKeyIdExtra, authKeyIdExtraRemaining] = cb.expectASN1Length(false);
+                cb.skip(authKeyIdExtraRemaining(), false);
                 endAuthKeyIdExtra();
               } else {
                 throw new Error("Unexpected data type in authorityKeyIdentifier certificate extension");
@@ -1481,42 +1366,37 @@ var init_cert = __esm({
             endAuthKeyIdSeq();
             endAuthKeyIdDer();
           } else if (extOID === "2.5.29.14") {
-            cb.expectUint8(universalTypeOctetString, "octet string");
-            const [endSubjectKeyIdDer] = cb.expectASN1Length("DER document");
-            cb.expectUint8(universalTypeOctetString, "octet string");
-            const [endSubjectKeyId, subjectKeyIdRemaining] = cb.expectASN1Length("subject key identifier");
+            cb.expectUint8(universalTypeOctetString, false);
+            const [endSubjectKeyIdDer] = cb.expectASN1Length(false);
+            cb.expectUint8(universalTypeOctetString, false);
+            const [endSubjectKeyId, subjectKeyIdRemaining] = cb.expectASN1Length(false);
             this.subjectKeyIdentifier = cb.readBytes(subjectKeyIdRemaining());
-            cb.comment("subject key identifier");
             endSubjectKeyId();
             endSubjectKeyIdDer();
           } else if (extOID === "2.5.29.19") {
             let basicConstraintsCritical;
             let bcNextType = cb.readUint8();
             if (bcNextType === universalTypeBoolean) {
-              cb.comment("boolean");
               basicConstraintsCritical = cb.readASN1Boolean();
-              cb.comment("= critical");
               bcNextType = cb.readUint8();
             }
             if (bcNextType !== universalTypeOctetString)
               throw new Error("Unexpected type in certificate basic constraints");
-            cb.comment("octet string");
-            const [endBasicConstraintsDer] = cb.expectASN1Length("DER document");
-            cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+            const [endBasicConstraintsDer] = cb.expectASN1Length(false);
+            cb.expectUint8(constructedUniversalTypeSequence, false);
             const [endConstraintsSeq, constraintsSeqRemaining] = cb.expectASN1Length();
             let basicConstraintsCa = void 0;
             if (constraintsSeqRemaining() > 0) {
-              cb.expectUint8(universalTypeBoolean, "boolean");
+              cb.expectUint8(universalTypeBoolean, false);
               basicConstraintsCa = cb.readASN1Boolean();
             }
             let basicConstraintsPathLength;
             if (constraintsSeqRemaining() > 0) {
-              cb.expectUint8(universalTypeInteger, "integer");
-              const maxPathLengthLength = cb.readASN1Length("max path length");
+              cb.expectUint8(universalTypeInteger, false);
+              const maxPathLengthLength = cb.readASN1Length(false);
               basicConstraintsPathLength = maxPathLengthLength === 1 ? cb.readUint8() : maxPathLengthLength === 2 ? cb.readUint16() : maxPathLengthLength === 3 ? cb.readUint24() : void 0;
               if (basicConstraintsPathLength === void 0)
                 throw new Error("Too many bytes in max path length in certificate basicConstraints");
-              cb.comment("max path length");
             }
             endConstraintsSeq();
             endBasicConstraintsDer();
@@ -1526,7 +1406,7 @@ var init_cert = __esm({
               pathLength: basicConstraintsPathLength
             };
           } else {
-            cb.skip(extRemaining(), "ignored extension data");
+            cb.skip(extRemaining(), false);
           }
           endExt();
         }
@@ -1534,20 +1414,19 @@ var init_cert = __esm({
         endExtsData();
         endCertInfoSeq();
         this.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence (signature algorithm)");
-        const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length("signature algorithm sequence");
-        cb.expectUint8(universalTypeOID, "OID");
+        cb.expectUint8(constructedUniversalTypeSequence, false);
+        const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length(false);
+        cb.expectUint8(universalTypeOID, false);
         const sigAlgoOID = cb.readASN1OID();
         if (sigAlgoRemaining() > 0) {
-          cb.expectUint8(universalTypeNull, "null");
-          cb.expectUint8(0, "null length");
+          cb.expectUint8(universalTypeNull, false);
+          cb.expectUint8(0, false);
         }
         endSigAlgo();
         if (sigAlgoOID !== this.algorithm)
           throw new Error(`Certificate specifies different signature algorithms inside (${this.algorithm}) and out (${sigAlgoOID})`);
-        cb.expectUint8(universalTypeBitString, "bitstring (signature)");
+        cb.expectUint8(universalTypeBitString, false);
         this.signature = cb.readASN1BitString();
-        cb.comment("signature");
         endCertSeq();
       }
       static fromPEM(pem) {
@@ -1623,17 +1502,15 @@ basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical
 
 // src/tls/ecdsa.ts
 async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
-  sb.expectUint8(constructedUniversalTypeSequence, "sequence");
-  const [endSigDer] = sb.expectASN1Length("sequence");
-  sb.expectUint8(universalTypeInteger, "integer");
-  const [endSigRBytes, sigRBytesRemaining] = sb.expectASN1Length("integer");
+  sb.expectUint8(constructedUniversalTypeSequence, false);
+  const [endSigDer] = sb.expectASN1Length(false);
+  sb.expectUint8(universalTypeInteger, false);
+  const [endSigRBytes, sigRBytesRemaining] = sb.expectASN1Length(false);
   let sigR = sb.readBytes(sigRBytesRemaining());
-  sb.comment("signature: r");
   endSigRBytes();
-  sb.expectUint8(universalTypeInteger, "integer");
-  const [endSigSBytes, sigSBytesRemaining] = sb.expectASN1Length("integer");
+  sb.expectUint8(universalTypeInteger, false);
+  const [endSigSBytes, sigSBytesRemaining] = sb.expectASN1Length(false);
   let sigS = sb.readBytes(sigSBytesRemaining());
-  sb.comment("signature: s");
   endSigSBytes();
   endSigDer();
   const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : x.length < clampLength ? concat(new Uint8Array(clampLength - x.length), x) : x;
@@ -1643,7 +1520,6 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
   const certVerifyResult = await cryptoProxy_default.verify({ name: "ECDSA", hash }, signatureKey, signature, signedData);
   if (certVerifyResult !== true)
     throw new Error("ECDSA-SECP256R1-SHA256 certificate verify failed");
-  log(`%c\u2713 ECDSA signature verified (curve ${namedCurve}, hash ${hash})`, "color: #8c8;");
 }
 var init_ecdsa = __esm({
   "src/tls/ecdsa.ts"() {
@@ -1657,27 +1533,20 @@ var init_ecdsa = __esm({
 
 // src/tls/verifyCerts.ts
 async function verifyCerts(host, certs, rootCerts) {
-  log("%c%s", `color: ${"#c88" /* header */}`, "certificates received from host");
   for (const cert of certs)
-    log(...highlightColonList(cert.description()));
-  log("Now we have all the certificates, which are summarised above. First, we do some basic checks on the end-user certificate \u2014\xA0i.e. the one this server is presenting as its own:");
+    ;
   const userCert = certs[0];
   const matchingSubjectAltName = userCert.subjectAltNameMatchingHost(host);
   if (matchingSubjectAltName === void 0)
     throw new Error(`No matching subjectAltName for ${host}`);
-  log(`%c\u2713 matched host to subjectAltName "${matchingSubjectAltName}"`, "color: #8c8;");
   const validNow = userCert.isValidAtMoment();
   if (!validNow)
     throw new Error("End-user certificate is not valid now");
-  log(`%c\u2713 end-user certificate is valid now`, "color: #8c8;");
   if (!userCert.extKeyUsage?.serverTls)
     throw new Error("End-user certificate has no TLS server extKeyUsage");
-  log(`%c\u2713 end-user certificate has TLS server extKeyUsage`, "color: #8c8;");
-  log("Next, we verify the signature of each certificate using the public key of the next certificate in the chain. This carries on until we find a certificate we can verify using one of our own trusted root certificates (or until we reach the end of the chain and therefore fail):");
   let verifiedToTrustedRoot = false;
-  log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
   for (const cert of rootCerts)
-    log(...highlightColonList(cert.description()));
+    ;
   for (let i = 0, len = certs.length; i < len; i++) {
     const subjectCert = certs[i];
     const subjectAuthKeyId = subjectCert.authorityKeyIdentifier;
@@ -1688,7 +1557,6 @@ async function verifyCerts(host, certs, rootCerts) {
       signingCert = certs[i + 1];
     if (signingCert === void 0)
       throw new Error("Ran out of certificates before reaching trusted root");
-    log("matched certificates on key id %s", hexFromU8(subjectAuthKeyId, " "));
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
     if (signingCert.isValidAtMoment() !== true)
       throw new Error("Signing certificate is not valid now");
@@ -1699,11 +1567,6 @@ async function verifyCerts(host, certs, rootCerts) {
     const { pathLength } = signingCert.basicConstraints;
     if (pathLength !== void 0 && pathLength < i)
       throw new Error("Exceeded certificate path length");
-    log(
-      `verifying certificate CN "${subjectCert.subject.CN}" is signed by %c${signingCertIsTrustedRoot ? "trusted root" : "intermediate"}%c certificate CN "${signingCert.subject.CN}" ...`,
-      `background: ${signingCertIsTrustedRoot ? "#ffc" : "#eee"}`,
-      "background: inherit"
-    );
     if (subjectCert.algorithm === "1.2.840.10045.4.3.2" || subjectCert.algorithm === "1.2.840.10045.4.3.3") {
       const hash = subjectCert.algorithm === "1.2.840.10045.4.3.2" ? "SHA-256" : "SHA-384";
       const signingKeyOIDs = signingCert.publicKey.identifiers;
@@ -1718,7 +1581,6 @@ async function verifyCerts(host, certs, rootCerts) {
       const certVerifyResult = await cryptoProxy_default.verify({ name: "RSASSA-PKCS1-v1_5" }, signatureKey, subjectCert.signature, subjectCert.signedData);
       if (certVerifyResult !== true)
         throw new Error("RSASSA_PKCS1-v1_5-SHA256 certificate verify failed");
-      log(`%c\u2713 RSASAA-PKCS1-v1_5 signature verified`, "color: #8c8;");
     } else {
       throw new Error("Unsupported signing algorithm");
     }
@@ -1747,18 +1609,16 @@ var init_verifyCerts = __esm({
 // src/tls/readEncryptedHandshake.ts
 async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos, rootCerts) {
   const hs = new ASN1Bytes(await readHandshakeRecord());
-  hs.expectUint8(8, "handshake record type: encrypted extensions");
+  hs.expectUint8(8, false);
   const [eeMessageEnd] = hs.expectLengthUint24();
-  const [extEnd, extRemaining] = hs.expectLengthUint16("extensions");
+  const [extEnd, extRemaining] = hs.expectLengthUint16(false);
   while (extRemaining() > 0) {
-    const extType = hs.readUint16("extension type: ");
+    const extType = hs.readUint16(false);
     if (extType === 0) {
-      hs.comment("SNI");
-      hs.expectUint16(0, "no extension data");
+      hs.expectUint16(0, false);
     } else if (extType === 10) {
-      hs.comment("supported groups");
       const [endGroups, groupsRemaining] = hs.expectLengthUint16("groups data");
-      hs.skip(groupsRemaining(), "ignored");
+      hs.skip(groupsRemaining(), false);
       endGroups();
     } else {
       throw new Error(`Unsupported server encrypted extension type 0x${hexFromU8([extType]).padStart(4, "0")}`);
@@ -1771,12 +1631,11 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   let clientCertRequested = false;
   let certMsgType = hs.readUint8();
   if (certMsgType === 13) {
-    hs.comment("handshake message type: certificate request");
     clientCertRequested = true;
     const [endCertReq] = hs.expectLengthUint24("certificate request data");
-    hs.expectUint8(0, "length of certificate request context");
+    hs.expectUint8(0, false);
     const [endCertReqExts, certReqExtsRemaining] = hs.expectLengthUint16("certificate request extensions");
-    hs.skip(certReqExtsRemaining(), "certificate request extensions (ignored)");
+    hs.skip(certReqExtsRemaining(), false);
     endCertReqExts();
     endCertReq();
     if (hs.remaining() === 0)
@@ -1785,13 +1644,12 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   }
   if (certMsgType !== 11)
     throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
-  hs.comment("handshake message type: server certificate");
-  const [endCertPayload] = hs.expectLengthUint24("certificate payload");
-  hs.expectUint8(0, "0 bytes of request context follow");
-  const [endCerts, certsRemaining] = hs.expectLengthUint24("certificates");
+  const [endCertPayload] = hs.expectLengthUint24(false);
+  hs.expectUint8(0, false);
+  const [endCerts, certsRemaining] = hs.expectLengthUint24(false);
   const certs = [];
   while (certsRemaining() > 0) {
-    const [endCert] = hs.expectLengthUint24("certificate");
+    const [endCert] = hs.expectLengthUint24(false);
     const cert = new Cert(hs);
     certs.push(cert);
     endCert();
@@ -1811,20 +1669,16 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const certVerifySignedData = concat(txtEnc3.encode(" ".repeat(64) + "TLS 1.3, server CertificateVerify"), [0], certVerifyHash);
   if (hs.remaining() === 0)
     hs.extend(await readHandshakeRecord());
-  hs.expectUint8(15, "handshake message type: certificate verify");
-  const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
+  hs.expectUint8(15, false);
+  const [endCertVerifyPayload] = hs.expectLengthUint24(false);
   const sigType = hs.readUint16();
-  log("verifying end-user certificate ...");
   if (sigType === 1027) {
-    hs.comment("signature type ECDSA-SECP256R1-SHA256");
     const [endSignature] = hs.expectLengthUint16();
     await ecdsaVerify(hs, userCert.publicKey.all, certVerifySignedData, "P-256", "SHA-256");
     endSignature();
   } else if (sigType === 2052) {
-    hs.comment("signature type RSA-PSS-RSAE-SHA256");
     const [endSignature, signatureRemaining] = hs.expectLengthUint16();
     const signature = hs.subarray(signatureRemaining());
-    hs.comment("signature");
     endSignature();
     const signatureKey = await cryptoProxy_default.importKey("spki", userCert.publicKey.all, { name: "RSA-PSS", hash: "SHA-256" }, false, ["verify"]);
     const certVerifyResult = await cryptoProxy_default.verify({ name: "RSA-PSS", saltLength: 32 }, signatureKey, signature, certVerifySignedData);
@@ -1833,7 +1687,6 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   } else {
     throw new Error(`Unsupported certificate verify signature type 0x${hexFromU8([sigType]).padStart(4, "0")}`);
   }
-  log("%c\u2713 end-user certificate verified (server has private key)", "color: #8c8;");
   endCertVerifyPayload();
   const verifyHandshakeData = hs.data.subarray(0, hs.offset);
   const verifyData = concat(hellos, verifyHandshakeData);
@@ -1844,18 +1697,15 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
   if (hs.remaining() === 0)
     hs.extend(await readHandshakeRecord());
-  hs.expectUint8(20, "handshake message type: finished");
-  const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24("verify hash");
+  hs.expectUint8(20, false);
+  const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24(false);
   const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
-  hs.comment("verify hash");
   endHsFinishedPayload();
   if (hs.remaining() !== 0)
     throw new Error("Unexpected extra bytes in server handshake");
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true)
     throw new Error("Invalid server verify hash");
-  log("Decrypted using the server handshake key, the server\u2019s handshake messages are parsed as follows. This is a long section, since X.509 certificates are quite complex and there will be several of them:");
-  log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);
   if (!verifiedToTrustedRoot)
     throw new Error("Validated certificate chain did not end in a trusted root");
@@ -1887,34 +1737,26 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
-  log(...highlightBytes(clientHello.commentedString(), "#8cc" /* client */));
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
   networkWrite(initialData);
-  log("The server responds:");
   if (expectPreData) {
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData))
       throw new Error("Pre data did not match expectation");
-    log(...highlightBytes(hexFromU8(receivedPreData) + "  " + commentPreData, "#88c" /* server */));
   }
   const serverHelloRecord = await readTlsRecord(networkRead, 22 /* Handshake */);
   if (serverHelloRecord === void 0)
     throw new Error("Connection closed while awaiting server hello");
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
-  log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
   const changeCipherRecord = await readTlsRecord(networkRead, 20 /* ChangeCipherSpec */);
   if (changeCipherRecord === void 0)
     throw new Error("Connection closed awaiting server cipher change");
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
-  ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
+  ccipher.expectUint8(1, false);
   endCipherPayload();
-  log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends us a meaningless cipher change record:");
-  log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
-  log("Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:");
-  log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations");
   const clientHelloContent = clientHelloData.subarray(5);
   const serverHelloContent = serverHelloRecord.content;
   const hellos = concat(clientHelloContent, serverHelloContent);
@@ -1923,7 +1765,6 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const handshakeDecrypter = new Crypter("decrypt", serverHandshakeKey, handshakeKeys.serverHandshakeIV);
   const clientHandshakeKey = await cryptoProxy_default.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
-  log("The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the \u2018certificate verify\u2019 message, which we check on the spot, and the full certificate chain, which we verify a bit later on:");
   const readHandshakeRecord = async () => {
     const tlsRecord = await readEncryptedTlsRecord(networkRead, handshakeDecrypter, 22 /* Handshake */);
     if (tlsRecord === void 0)
@@ -1931,28 +1772,23 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
     return tlsRecord;
   };
   const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
-  log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, it\u2019s the client\u2019s turn to send a meaningless cipher change record:");
   const clientCipherChange = new Bytes(6);
-  clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
-  clientCipherChange.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  clientCipherChange.writeUint8(20, false);
+  clientCipherChange.writeUint16(771, false);
   const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
-  clientCipherChange.writeUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
+  clientCipherChange.writeUint8(1, false);
   endClientCipherChangePayload();
-  log(...highlightBytes(clientCipherChange.commentedString(), "#8cc" /* client */));
   const clientCipherChangeData = clientCipherChange.array();
   let clientCertRecordData = new Uint8Array(0);
   if (clientCertRequested) {
     const clientCertRecord = new Bytes(8);
-    clientCertRecord.writeUint8(11, "handshake message type: client certificate");
+    clientCertRecord.writeUint8(11, false);
     const endClientCerts = clientCertRecord.writeLengthUint24("client certificate data");
-    clientCertRecord.writeUint8(0, "certificate context: none");
-    clientCertRecord.writeUint24(0, "certificate list: empty");
+    clientCertRecord.writeUint8(0, false);
+    clientCertRecord.writeUint24(0, false);
     endClientCerts();
     clientCertRecordData = clientCertRecord.array();
-    log("Since a client cert was requested, we\u2019re obliged to send a blank one. Here it is unencrypted:");
-    log(...highlightBytes(clientCertRecord.commentedString(), "#8cc" /* client */));
   }
-  log("Next, we send a \u2018handshake finished\u2019 message, which includes an HMAC of the handshake to date. This is how it looks before encryption:");
   const wholeHandshake = concat(hellos, serverHandshake, clientCertRecordData);
   const wholeHandshakeHashBuffer = await cryptoProxy_default.digest("SHA-256", wholeHandshake);
   const wholeHandshakeHash = new Uint8Array(wholeHandshakeHashBuffer);
@@ -1961,14 +1797,11 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const verifyDataBuffer = await cryptoProxy_default.sign("HMAC", verifyHmacKey, wholeHandshakeHash);
   const verifyData = new Uint8Array(verifyDataBuffer);
   const clientFinishedRecord = new Bytes(36);
-  clientFinishedRecord.writeUint8(20, "handshake message type: finished");
-  const clientFinishedRecordEnd = clientFinishedRecord.writeLengthUint24("handshake finished data");
+  clientFinishedRecord.writeUint8(20, false);
+  const clientFinishedRecordEnd = clientFinishedRecord.writeLengthUint24(false);
   clientFinishedRecord.writeBytes(verifyData);
-  clientFinishedRecord.comment("verify data");
   clientFinishedRecordEnd();
   const clientFinishedRecordData = clientFinishedRecord.array();
-  log(...highlightBytes(clientFinishedRecord.commentedString(), "#8cc" /* client */));
-  log("And here\u2019s the client certificate (if requested) and handshake finished messages encrypted with the client\u2019s handshake key and ready to go:");
   const encryptedClientFinished = await makeEncryptedTlsRecords(concat(clientCertRecordData, clientFinishedRecordData), handshakeEncrypter, 22 /* Handshake */);
   let partialHandshakeHash = wholeHandshakeHash;
   if (clientCertRecordData.length > 0) {
@@ -1976,15 +1809,12 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
     const partialHandshakeHashBuffer = await cryptoProxy_default.digest("SHA-256", partialHandshake);
     partialHandshakeHash = new Uint8Array(partialHandshakeHashBuffer);
   }
-  log("Both parties now have what they need to calculate the keys and IVs that will protect the application data:");
-  log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, partialHandshakeHash, 256, 16);
   const clientApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const applicationEncrypter = new Crypter("encrypt", clientApplicationKey, applicationKeys.clientApplicationIV);
   const serverApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
   let wroteFinishedRecords = false;
-  log("The TLS connection is established, and server and client can start exchanging encrypted application data.");
   const read = () => {
     if (!wroteFinishedRecords) {
       const finishedRecords = concat(clientCipherChangeData, ...encryptedClientFinished);
@@ -2057,21 +1887,15 @@ async function https(urlStr, method = "GET", transportFactory) {
   const host = url.hostname;
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
-  log("We begin the TLS handshake by sending a client hello message:");
-  log("*** Hint: click the handshake log message below to expand. ***");
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default);
   const transport = await transportFactory(host, port);
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write);
-  log("Here\u2019s a GET request:");
   const request = new Bytes(1024);
   request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
 Host: ${host}\r
 \r
 `);
-  log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
-  log("Which goes to the server encrypted like so:");
   await write(request.array());
-  log("The server replies:");
   let responseData;
   let response = "";
   do {
@@ -2079,9 +1903,9 @@ Host: ${host}\r
     if (responseData) {
       const responseText = txtDec2.decode(responseData);
       response += responseText;
-      log(responseText);
     }
   } while (responseData);
+  log(`time taken: ${Date.now() - t0}ms`);
   return response;
 }
 var txtDec2;
@@ -2210,8 +2034,11 @@ async function tcpTransport(host, port) {
 
 // src/node.ts
 globalThis.crypto = webcrypto;
+var iterations = 1;
 var { https: https2 } = await Promise.resolve().then(() => (init_https(), https_exports));
-for (let i = 0; i < 1; i++) {
-  await https2("https://subtls.pages.dev", "GET", tcpTransport);
-  await new Promise((resolve) => setTimeout(resolve, 500));
+for (let i = 0; i < iterations; i++) {
+  const html = await https2("https://subtls.pages.dev", "GET", tcpTransport);
+  console.log(html);
+  if (i < iterations - 1)
+    await new Promise((resolve) => setTimeout(resolve, 500));
 }

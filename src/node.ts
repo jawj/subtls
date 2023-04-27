@@ -1,13 +1,15 @@
+// @ts-ignore
 import { webcrypto } from 'crypto';
-import tcpTransport from './util/tcpTransport';
-// import WebSocket from 'ws';
-
 globalThis.crypto = webcrypto as any;
-// globalThis.WebSocket = WebSocket as any;
 
+import tcpTransport from './util/tcpTransport';
+
+const iterations = 1;
 const { https } = await import('./https');
 
-for (let i = 0; i < 1; i++) {
-  await https('https://subtls.pages.dev', 'GET', tcpTransport);
-  await new Promise(resolve => setTimeout(resolve, 500));
+for (let i = 0; i < iterations; i++) {
+  const html = await https('https://subtls.pages.dev', 'GET', tcpTransport);
+  !chatty && console.log(html);
+
+  if (i < iterations - 1) await new Promise(resolve => setTimeout(resolve, 500));
 }
