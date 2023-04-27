@@ -11,7 +11,8 @@
     "watch": "esbuild --define:chatty=true src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.js --watch",
     "serve": "servor dist index.html 6543",
     "start": "npm-run-all --parallel --race watch serve",
-    "node": "esbuild --define:chatty=true src/node.ts --bundle --format=esm --target=es2022 --platform=node --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js"
+    "nodeChatty": "esbuild --define:chatty=true src/node.ts --bundle --format=esm --target=es2022 --platform=node --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js",
+    "nodeQuiet": "esbuild --define:chatty=false src/node.ts --bundle --format=esm --target=es2022 --platform=node --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js"
   },
   "author": "George MacKerron",
   "license": "ISC",
@@ -20,9 +21,5 @@
     "npm-run-all": "^4.1.5",
     "servor": "^4.0.2",
     "typescript": "^4.8.4"
-  },
-  "dependencies": {
-    "@types/ws": "^8.5.4",
-    "ws": "^8.13.0"
   }
 }

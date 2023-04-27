@@ -2117,17 +2117,17 @@ var ReadQueue = class {
     this.socket = socket;
     this.queue = [];
     if (socket instanceof (globalThis.WebSocket ?? PretendWebSocket)) {
-      this.webSocket = true;
+      this.socketIsWebSocket = true;
       socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
       socket.addEventListener("close", () => this.dequeue());
     } else {
-      this.webSocket = false;
+      this.socketIsWebSocket = false;
       socket.on("data", (data) => this.enqueue(new Uint8Array(data)));
       socket.on("close", () => this.dequeue());
     }
   }
   queue;
-  webSocket;
+  socketIsWebSocket;
   outstandingRequest;
   enqueue(data) {
     this.queue.push(data);
@@ -2136,7 +2136,7 @@ var ReadQueue = class {
   socketIsNotClosed() {
     const { socket } = this;
     const { readyState } = socket;
-    return this.webSocket ? readyState <= 1 /* OPEN */ : readyState === "opening" || readyState === "open";
+    return this.socketIsWebSocket ? readyState <= 1 /* OPEN */ : readyState === "opening" || readyState === "open";
   }
   dequeue() {
     if (this.outstandingRequest === void 0)
