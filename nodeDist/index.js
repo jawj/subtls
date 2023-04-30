@@ -1905,6 +1905,300 @@ var init_isrg_root_x2 = __esm({
   }
 });
 
+// src/postgres.ts
+var postgres_exports = {};
+__export(postgres_exports, {
+  postgres: () => postgres
+});
+async function postgres(urlStr, transportFactory) {
+  const t0 = Date.now();
+  const url = parse(urlStr);
+  const host = url.hostname;
+  const isNeon = /[.]neon[.]tech$/.test(host);
+  const pipelineSSLRequest = false;
+  const useSNIHack = isNeon;
+  const port = url.port || "5432";
+  const user = url.username;
+  const password = useSNIHack ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
+  const db = url.pathname.slice(1);
+  let done = false;
+  const transport = await transportFactory(host, port, () => {
+    if (!done)
+      throw new Error("Unexpected connection close");
+  });
+  const sslRequest = new Bytes(8);
+  const endSslRequest = sslRequest.writeLengthUint32Incl(false);
+  sslRequest.writeUint32(80877103, "SSL request code");
+  endSslRequest();
+  const writePreData = sslRequest.array();
+  if (pipelineSSLRequest) {
+  } else {
+    transport.write(writePreData);
+    const SorN = await transport.read(1);
+    if (SorN[0] !== "S".charCodeAt(0))
+      throw new Error("Did not receive \u2018S\u2019 in response to SSL Request");
+  }
+  const sslResponse = new Bytes(1);
+  sslResponse.writeUTF8String("S");
+  const expectPreData = sslResponse.array();
+  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
+  const [read, write] = pipelineSSLRequest ? await startTls(host, rootCert, transport.read, transport.write, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') : await startTls(host, rootCert, transport.read, transport.write, !useSNIHack);
+  const msg = new Bytes(1024);
+  const endStartupMessage = msg.writeLengthUint32Incl(false);
+  msg.writeUint32(196608, false);
+  msg.writeUTF8StringNullTerminated("user");
+  msg.writeUTF8StringNullTerminated(user);
+  msg.writeUTF8StringNullTerminated("database");
+  msg.writeUTF8StringNullTerminated(db);
+  msg.writeUint8(0, false);
+  endStartupMessage();
+  msg.writeUTF8String("p");
+  const endPasswordMessage = msg.writeLengthUint32Incl(false);
+  msg.writeUTF8StringNullTerminated(password);
+  endPasswordMessage();
+  msg.writeUTF8String("Q");
+  const endQuery = msg.writeLengthUint32Incl(false);
+  msg.writeUTF8StringNullTerminated("SELECT now()");
+  endQuery();
+  await write(msg.array());
+  const preAuthResponse = await read();
+  const preAuthBytes = new Bytes(preAuthResponse);
+  preAuthBytes.expectUint8("R".charCodeAt(0), false);
+  const [endAuthReq, authReqRemaining] = preAuthBytes.expectLengthUint32Incl("request");
+  const authMechanism = preAuthBytes.readUint32();
+  if (authMechanism === 3) {
+  } else if (authMechanism === 10) {
+    while (authReqRemaining() > 1) {
+      const mechanism = preAuthBytes.readUTF8StringNullTerminated();
+    }
+    preAuthBytes.expectUint8(0, "null terminated list");
+  } else {
+    throw new Error(`Unsupported auth mechanism (${authMechanism})`);
+  }
+  endAuthReq();
+  if (authMechanism === 10) {
+    throw new Error("Unsupported SCRAM-SHA-256 auth");
+  }
+  const postAuthResponse = await read();
+  const postAuthBytes = new Bytes(postAuthResponse);
+  postAuthBytes.expectUint8("R".charCodeAt(0), false);
+  const [endAuthOK] = postAuthBytes.expectLengthUint32Incl(false);
+  postAuthBytes.expectUint32(0, false);
+  endAuthOK();
+  while (postAuthBytes.remaining() > 0) {
+    const msgType = postAuthBytes.readUTF8String(1);
+    if (msgType === "S") {
+      const [endParams, paramsRemaining] = postAuthBytes.expectLengthUint32Incl(false);
+      while (paramsRemaining() > 0) {
+        const k = postAuthBytes.readUTF8StringNullTerminated();
+        const v = postAuthBytes.readUTF8StringNullTerminated();
+      }
+      endParams();
+    } else if (msgType === "K") {
+      const [endKeyData] = postAuthBytes.expectLengthUint32Incl();
+      postAuthBytes.readUint32(false);
+      postAuthBytes.readUint32(false);
+      endKeyData();
+    } else if (msgType === "Z") {
+      const [endStatus] = postAuthBytes.expectLengthUint32Incl(false);
+      postAuthBytes.expectUint8("I".charCodeAt(0), false);
+      endStatus();
+    }
+  }
+  const queryResult = await read();
+  const queryResultBytes = new Bytes(queryResult);
+  queryResultBytes.expectUint8("T".charCodeAt(0), false);
+  const [endRowDescription] = queryResultBytes.expectLengthUint32Incl();
+  const fieldsPerRow = queryResultBytes.readUint16(false);
+  for (let i = 0; i < fieldsPerRow; i++) {
+    const columnName = queryResultBytes.readUTF8StringNullTerminated();
+    const tableOID = queryResultBytes.readUint32(false);
+    const colAttrNum = queryResultBytes.readUint16(false);
+    const dataTypeOID = queryResultBytes.readUint32(false);
+    const dataTypeSize = queryResultBytes.readUint16(false);
+    const dataTypeModifier = queryResultBytes.readUint32(false);
+    const formatCode = queryResultBytes.readUint16(false);
+  }
+  endRowDescription();
+  let lastColumnData;
+  while (queryResultBytes.remaining() > 0) {
+    const msgType = queryResultBytes.readUTF8String(1);
+    if (msgType === "D") {
+      const [endDataRow] = queryResultBytes.expectLengthUint32Incl();
+      const columnsToFollow = queryResultBytes.readUint16(false);
+      for (let i = 0; i < columnsToFollow; i++) {
+        const [endColumn, columnRemaining] = queryResultBytes.expectLengthUint32();
+        lastColumnData = queryResultBytes.readUTF8String(columnRemaining());
+        endColumn();
+      }
+      endDataRow();
+    } else if (msgType === "C") {
+      const [endClose] = queryResultBytes.expectLengthUint32Incl();
+      queryResultBytes.readUTF8StringNullTerminated();
+      endClose();
+    } else if (msgType === "Z") {
+      const [endReady] = queryResultBytes.expectLengthUint32Incl();
+      queryResultBytes.expectUint8("I".charCodeAt(0), false);
+      endReady();
+    } else {
+      throw new Error(`Unexpected message type: ${msgType}`);
+    }
+  }
+  log("%c%s", "font-size: 2em", lastColumnData);
+  log(`time taken: ${Date.now() - t0}ms`);
+  const endBytes = new Bytes(5);
+  endBytes.writeUTF8String("X");
+  const endTerminate = endBytes.writeLengthUint32Incl();
+  endTerminate();
+  await write(endBytes.array());
+  done = true;
+}
+function parse(url, parseQueryString = false) {
+  const { protocol } = new URL(url);
+  const httpUrl = "http:" + url.substring(protocol.length);
+  let { username, password, hostname, port, pathname, search, searchParams, hash } = new URL(httpUrl);
+  password = decodeURIComponent(password);
+  const auth = username + ":" + password;
+  const query = parseQueryString ? Object.fromEntries(searchParams.entries()) : search;
+  return { href: url, protocol, auth, username, password, hostname, port, pathname, search, query, hash };
+}
+var init_postgres = __esm({
+  "src/postgres.ts"() {
+    "use strict";
+    init_bytes();
+    init_appearance();
+    init_highlights();
+    init_log();
+    init_startTls();
+    init_cert();
+    init_isrg_root_x1();
+    init_isrg_root_x2();
+    init_hex();
+  }
+});
+
+// src/util/readqueue.ts
+var PretendWebSocket, ReadQueue;
+var init_readqueue = __esm({
+  "src/util/readqueue.ts"() {
+    "use strict";
+    PretendWebSocket = class {
+      addEventListener(...args) {
+      }
+    };
+    ReadQueue = class {
+      constructor(socket) {
+        this.socket = socket;
+        this.queue = [];
+        if (socket instanceof (globalThis.WebSocket ?? PretendWebSocket)) {
+          this.socketIsWebSocket = true;
+          socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+          socket.addEventListener("close", () => this.dequeue());
+        } else {
+          this.socketIsWebSocket = false;
+          socket.on("data", (data) => this.enqueue(new Uint8Array(data)));
+          socket.on("close", () => this.dequeue());
+        }
+      }
+      queue;
+      socketIsWebSocket;
+      outstandingRequest;
+      enqueue(data) {
+        this.queue.push(data);
+        this.dequeue();
+      }
+      socketIsNotClosed() {
+        const { socket } = this;
+        const { readyState } = socket;
+        return this.socketIsWebSocket ? readyState <= 1 /* OPEN */ : readyState === "opening" || readyState === "open";
+      }
+      dequeue() {
+        if (this.outstandingRequest === void 0)
+          return;
+        let { resolve, bytes } = this.outstandingRequest;
+        const bytesInQueue = this.bytesInQueue();
+        if (bytesInQueue < bytes && this.socketIsNotClosed())
+          return;
+        bytes = Math.min(bytes, bytesInQueue);
+        if (bytes === 0)
+          return resolve(void 0);
+        this.outstandingRequest = void 0;
+        const firstItem = this.queue[0];
+        const firstItemLength = firstItem.length;
+        if (firstItemLength === bytes) {
+          this.queue.shift();
+          return resolve(firstItem);
+        } else if (firstItemLength > bytes) {
+          this.queue[0] = firstItem.subarray(bytes);
+          return resolve(firstItem.subarray(0, bytes));
+        } else {
+          const result = new Uint8Array(bytes);
+          let outstandingBytes = bytes;
+          let offset = 0;
+          while (outstandingBytes > 0) {
+            const nextItem = this.queue[0];
+            const nextItemLength = nextItem.length;
+            if (nextItemLength <= outstandingBytes) {
+              this.queue.shift();
+              result.set(nextItem, offset);
+              offset += nextItemLength;
+              outstandingBytes -= nextItemLength;
+            } else {
+              this.queue[0] = nextItem.subarray(outstandingBytes);
+              result.set(nextItem.subarray(0, outstandingBytes), offset);
+              outstandingBytes -= outstandingBytes;
+              offset += outstandingBytes;
+            }
+          }
+          return resolve(result);
+        }
+      }
+      bytesInQueue() {
+        return this.queue.reduce((memo, arr) => memo + arr.length, 0);
+      }
+      async read(bytes) {
+        if (this.outstandingRequest !== void 0)
+          throw new Error("Can\u2019t read while already awaiting read");
+        return new Promise((resolve) => {
+          this.outstandingRequest = { resolve, bytes };
+          this.dequeue();
+        });
+      }
+    };
+  }
+});
+
+// src/util/wsTransport.ts
+var wsTransport_exports = {};
+__export(wsTransport_exports, {
+  default: () => wsTransport
+});
+async function wsTransport(host, port, close = () => {
+}) {
+  const ws2 = await new Promise((resolve) => {
+    const ws3 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
+    ws3.binaryType = "arraybuffer";
+    ws3.addEventListener("open", () => resolve(ws3));
+    ws3.addEventListener("error", (err) => {
+      console.log("ws error:", err);
+    });
+    ws3.addEventListener("close", () => {
+      console.log("connection closed");
+      close();
+    });
+  });
+  const reader = new ReadQueue(ws2);
+  const read = reader.read.bind(reader);
+  const write = ws2.send.bind(ws2);
+  return { read, write };
+}
+var init_wsTransport = __esm({
+  "src/util/wsTransport.ts"() {
+    "use strict";
+    init_readqueue();
+  }
+});
+
 // src/roots/baltimore.pem
 var baltimore_default;
 var init_baltimore = __esm({
@@ -1964,98 +2258,12 @@ var init_https = __esm({
   }
 });
 
-// src/node.ts
-import { webcrypto } from "crypto";
-
 // src/util/tcpTransport.ts
+var tcpTransport_exports = {};
+__export(tcpTransport_exports, {
+  default: () => tcpTransport
+});
 import { Socket } from "net";
-
-// src/util/readqueue.ts
-var PretendWebSocket = class {
-  addEventListener(...args) {
-  }
-};
-var ReadQueue = class {
-  constructor(socket) {
-    this.socket = socket;
-    this.queue = [];
-    if (socket instanceof (globalThis.WebSocket ?? PretendWebSocket)) {
-      this.socketIsWebSocket = true;
-      socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
-      socket.addEventListener("close", () => this.dequeue());
-    } else {
-      this.socketIsWebSocket = false;
-      socket.on("data", (data) => this.enqueue(new Uint8Array(data)));
-      socket.on("close", () => this.dequeue());
-    }
-  }
-  queue;
-  socketIsWebSocket;
-  outstandingRequest;
-  enqueue(data) {
-    this.queue.push(data);
-    this.dequeue();
-  }
-  socketIsNotClosed() {
-    const { socket } = this;
-    const { readyState } = socket;
-    return this.socketIsWebSocket ? readyState <= 1 /* OPEN */ : readyState === "opening" || readyState === "open";
-  }
-  dequeue() {
-    if (this.outstandingRequest === void 0)
-      return;
-    let { resolve, bytes } = this.outstandingRequest;
-    const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.socketIsNotClosed())
-      return;
-    bytes = Math.min(bytes, bytesInQueue);
-    if (bytes === 0)
-      return resolve(void 0);
-    this.outstandingRequest = void 0;
-    const firstItem = this.queue[0];
-    const firstItemLength = firstItem.length;
-    if (firstItemLength === bytes) {
-      this.queue.shift();
-      return resolve(firstItem);
-    } else if (firstItemLength > bytes) {
-      this.queue[0] = firstItem.subarray(bytes);
-      return resolve(firstItem.subarray(0, bytes));
-    } else {
-      const result = new Uint8Array(bytes);
-      let outstandingBytes = bytes;
-      let offset = 0;
-      while (outstandingBytes > 0) {
-        const nextItem = this.queue[0];
-        const nextItemLength = nextItem.length;
-        if (nextItemLength <= outstandingBytes) {
-          this.queue.shift();
-          result.set(nextItem, offset);
-          offset += nextItemLength;
-          outstandingBytes -= nextItemLength;
-        } else {
-          this.queue[0] = nextItem.subarray(outstandingBytes);
-          result.set(nextItem.subarray(0, outstandingBytes), offset);
-          outstandingBytes -= outstandingBytes;
-          offset += outstandingBytes;
-        }
-      }
-      return resolve(result);
-    }
-  }
-  bytesInQueue() {
-    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
-  }
-  async read(bytes) {
-    if (this.outstandingRequest !== void 0)
-      throw new Error("Can\u2019t read while already awaiting read");
-    return new Promise((resolve) => {
-      this.outstandingRequest = { resolve, bytes };
-      this.dequeue();
-    });
-  }
-};
-
-// src/util/tcpTransport.ts
 async function tcpTransport(host, port) {
   const socket = new Socket();
   await new Promise((resolve) => socket.connect(Number(port), host, resolve));
@@ -2070,14 +2278,35 @@ async function tcpTransport(host, port) {
   const write = socket.write.bind(socket);
   return { read, write };
 }
+var init_tcpTransport = __esm({
+  "src/util/tcpTransport.ts"() {
+    "use strict";
+    init_readqueue();
+  }
+});
 
 // src/node.ts
+import { webcrypto } from "crypto";
+import ws from "ws";
 globalThis.crypto = webcrypto;
-var iterations = 1;
-var { https: https2 } = await Promise.resolve().then(() => (init_https(), https_exports));
-for (let i = 0; i < iterations; i++) {
-  const html = await https2("https://subtls.pages.dev", "GET", tcpTransport);
-  console.log(html);
-  if (i < iterations - 1)
-    await new Promise((resolve) => setTimeout(resolve, 500));
+globalThis.WebSocket = ws;
+var iterations = process.argv[2] ? Number(process.argv[2]) : 1;
+var dbUrl = process.argv[3];
+if (dbUrl) {
+  const { postgres: postgres2 } = await Promise.resolve().then(() => (init_postgres(), postgres_exports));
+  const { default: wsTransport2 } = await Promise.resolve().then(() => (init_wsTransport(), wsTransport_exports));
+  for (let i = 0; i < iterations; i++) {
+    await postgres2(dbUrl, wsTransport2);
+    if (i < iterations - 1)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+} else {
+  const { https: https2 } = await Promise.resolve().then(() => (init_https(), https_exports));
+  const { default: tcpTransport2 } = await Promise.resolve().then(() => (init_tcpTransport(), tcpTransport_exports));
+  for (let i = 0; i < iterations; i++) {
+    const html = await https2("https://subtls.pages.dev", "GET", tcpTransport2);
+    console.log(html);
+    if (i < iterations - 1)
+      await new Promise((resolve) => setTimeout(resolve, 250));
+  }
 }

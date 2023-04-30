@@ -27,7 +27,10 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   const password = useSNIHack ? `project=${host.match(/^[^.]+/)![0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);
 
-  const transport = await transportFactory(host, port);
+  let done = false;
+  const transport = await transportFactory(host, port, () => {
+    if (!done) throw new Error('Unexpected connection close');
+  });
 
   // https://www.postgresql.org/docs/current/protocol-message-formats.html
 
@@ -232,6 +235,8 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   chatty && log(...highlightBytes(endBytes.commentedString(true), LogColours.client));
   chatty && log('And as sent on the wire:');
   await write(endBytes.array());
+
+  done = true;
 }
 
 function parse(url: string, parseQueryString = false) {

@@ -47,7 +47,7 @@ export class ReadQueue {
     const { socket } = this;
     const { readyState } = socket;
     return this.socketIsWebSocket ?
-      readyState <= WebSocketReadyState.OPEN :
+      (readyState as WebSocketReadyState) <= WebSocketReadyState.OPEN :
       readyState === 'opening' || readyState === 'open';
   }
 
