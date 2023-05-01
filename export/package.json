@@ -1,11 +1,14 @@
 {
   "name": "subtls",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Pure JS TLS 1.3",
   "type": "module",
   "author": "George MacKerron",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/jawj/subtls"
+  },
+  "dependencies": {
+    "@types/node": "^18.16.3"
   }
 }

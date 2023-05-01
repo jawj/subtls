@@ -1,3 +1,4 @@
+import type { Socket } from 'net';
 
 export declare class TrustedCert {
   static fromPEM(pem: string): TrustedCert[];
@@ -5,7 +6,7 @@ export declare class TrustedCert {
 }
 
 export declare class ReadQueue {
-  constructor(private ws: WebSocket);
+  constructor(private ws: WebSocket | Socket);
   async read(bytes: number): Promise<Uint8Array | undefined>;
   bytesInQueue(): number;
 }
