@@ -325,9 +325,9 @@ ${indentChars.repeat(indent)}`;
 // src/presentation/highlights.ts
 var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
 function highlightBytes(s, colour) {
-  const css = [];
-  s = s.replace(regex, (m) => {
-    css.push(m.startsWith(indentChars) ? "color: #ddd" : `color: ${colour}`, "color: inherit");
+  const css = ["color: #111"];
+  s = "%c" + s.replace(regex, (m) => {
+    css.push(m.startsWith(indentChars) ? "color: #ddd" : `color: ${colour}`, "color: #111");
     return `%c${m}%c`;
   });
   return [s, ...css];
@@ -336,7 +336,7 @@ function highlightColonList(s) {
   const css = [];
   s = s.replace(/^[^:]+:.*$/gm, (m) => {
     const colonIndex = m.indexOf(":");
-    css.push("color: #aaa", "color: inherit");
+    css.push("color: #777", "color: #111");
     return `%c${m.slice(0, colonIndex + 1)}%c${m.slice(colonIndex + 1)}`;
   });
   return [s, ...css];
@@ -755,32 +755,31 @@ async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyL
 // src/tls/aesgcm.ts
 var maxRecords = 2 ** 31 - 1;
 var Crypter = class {
-  mode;
-  key;
-  initialIv;
-  ivLength;
-  currentIv;
-  currentIvDataView;
-  initialIvLast32;
-  recordsDecrypted = 0;
   constructor(mode, key, initialIv) {
     this.mode = mode;
     this.key = key;
     this.initialIv = initialIv;
-    this.ivLength = initialIv.length;
-    this.currentIv = initialIv.slice();
-    this.currentIvDataView = new DataView(this.currentIv.buffer, this.currentIv.byteOffset, this.currentIv.byteLength);
-    this.initialIvLast32 = this.currentIvDataView.getUint32(this.ivLength - 4);
+  }
+  recordsProcessed = 0;
+  priorPromise = Promise.resolve(new Uint8Array());
+  // this wrapper ensures returned Promises always resolve in sequence (which is otherwise not guaranteed in Node)
+  async process(data, authTagLength, additionalData) {
+    return this.priorPromise = this.priorPromise.then(() => this._process(data, authTagLength, additionalData));
   }
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
-  async process(data, authTagLength, additionalData) {
-    if (this.recordsDecrypted === maxRecords)
+  async _process(data, authTagLength, additionalData) {
+    const record = this.recordsProcessed;
+    if (record === maxRecords)
       throw new Error("Cannot encrypt/decrypt any more records");
-    const currentIvLast32 = this.initialIvLast32 ^ this.recordsDecrypted;
-    this.currentIvDataView.setUint32(this.ivLength - 4, currentIvLast32);
-    this.recordsDecrypted += 1;
-    const authTagBits = authTagLength << 3;
-    const algorithm = { name: "AES-GCM", iv: this.currentIv, tagLength: authTagBits, additionalData };
+    this.recordsProcessed += 1;
+    const iv = this.initialIv.slice();
+    const ivLength = iv.length;
+    iv[ivLength - 1] ^= record & 255;
+    iv[ivLength - 2] ^= record >>> 8 & 255;
+    iv[ivLength - 3] ^= record >>> 16 & 255;
+    iv[ivLength - 4] ^= record >>> 24 & 255;
+    const tagLength = authTagLength << 3;
+    const algorithm = { name: "AES-GCM", iv, tagLength, additionalData };
     const resultBuffer = await cryptoProxy_default[this.mode](algorithm, this.key, data);
     const result = new Uint8Array(resultBuffer);
     return result;
@@ -1855,9 +1854,9 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   log("Both parties now have what they need to calculate the keys and IVs that will protect the application data:");
   log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, partialHandshakeHash, 256, 16);
-  const clientApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, false, ["encrypt"]);
+  const clientApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, true, ["encrypt"]);
   const applicationEncrypter = new Crypter("encrypt", clientApplicationKey, applicationKeys.clientApplicationIV);
-  const serverApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, false, ["decrypt"]);
+  const serverApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, true, ["decrypt"]);
   const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
   let wroteFinishedRecords = false;
   log("The TLS connection is established, and server and client can start exchanging encrypted application data.");
@@ -1870,10 +1869,11 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
     return readEncryptedTlsRecord(networkRead, applicationDecrypter);
   };
   const write = async (data) => {
-    const encryptedRecords = await makeEncryptedTlsRecords(data, applicationEncrypter, 23 /* Application */);
-    const allRecords = wroteFinishedRecords ? concat(...encryptedRecords) : concat(clientCipherChangeData, ...encryptedClientFinished, ...encryptedRecords);
-    networkWrite(allRecords);
+    const localWroteFinishedRecords = wroteFinishedRecords;
     wroteFinishedRecords = true;
+    const encryptedRecords = await makeEncryptedTlsRecords(data, applicationEncrypter, 23 /* Application */);
+    const allRecords = localWroteFinishedRecords ? concat(...encryptedRecords) : concat(clientCipherChangeData, ...encryptedClientFinished, ...encryptedRecords);
+    networkWrite(allRecords);
   };
   return [read, write];
 }
@@ -1896,7 +1896,11 @@ async function postgres(urlStr2, transportFactory) {
   const user = url.username;
   const password = useSNIHack ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);
-  const transport = await transportFactory(host, port);
+  let done = false;
+  const transport = await transportFactory(host, port, () => {
+    if (!done)
+      throw new Error("Unexpected connection close");
+  });
   const sslRequest = new Bytes(8);
   const endSslRequest = sslRequest.writeLengthUint32Incl("SSL request");
   sslRequest.writeUint32(80877103, "SSL request code");
@@ -1909,10 +1913,10 @@ async function postgres(urlStr2, transportFactory) {
   } else {
     transport.write(writePreData);
     const SorN = await transport.read(1);
-    log("The server responds with an \u2018S\u2019 to let us know it supports SSL/TLS.");
-    log(hexFromU8(SorN));
-    if (SorN[0] !== "S".charCodeAt(0))
-      throw new Error("Did not receive \u2018S\u2019 in response to SSL Request");
+    log("The server confirms it can speak SSL/TLS:");
+    const byte = new Bytes(SorN);
+    byte.expectUint8(83, '"S" = SSL connection supported');
+    log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
     log("We then start a TLS handshake, which begins with the \u2018client hello\u2019:");
   }
   log("*** Hint: click the handshake log message below to expand. ***");
@@ -1940,7 +1944,7 @@ async function postgres(urlStr2, transportFactory) {
   const endQuery = msg.writeLengthUint32Incl("query");
   msg.writeUTF8StringNullTerminated("SELECT now()");
   endQuery();
-  log("We cheat a bit again here. By assuming we know how the server will respond, we can save several network round-trips and bundle up a Postgres startup message, a cleartext password message, and a simple query. Here\u2019s the plaintext:");
+  log("So: we now resume our Postgres communications. Because we know what authentication scheme the server will offer, we can save several network round-trips and bundle up a Postgres startup message, a cleartext password message, and a simple query. Here\u2019s the pipelined plaintext:");
   log(...highlightBytes(msg.commentedString(), "#8cc" /* client */));
   log("And the ciphertext looks like this:");
   await write(msg.array());
@@ -1971,7 +1975,6 @@ async function postgres(urlStr2, transportFactory) {
   log("Next, it responds to the password we sent, and provides some other useful data. Encrypted, that\u2019s:");
   const postAuthResponse = await read();
   const postAuthBytes = new Bytes(postAuthResponse);
-  log(...highlightBytes(postAuthBytes.commentedString(true), "#88c" /* server */));
   postAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
   const [endAuthOK] = postAuthBytes.expectLengthUint32Incl("result");
   postAuthBytes.expectUint32(0, "authentication successful");
@@ -2060,6 +2063,7 @@ async function postgres(urlStr2, transportFactory) {
   log(...highlightBytes(endBytes.commentedString(true), "#8cc" /* client */));
   log("And as sent on the wire:");
   await write(endBytes.array());
+  done = true;
 }
 function parse(url, parseQueryString = false) {
   const { protocol } = new URL(url);
@@ -2198,7 +2202,8 @@ var ReadQueue = class {
 };
 
 // src/util/wsTransport.ts
-async function wsTransport(host, port) {
+async function wsTransport(host, port, close = () => {
+}) {
   const ws = await new Promise((resolve) => {
     const ws2 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
@@ -2208,6 +2213,7 @@ async function wsTransport(host, port) {
     });
     ws2.addEventListener("close", () => {
       console.log("connection closed");
+      close();
     });
   });
   const reader = new ReadQueue(ws);

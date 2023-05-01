@@ -50,9 +50,10 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   } else {
     transport.write(writePreData);
     const SorN = await transport.read(1);
-    chatty && log('The server responds with an ‘S’ to let us know it supports SSL/TLS.');
-    chatty && log(hexFromU8(SorN!));
-    if (SorN![0] !== 'S'.charCodeAt(0)) throw new Error('Did not receive ‘S’ in response to SSL Request');
+    chatty && log('The server confirms it can speak SSL/TLS:');
+    const byte = new Bytes(SorN!);
+    byte.expectUint8(0x53, '"S" = SSL connection supported');
+    chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
     chatty && log('We then start a TLS handshake, which begins with the ‘client hello’:');
   }
 
@@ -90,7 +91,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   msg.writeUTF8StringNullTerminated('SELECT now()');
   endQuery();
 
-  chatty && log('We cheat a bit again here. By assuming we know how the server will respond, we can save several network round-trips and bundle up a Postgres startup message, a cleartext password message, and a simple query. Here’s the plaintext:');
+  chatty && log('So: we now resume our Postgres communications. Because we know what authentication scheme the server will offer, we can save several network round-trips and bundle up a Postgres startup message, a cleartext password message, and a simple query. Here’s the pipelined plaintext:');
   chatty && log(...highlightBytes(msg.commentedString(), LogColours.client));
 
   chatty && log('And the ciphertext looks like this:');
@@ -133,7 +134,6 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   const postAuthResponse = await read();
   const postAuthBytes = new Bytes(postAuthResponse!);
 
-  chatty && log(...highlightBytes(postAuthBytes.commentedString(true), LogColours.server));
   postAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
   const [endAuthOK] = postAuthBytes.expectLengthUint32Incl(chatty && 'result');
   postAuthBytes.expectUint32(0, chatty && 'authentication successful');
