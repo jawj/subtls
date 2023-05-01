@@ -164,14 +164,16 @@ export async function startTls(
   };
 
   const write = async (data: Uint8Array) => {
+    const localWroteFinishedRecords = wroteFinishedRecords;
+    wroteFinishedRecords = true;
+
     const encryptedRecords = await makeEncryptedTlsRecords(data, applicationEncrypter, RecordType.Application);
 
-    const allRecords = wroteFinishedRecords ?
+    const allRecords = localWroteFinishedRecords ?
       concat(...encryptedRecords) :
       concat(clientCipherChangeData, ...encryptedClientFinished, ...encryptedRecords);
 
     networkWrite(allRecords);
-    wroteFinishedRecords = true;
   };
 
   return [read, write] as const;
