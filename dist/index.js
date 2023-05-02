@@ -324,10 +324,13 @@ ${indentChars.repeat(indent)}`;
 
 // src/presentation/highlights.ts
 var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
+var dotColour = "color: #ddd";
+var textColour = "color: #111";
+var mutedColour = "color: #777";
 function highlightBytes(s, colour) {
-  const css = ["color: #111"];
+  const css = [textColour];
   s = "%c" + s.replace(regex, (m) => {
-    css.push(m.startsWith(indentChars) ? "color: #ddd" : `color: ${colour}`, "color: #111");
+    css.push(m.startsWith(indentChars) ? dotColour : `color: ${colour}`, textColour);
     return `%c${m}%c`;
   });
   return [s, ...css];
@@ -336,7 +339,7 @@ function highlightColonList(s) {
   const css = [];
   s = s.replace(/^[^:]+:.*$/gm, (m) => {
     const colonIndex = m.indexOf(":");
-    css.push("color: #777", "color: #111");
+    css.push(mutedColour, textColour);
     return `%c${m.slice(0, colonIndex + 1)}%c${m.slice(colonIndex + 1)}`;
   });
   return [s, ...css];
@@ -391,7 +394,8 @@ function log(...args) {
   if (typeof document === "undefined")
     return;
   element ??= document.querySelector("#logs");
-  element.innerHTML += `<label><input type="checkbox" name="c${c++}"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
+  element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
+  window.scrollTo({ top: 999999 });
 }
 
 // src/tls/makeClientHello.ts

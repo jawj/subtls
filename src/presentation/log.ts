@@ -60,6 +60,6 @@ export function log(...args: any[]) {
   if (typeof document === 'undefined') return;
 
   element ??= document.querySelector('#logs')!;  // initialize here, not globally, or this appears in exported output
-  element.innerHTML += `<label><input type="checkbox" name="c${c++}"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
-  // document.body.scrollTo({ top: 999999 });
+  element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
+  window.scrollTo({ top: 999999 });
 }
