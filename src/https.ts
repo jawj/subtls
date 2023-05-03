@@ -25,7 +25,6 @@ export async function https(urlStr: string, method: string, transportFactory: ty
   const reqPath = url.pathname + url.search;
 
   chatty && log('We begin the TLS handshake by sending a client hello message:');
-  chatty && log('*** Hint: click the handshake log message below to expand. ***');
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + baltimoreroot);
 

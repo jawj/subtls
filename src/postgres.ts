@@ -4,13 +4,12 @@ import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
 import { TrustedCert } from './tls/cert';
+import type wsTransport from './util/wsTransport';
 
 // @ts-ignore
 import isrgrootx1 from './roots/isrg-root-x1.pem';
 // @ts-ignore
 import isrgrootx2 from './roots/isrg-root-x2.pem';
-import { hexFromU8 } from './util/hex';
-import type wsTransport from './util/wsTransport';
 
 export async function postgres(urlStr: string, transportFactory: typeof wsTransport) {
   const t0 = Date.now();
@@ -147,6 +146,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
       while (paramsRemaining() > 0) {
         const k = postAuthBytes.readUTF8StringNullTerminated();
         const v = postAuthBytes.readUTF8StringNullTerminated();
+        void k, v;
       }
       endParams();
 
@@ -183,6 +183,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     const dataTypeSize = queryResultBytes.readUint16(chatty && 'data type size');  // TODO: these should be Int16 not Uint16
     const dataTypeModifier = queryResultBytes.readUint32(chatty && 'data type modifier');
     const formatCode = queryResultBytes.readUint16(chatty && 'format code');
+    void columnName, tableOID, colAttrNum, dataTypeOID, dataTypeSize, dataTypeModifier, formatCode;
   }
   endRowDescription();
 

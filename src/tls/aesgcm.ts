@@ -12,7 +12,8 @@ export class Crypter {
     private initialIv: Uint8Array
   ) { }
 
-  // this wrapper ensures returned Promises always resolve in sequence (which is otherwise not guaranteed in Node)
+  // The `Promise`s returned by successive calls to this function always resolve in sequence,
+  // which is not true for `processUnsequenced` in Node (even if it seems to be in browsers)
   async process(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
     const newPromise = this.processUnsequenced(data, authTagLength, additionalData);
     return this.priorPromise = this.priorPromise.then(() => newPromise);
@@ -31,7 +32,7 @@ export class Crypter {
     iv[ivLength - 3] ^= record >>> 16 & 0xff;
     iv[ivLength - 4] ^= record >>> 24 & 0xff;
 
-    const tagLength = authTagLength << 3;  // bytes -> bits
+    const tagLength = authTagLength << 3;  // byte count -> bit count
     const algorithm = { name: 'AES-GCM', iv, tagLength, additionalData };
     const resultBuffer = await cs[this.mode](algorithm, this.key, data);
     const result = new Uint8Array(resultBuffer);

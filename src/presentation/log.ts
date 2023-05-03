@@ -1,19 +1,22 @@
-
-let
-  element: Element,
-  escapes: Record<string, string>,
-  regexp: RegExp;
-
-function htmlEscape(s: string) {
-  escapes ??= {  // initialize here, not globally, or this appears in exported output
+function htmlEscape(s: string, linkUrls = true): string {
+  const escapes = {  // initialize here, not globally, or this appears in exported output
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
     '"': '&quot;',
     "'": '&apos;',
   };
-  regexp ??= new RegExp('[' + Object.keys(escapes).join('') + ']', 'g');  // ditto
-  return s.replace(regexp, match => escapes[match])
+  const regexp = new RegExp(
+    (linkUrls ? `\\bhttps?:[/][/][^\\s\\u200b"'<>]+[^\\s\\u200b"'<>.),:;?!]\\b|` : '') +
+    '[' + Object.keys(escapes).join('') + ']',
+    'gi'
+  );
+  const replaced = s.replace(regexp, match =>
+    match.length === 1 ?
+      escapes[match as keyof typeof escapes] :
+      `<a target="_blank" href="${match}">${htmlEscape(match, false)}</a>`);
+
+  return replaced;
 };
 
 function htmlFromLogArgs(...args: string[]) {
@@ -59,7 +62,9 @@ export function log(...args: any[]) {
   console.log(...args, '\n');
   if (typeof document === 'undefined') return;
 
-  element ??= document.querySelector('#logs')!;  // initialize here, not globally, or this appears in exported output
+  const element = document.querySelector('#logs')!;  // initialize here, not globally, or this appears in exported output
   element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
-  window.scrollTo({ top: 999999 });
+  const fullyScrolled = document.body.scrollTop >= document.body.scrollHeight - document.body.clientHeight - 1 ||  // the -1 makes this work in Edge
+    document.body.clientHeight >= document.body.scrollHeight;
+  if (fullyScrolled) window.scrollTo({ top: 99999 });
 }

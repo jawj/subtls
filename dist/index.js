@@ -331,7 +331,7 @@ function highlightBytes(s, colour) {
   const css = [textColour];
   s = "%c" + s.replace(regex, (m) => {
     css.push(m.startsWith(indentChars) ? dotColour : `color: ${colour}`, textColour);
-    return `%c${m}%c`;
+    return `%c\u200B${m}\u200B%c`;
   });
   return [s, ...css];
 }
@@ -346,11 +346,8 @@ function highlightColonList(s) {
 }
 
 // src/presentation/log.ts
-var element;
-var escapes;
-var regexp;
-function htmlEscape(s) {
-  escapes ??= {
+function htmlEscape(s, linkUrls = true) {
+  const escapes = {
     // initialize here, not globally, or this appears in exported output
     "&": "&amp;",
     "<": "&lt;",
@@ -358,8 +355,12 @@ function htmlEscape(s) {
     '"': "&quot;",
     "'": "&apos;"
   };
-  regexp ??= new RegExp("[" + Object.keys(escapes).join("") + "]", "g");
-  return s.replace(regexp, (match) => escapes[match]);
+  const regexp = new RegExp(
+    (linkUrls ? `\\bhttps?:[/][/][^\\s\\u200b"'<>]+[^\\s\\u200b"'<>.),:;?!]\\b|` : "") + "[" + Object.keys(escapes).join("") + "]",
+    "gi"
+  );
+  const replaced = s.replace(regexp, (match) => match.length === 1 ? escapes[match] : `<a target="_blank" href="${match}">${htmlEscape(match, false)}</a>`);
+  return replaced;
 }
 function htmlFromLogArgs(...args) {
   let result = "<span>", arg, matchArr, separator = "";
@@ -393,35 +394,38 @@ function log(...args) {
   console.log(...args, "\n");
   if (typeof document === "undefined")
     return;
-  element ??= document.querySelector("#logs");
+  const element = document.querySelector("#logs");
   element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
-  window.scrollTo({ top: 999999 });
+  const fullyScrolled = document.body.scrollTop >= document.body.scrollHeight - document.body.clientHeight - 1 || // the -1 makes this work in Edge
+  document.body.clientHeight >= document.body.scrollHeight;
+  if (fullyScrolled)
+    window.scrollTo({ top: 99999 });
 }
 
 // src/tls/makeClientHello.ts
 function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const h = new Bytes(1024);
   h.writeUint8(22, "record type: handshake");
-  h.writeUint16(769, "TLS protocol version 1.0");
+  h.writeUint16(769, "TLS **protocol** version 1.0");
   const endRecordHeader = h.writeLengthUint16();
   h.writeUint8(1, "handshake type: client hello");
   const endHandshakeHeader = h.writeLengthUint24();
-  h.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  h.writeUint16(771, "TLS version 1.2 (for middlebox compatibility: the real version is in an extension, below)");
   crypto.getRandomValues(h.subarray(32));
   h.comment("client random");
   const endSessionId = h.writeLengthUint8("session ID");
   h.writeBytes(sessionId);
-  h.comment("session ID (middlebox compatibility)");
+  h.comment("session ID (middlebox compatibility again)");
   endSessionId();
-  const endCiphers = h.writeLengthUint16("ciphers");
+  const endCiphers = h.writeLengthUint16("ciphers (https://datatracker.ietf.org/doc/html/rfc8446#appendix-B.4)");
   h.writeUint16(4865, "cipher: TLS_AES_128_GCM_SHA256");
   endCiphers();
   const endCompressionMethods = h.writeLengthUint8("compression methods");
   h.writeUint8(0, "compression method: none");
   endCompressionMethods();
-  const endExtensions = h.writeLengthUint16("extensions");
+  const endExtensions = h.writeLengthUint16("extensions (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2)");
   if (useSNI) {
-    h.writeUint16(0, "extension type: SNI");
+    h.writeUint16(0, "extension type: SNI (https://datatracker.ietf.org/doc/html/rfc6066#section-3)");
     const endSNIExt = h.writeLengthUint16("SNI data");
     const endSNI = h.writeLengthUint16("SNI records");
     h.writeUint8(0, "list entry type: DNS hostname");
@@ -431,35 +435,35 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
     endSNI();
     endSNIExt();
   }
-  h.writeUint16(11, "extension type: EC point formats");
+  h.writeUint16(11, "extension type: EC point formats (middlebox compatibility, https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2)");
   const endFormatTypesExt = h.writeLengthUint16("formats data");
   const endFormatTypes = h.writeLengthUint8("formats");
   h.writeUint8(0, "format: uncompressed");
   endFormatTypes();
   endFormatTypesExt();
-  h.writeUint16(10, "extension type: supported groups (curves)");
+  h.writeUint16(10, "extension type: supported groups (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7)");
   const endGroupsExt = h.writeLengthUint16("groups data");
   const endGroups = h.writeLengthUint16("groups");
-  h.writeUint16(23, "curve secp256r1 (NIST P-256)");
+  h.writeUint16(23, "curve secp256r1");
   endGroups();
   endGroupsExt();
-  h.writeUint16(13, "extension type: signature algorithms");
+  h.writeUint16(13, "extension type: signature algorithms (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3)");
   const endSigsExt = h.writeLengthUint16("signature algorithms data");
   const endSigs = h.writeLengthUint16("signature algorithms");
   h.writeUint16(1027, "ecdsa_secp256r1_sha256");
   h.writeUint16(2052, "rsa_pss_rsae_sha256");
   endSigs();
   endSigsExt();
-  h.writeUint16(43, "extension type: supported TLS versions");
+  h.writeUint16(43, "extension type: supported TLS versions (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.1)");
   const endVersionsExt = h.writeLengthUint16("TLS versions data");
   const endVersions = h.writeLengthUint8("TLS versions");
   h.writeUint16(772, "TLS version 1.3");
   endVersions();
   endVersionsExt();
-  h.writeUint16(51, "extension type: key share");
+  h.writeUint16(51, "extension type: key share (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8)");
   const endKeyShareExt = h.writeLengthUint16("key share data");
   const endKeyShares = h.writeLengthUint16("key shares");
-  h.writeUint16(23, "secp256r1 (NIST P-256) key share");
+  h.writeUint16(23, "secp256r1 (NIST P-256) key share (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7)");
   const endKeyShare = h.writeLengthUint16("key share");
   h.writeBytes(new Uint8Array(publicKey));
   h.comment("key");
@@ -523,7 +527,7 @@ function parseServerHello(hello, sessionId) {
     156
   ]))
     throw new Error("Unexpected HelloRetryRequest");
-  hello.comment('server random \u2014 not SHA256("HelloRetryRequest")');
+  hello.comment('server random \u2014 not SHA256("HelloRetryRequest"), per https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.3');
   hello.expectUint8(sessionId.length, "session ID length (matches client session ID)");
   hello.expectBytes(sessionId, "session ID (matches client session ID)");
   hello.expectUint16(4865, "cipher (matches client hello)");
@@ -766,12 +770,14 @@ var Crypter = class {
   }
   recordsProcessed = 0;
   priorPromise = Promise.resolve(new Uint8Array());
-  // this wrapper ensures returned Promises always resolve in sequence (which is otherwise not guaranteed in Node)
+  // The `Promise`s returned by successive calls to this function always resolve in sequence,
+  // which is not true for `processUnsequenced` in Node (even if it seems to be in browsers)
   async process(data, authTagLength, additionalData) {
-    return this.priorPromise = this.priorPromise.then(() => this._process(data, authTagLength, additionalData));
+    const newPromise = this.processUnsequenced(data, authTagLength, additionalData);
+    return this.priorPromise = this.priorPromise.then(() => newPromise);
   }
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
-  async _process(data, authTagLength, additionalData) {
+  async processUnsequenced(data, authTagLength, additionalData) {
     const record = this.recordsProcessed;
     if (record === maxRecords)
       throw new Error("Cannot encrypt/decrypt any more records");
@@ -1991,6 +1997,7 @@ async function postgres(urlStr2, transportFactory) {
       while (paramsRemaining() > 0) {
         const k = postAuthBytes.readUTF8StringNullTerminated();
         const v = postAuthBytes.readUTF8StringNullTerminated();
+        void 0, v;
       }
       endParams();
     } else if (msgType === "K") {
@@ -2023,6 +2030,7 @@ async function postgres(urlStr2, transportFactory) {
     const dataTypeSize = queryResultBytes.readUint16("data type size");
     const dataTypeModifier = queryResultBytes.readUint32("data type modifier");
     const formatCode = queryResultBytes.readUint16("format code");
+    void 0, tableOID, colAttrNum, dataTypeOID, dataTypeSize, dataTypeModifier, formatCode;
   }
   endRowDescription();
   let lastColumnData;
@@ -2093,7 +2101,6 @@ async function https(urlStr2, method, transportFactory) {
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
   log("We begin the TLS handshake by sending a client hello message:");
-  log("*** Hint: click the handshake log message below to expand. ***");
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default);
   const transport = await transportFactory(host, port);
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write);
@@ -2230,8 +2237,10 @@ async function wsTransport(host, port, close = () => {
 var urlStr = location.hash.slice(1);
 var pg = urlStr && urlStr.startsWith("postgres");
 var goBtn = document.getElementById("go");
+var heading = document.getElementById("heading");
 if (pg) {
   goBtn.value = "Ask Postgres the time over TLS";
+  heading.textContent = "Postgres + TLS, byte-by-byte, LIVE!";
 }
 goBtn.addEventListener("click", () => {
   if (pg)

@@ -5,4 +5,4 @@ export enum LogColours {
   header = '#c88',
 }
 
-export const indentChars = '·· ';  // careful: this has complex interactions with highlightCommented
+export const indentChars = '·· ';  // careful: this has complex interactions with highlightBytes

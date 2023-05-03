@@ -17,7 +17,7 @@
     }
 
     .discussion {
-      padding: 3ex 5ex;
+      padding: 3ex 5ex 1ex;
     }
 
     #logs input[type=checkbox] {
@@ -29,7 +29,8 @@
     }
 
     #logs,
-    code {
+    code,
+    .hex {
       font: 400 11px/1.5 Monaco, Menlo, Consolas, monospace;
       white-space: pre-wrap;
       color: #777;
@@ -40,6 +41,7 @@
     }
 
     #logs .section {
+      position: relative;
       border-top: 1px solid #ddd;
       padding: 0.75ex 5ex;
       max-height: 9ex;
@@ -47,26 +49,57 @@
       background: #f8f8f8;
     }
 
+    #logs .section a {
+      color: inherit;
+      text-decoration: underline;
+    }
+
+    .section:before {
+      content: '◀︎|▶︎ Click to expand';
+      text-transform: uppercase;
+      position: absolute;
+      padding: 0.25em 0.75em .25em 1em;
+      background-color: #aaa;
+      color: white;
+      transition: 0.2s;
+      right: 0;
+      top: 0;
+      font-size: 70%;
+      opacity: 0;
+      border-bottom-left-radius: 2ex;
+    }
+
+    .section:hover:before {
+      opacity: 1;
+    }
+
     #logs input[type=checkbox]:checked+.section {
       max-height: 10000em;
       background: #fff;
     }
 
+    #logs input[type=checkbox]:checked+.section:before {
+      content: '▶︎|◀︎ Click to collapse';
+    }
+
     #controls {
+      font: 400 11px/1.5 Monaco, Menlo, Consolas, monospace;
       position: fixed;
+      z-index: 100;
       top: 0;
       right: 0;
-      padding: 1ex 3ex;
+      padding: .75ex 3ex .75ex;
       border-bottom-left-radius: 2ex;
       background: rgba(255, 255, 255, 0.75);
       backdrop-filter: blur(10px);
       text-transform: uppercase;
       font-size: 10px;
       letter-spacing: .5px;
+      background-color: #aaa;
     }
 
     #controls a {
-      color: #000;
+      color: #fff;
     }
 
     .easter {
@@ -77,24 +110,24 @@
 
 <body>
   <div id="controls">
-    <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = true); return false;">Expand all</a> &nbsp;
-    <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = false); return false;">Collapse all</a> &nbsp;
-    <a href="#" onclick="window.scrollTo({ top: 0 }); return false;">Top</a> &nbsp;
-    <a href="#" onclick="window.scrollTo({ top: 99999 }); return false;">Bottom</a>
+    <a href="#" onclick="window.scrollTo({ top: 0 }); return false;">▲ Top</a> &nbsp;
+    <a href="#" onclick="window.scrollTo({ top: 99999 }); return false;">▼ Bottom</a> &nbsp;
+    <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = true); return false;">◀︎|▶︎ Expand all</a> &nbsp;
+    <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = false); return false;">▶︎|◀︎ Collapse all</a>
   </div>
   <div class="discussion">
-    <h1>The Annotated Live TLS 1.3 Session</h1>
+    <h1 id="heading">Watch this page fetch itself, byte by byte, over TLS</h1>
     <ul>
-      <li>Inspired by <a href="https://tls13.xargs.org/">The Illustrated TLS 1.3 Connection</a> and <a href="https://jvns.ca/blog/2022/03/23/a-toy-version-of-tls/">Julia Evans</a>, this page provides a live annotated TLS session.</li>
-      <li>It’s built with <a href="https://github.com/jawj/subtls">subtls</a>, a pure-JS TLS implementation that makes heavy use of <a href="https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto">SubtleCrypto</a> but has no other dependencies. TCP communication is via a <a href="https://github.com/neondatabase/wsproxy">WebSocket proxy</a>.</li>
-      <li>Expand or collapse each log message by clicking it. There are additional controls at top right.</li>
+      <li>This page performs a live, annotated <i>https:</i> request for its own source. It’s inspired by <a href="https://tls13.xargs.org/">The Illustrated TLS 1.3 Connection</a> and Julia Evans’ <a href="https://jvns.ca/blog/2022/03/23/a-toy-version-of-tls/">toy TLS 1.3</a>.</li>
+      <li>It’s built on <a href="https://github.com/jawj/subtls">subtls</a>, a pure-JS TLS 1.3 implementation that depends only on <a href="https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto">SubtleCrypto</a>. Raw TCP traffic is carried via a <a href="https://github.com/neondatabase/wsproxy">WebSocket proxy</a>.</li>
     </ul>
-    <p id="extra"></p>
-    <input id="go" type="button" value="Get this page over TLS 1.3">
+    <p><span class="hex" style="color: #111"><span style="color: #fff; background: #777"> Key </span> Raw bytes in hexadecimal.</span> <span class="hex" style="color: #8cc">Outgoing message annotations.</span> <span class="hex" style="color: #88c">Incoming message annotations.</span></p>
+    <p><input id="go" type="button" value="Get this page, byte by byte"></p>
   </div>
-  <div id="logs"></div>
+  <div id="logs">
+  </div>
   <div class="easter discussion">
-    <p><a href="https://github.com/jawj/subtls">Code on GitHub</a>. Easter egg: append a <a href="https://neon.tech">neon.tech</a> PostgreSQL connection string as the # hash part of the URL to follow along with a simple PostgreSQL session instead.</p>
+    <p><a href="https://github.com/jawj/subtls/blob/main/src/index.ts">Code on GitHub</a>. Easter egg: append a <a href="https://neon.tech">neon.tech</a> PostgreSQL connection string as the # hash part of the URL to follow along with a simple PostgreSQL session instead.</p>
   </div>
   <script src="index.js"></script>
 </body>

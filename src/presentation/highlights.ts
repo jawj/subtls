@@ -10,7 +10,7 @@ export function highlightBytes(s: string, colour: string) {
   const css: string[] = [textColour];
   s = '%c' + s.replace(regex, m => {
     css.push(m.startsWith(indentChars) ? dotColour : `color: ${colour}`, textColour);
-    return `%c${m}%c`;
+    return `%c\u200b${m}\u200b%c`;  // note: the zero-length spaces, \u200b, prevent URLs getting mangled
   });
   return [s, ...css];
 }

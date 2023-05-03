@@ -21,7 +21,7 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
     0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e,
     0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c
   ])) throw new Error('Unexpected HelloRetryRequest');
-  chatty && hello.comment('server random — not SHA256("HelloRetryRequest")');
+  chatty && hello.comment('server random — not SHA256("HelloRetryRequest"), per https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.3');
 
   hello.expectUint8(sessionId.length, chatty && 'session ID length (matches client session ID)');
   hello.expectBytes(sessionId, chatty && 'session ID (matches client session ID)');
