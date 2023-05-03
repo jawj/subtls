@@ -14,11 +14,12 @@ export class Crypter {
 
   // this wrapper ensures returned Promises always resolve in sequence (which is otherwise not guaranteed in Node)
   async process(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
-    return this.priorPromise = this.priorPromise.then(() => this._process(data, authTagLength, additionalData));
+    const newPromise = this.processUnsequenced(data, authTagLength, additionalData);
+    return this.priorPromise = this.priorPromise.then(() => newPromise);
   }
 
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
-  async _process(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
+  async processUnsequenced(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
     const record = this.recordsProcessed;
     if (record === maxRecords) throw new Error('Cannot encrypt/decrypt any more records');
     this.recordsProcessed += 1;
