@@ -1,4 +1,4 @@
-function htmlEscape(s: string, linkUrls = true): string {
+function htmlEscape(s: string, linkUrls = true, abbreviateUrls = true): string {
   const escapes = {  // initialize here, not globally, or this appears in exported output
     '&': '&amp;',
     '<': '&lt;',
@@ -14,7 +14,7 @@ function htmlEscape(s: string, linkUrls = true): string {
   const replaced = s.replace(regexp, match =>
     match.length === 1 ?
       escapes[match as keyof typeof escapes] :
-      `<a target="_blank" href="${match}">${htmlEscape(match, false)}</a>`);
+      `<a title="${match}" target="_blank" href="${match}">${htmlEscape(abbreviateUrls ? match.match(/^https?:[/][/]([^/]+([/]([^/]+)))/)![1] : match, false)}</a>`);
 
   return replaced;
 };
@@ -62,9 +62,12 @@ export function log(...args: any[]) {
   console.log(...args, '\n');
   if (typeof document === 'undefined') return;
 
+  const docEl = document.documentElement;
+  const fullyScrolled = docEl.scrollTop >= docEl.scrollHeight - docEl.clientHeight - 1 ||  // the -1 makes this work in Edge
+    docEl.clientHeight >= docEl.scrollHeight;
+
   const element = document.querySelector('#logs')!;  // initialize here, not globally, or this appears in exported output
   element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
-  const fullyScrolled = document.body.scrollTop >= document.body.scrollHeight - document.body.clientHeight - 1 ||  // the -1 makes this work in Edge
-    document.body.clientHeight >= document.body.scrollHeight;
-  if (fullyScrolled) window.scrollTo({ top: 99999 });
+
+  if (fullyScrolled) window.scrollTo({ top: 99999, behavior: 'auto' });
 }

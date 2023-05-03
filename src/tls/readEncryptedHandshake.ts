@@ -20,7 +20,7 @@ export async function readEncryptedHandshake(
 ) {
   const hs = new ASN1Bytes(await readHandshakeRecord());
 
-  hs.expectUint8(0x08, chatty && 'handshake record type: encrypted extensions');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
+  hs.expectUint8(0x08, chatty && 'handshake record type: encrypted extensions (https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1)');
   const [eeMessageEnd] = hs.expectLengthUint24();
   const [extEnd, extRemaining] = hs.expectLengthUint16(chatty && 'extensions');
 
@@ -38,7 +38,7 @@ export async function readEncryptedHandshake(
       - https://datatracker.ietf.org/doc/html/rfc6066#section-3
       */
       chatty && hs.comment('SNI');
-      hs.expectUint16(0x0000, chatty && 'no extension data');
+      hs.expectUint16(0x0000, chatty && 'no extension data (https://datatracker.ietf.org/doc/html/rfc6066#section-3)');
 
     } else if (extType === 0x000a) {
       /*
@@ -55,7 +55,7 @@ export async function readEncryptedHandshake(
       regardless of whether they are currently supported by the client.
       - https://www.rfc-editor.org/rfc/rfc8446#section-4.2
       */
-      chatty && hs.comment('supported groups');
+      chatty && hs.comment('supported groups (https://www.rfc-editor.org/rfc/rfc8446#section-4.2)');
       const [endGroups, groupsRemaining] = hs.expectLengthUint16('groups data');
       hs.skip(groupsRemaining(), chatty && 'ignored');
       endGroups()
@@ -74,7 +74,7 @@ export async function readEncryptedHandshake(
   // certificate request (unusual)
   let certMsgType = hs.readUint8();
   if (certMsgType === 0x0d) {
-    chatty && hs.comment('handshake message type: certificate request');
+    chatty && hs.comment('handshake record type: certificate request');
     clientCertRequested = true;
 
     const [endCertReq] = hs.expectLengthUint24('certificate request data');
@@ -94,7 +94,7 @@ export async function readEncryptedHandshake(
 
   // certificates
   if (certMsgType !== 0x0b) throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
-  chatty && hs.comment('handshake message type: server certificate');
+  chatty && hs.comment('handshake record type: server certificate (https://datatracker.ietf.org/doc/html/rfc8446#section-4)');
   const [endCertPayload] = hs.expectLengthUint24(chatty && 'certificate payload');
 
   hs.expectUint8(0x00, chatty && '0 bytes of request context follow');

@@ -346,7 +346,7 @@ function highlightColonList(s) {
 }
 
 // src/presentation/log.ts
-function htmlEscape(s, linkUrls = true) {
+function htmlEscape(s, linkUrls = true, abbreviateUrls = true) {
   const escapes = {
     // initialize here, not globally, or this appears in exported output
     "&": "&amp;",
@@ -359,7 +359,7 @@ function htmlEscape(s, linkUrls = true) {
     (linkUrls ? `\\bhttps?:[/][/][^\\s\\u200b"'<>]+[^\\s\\u200b"'<>.),:;?!]\\b|` : "") + "[" + Object.keys(escapes).join("") + "]",
     "gi"
   );
-  const replaced = s.replace(regexp, (match) => match.length === 1 ? escapes[match] : `<a target="_blank" href="${match}">${htmlEscape(match, false)}</a>`);
+  const replaced = s.replace(regexp, (match) => match.length === 1 ? escapes[match] : `<a title="${match}" target="_blank" href="${match}">${htmlEscape(abbreviateUrls ? match.match(/^https?:[/][/]([^/]+([/]([^/]+)))/)[1] : match, false)}</a>`);
   return replaced;
 }
 function htmlFromLogArgs(...args) {
@@ -394,23 +394,24 @@ function log(...args) {
   console.log(...args, "\n");
   if (typeof document === "undefined")
     return;
+  const docEl = document.documentElement;
+  const fullyScrolled = docEl.scrollTop >= docEl.scrollHeight - docEl.clientHeight - 1 || // the -1 makes this work in Edge
+  docEl.clientHeight >= docEl.scrollHeight;
   const element = document.querySelector("#logs");
   element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
-  const fullyScrolled = document.body.scrollTop >= document.body.scrollHeight - document.body.clientHeight - 1 || // the -1 makes this work in Edge
-  document.body.clientHeight >= document.body.scrollHeight;
   if (fullyScrolled)
-    window.scrollTo({ top: 99999 });
+    window.scrollTo({ top: 99999, behavior: "auto" });
 }
 
 // src/tls/makeClientHello.ts
 function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const h = new Bytes(1024);
   h.writeUint8(22, "record type: handshake");
-  h.writeUint16(769, "TLS **protocol** version 1.0");
+  h.writeUint16(769, "TLS legacy record version 1.0 (https://datatracker.ietf.org/doc/html/rfc8446#section-5.1)");
   const endRecordHeader = h.writeLengthUint16();
   h.writeUint8(1, "handshake type: client hello");
   const endHandshakeHeader = h.writeLengthUint24();
-  h.writeUint16(771, "TLS version 1.2 (for middlebox compatibility: the real version is in an extension, below)");
+  h.writeUint16(771, "TLS version 1.2 (middlebox compatibility: https://blog.cloudflare.com/why-tls-1-3-isnt-in-browsers-yet)");
   crypto.getRandomValues(h.subarray(32));
   h.comment("client random");
   const endSessionId = h.writeLengthUint8("session ID");
@@ -583,16 +584,14 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
   if (expectedType !== void 0 && type !== expectedType)
     throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   header.comment(`record type: ${RecordTypeName[type]}`);
-  const version = header.readUint16("TLS version");
-  if ([769, 770, 771].indexOf(version) < 0)
-    throw new Error(`Unsupported TLS record version 0x${version.toString(16).padStart(4, "0")}`);
+  header.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
   const length = header.readUint16("% bytes of TLS record follow");
   if (length > maxLength)
     throw new Error(`Record too long: ${length} bytes`);
   const content = await read(length);
   if (content === void 0 || content.length < length)
     throw new Error("TLS record content truncated");
-  return { headerData, header, type, version, length, content };
+  return { headerData, header, type, length, content };
 }
 async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   const encryptedRecord = await readTlsRecord(read, 23 /* Application */, maxCiphertextRecordLength);
@@ -1646,16 +1645,16 @@ async function verifyCerts(host, certs, rootCerts) {
 var txtEnc3 = new TextEncoder();
 async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos, rootCerts) {
   const hs = new ASN1Bytes(await readHandshakeRecord());
-  hs.expectUint8(8, "handshake record type: encrypted extensions");
+  hs.expectUint8(8, "handshake record type: encrypted extensions (https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1)");
   const [eeMessageEnd] = hs.expectLengthUint24();
   const [extEnd, extRemaining] = hs.expectLengthUint16("extensions");
   while (extRemaining() > 0) {
     const extType = hs.readUint16("extension type: ");
     if (extType === 0) {
       hs.comment("SNI");
-      hs.expectUint16(0, "no extension data");
+      hs.expectUint16(0, "no extension data (https://datatracker.ietf.org/doc/html/rfc6066#section-3)");
     } else if (extType === 10) {
-      hs.comment("supported groups");
+      hs.comment("supported groups (https://www.rfc-editor.org/rfc/rfc8446#section-4.2)");
       const [endGroups, groupsRemaining] = hs.expectLengthUint16("groups data");
       hs.skip(groupsRemaining(), "ignored");
       endGroups();
@@ -1670,7 +1669,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   let clientCertRequested = false;
   let certMsgType = hs.readUint8();
   if (certMsgType === 13) {
-    hs.comment("handshake message type: certificate request");
+    hs.comment("handshake record type: certificate request");
     clientCertRequested = true;
     const [endCertReq] = hs.expectLengthUint24("certificate request data");
     hs.expectUint8(0, "length of certificate request context");
@@ -1684,7 +1683,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   }
   if (certMsgType !== 11)
     throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
-  hs.comment("handshake message type: server certificate");
+  hs.comment("handshake record type: server certificate (https://datatracker.ietf.org/doc/html/rfc8446#section-4)");
   const [endCertPayload] = hs.expectLengthUint24("certificate payload");
   hs.expectUint8(0, "0 bytes of request context follow");
   const [endCerts, certsRemaining] = hs.expectLengthUint24("certificates");
@@ -1913,7 +1912,7 @@ async function postgres(urlStr2, transportFactory) {
   });
   const sslRequest = new Bytes(8);
   const endSslRequest = sslRequest.writeLengthUint32Incl("SSL request");
-  sslRequest.writeUint32(80877103, "SSL request code");
+  sslRequest.writeUint32(80877103, "SSL request code (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST)");
   endSslRequest();
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
@@ -1923,7 +1922,7 @@ async function postgres(urlStr2, transportFactory) {
   } else {
     transport.write(writePreData);
     const SorN = await transport.read(1);
-    log("The server confirms it can speak SSL/TLS:");
+    log('The server tells us if it can speak SSL/TLS ("S" for yes, "N" for no):');
     const byte = new Bytes(SorN);
     byte.expectUint8(83, '"S" = SSL connection supported');
     log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
@@ -1936,7 +1935,7 @@ async function postgres(urlStr2, transportFactory) {
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
   const [read, write] = pipelineSSLRequest ? await startTls(host, rootCert, transport.read, transport.write, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') : await startTls(host, rootCert, transport.read, transport.write, !useSNIHack);
   const msg = new Bytes(1024);
-  const endStartupMessage = msg.writeLengthUint32Incl("startup message");
+  const endStartupMessage = msg.writeLengthUint32Incl("startup message (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE)");
   msg.writeUint32(196608, "protocol version");
   msg.writeUTF8StringNullTerminated("user");
   msg.writeUTF8StringNullTerminated(user);
@@ -1945,12 +1944,12 @@ async function postgres(urlStr2, transportFactory) {
   msg.writeUint8(0, "end of message");
   endStartupMessage();
   msg.writeUTF8String("p");
-  msg.comment("= password");
+  msg.comment("= password (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)");
   const endPasswordMessage = msg.writeLengthUint32Incl("password message");
   msg.writeUTF8StringNullTerminated(password);
   endPasswordMessage();
   msg.writeUTF8String("Q");
-  msg.comment("= simple query");
+  msg.comment("= simple query (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)");
   const endQuery = msg.writeLengthUint32Incl("query");
   msg.writeUTF8StringNullTerminated("SELECT now()");
   endQuery();
@@ -1965,7 +1964,7 @@ async function postgres(urlStr2, transportFactory) {
   const [endAuthReq, authReqRemaining] = preAuthBytes.expectLengthUint32Incl("request");
   const authMechanism = preAuthBytes.readUint32();
   if (authMechanism === 3) {
-    preAuthBytes.comment("request cleartext password auth");
+    preAuthBytes.comment("request cleartext password auth (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONCLEARTEXTPASSWORD)");
   } else if (authMechanism === 10) {
     preAuthBytes.comment("request SASL auth");
     while (authReqRemaining() > 1) {
@@ -1987,7 +1986,7 @@ async function postgres(urlStr2, transportFactory) {
   const postAuthBytes = new Bytes(postAuthResponse);
   postAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
   const [endAuthOK] = postAuthBytes.expectLengthUint32Incl("result");
-  postAuthBytes.expectUint32(0, "authentication successful");
+  postAuthBytes.expectUint32(0, "authentication successful (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)");
   endAuthOK();
   while (postAuthBytes.remaining() > 0) {
     const msgType = postAuthBytes.readUTF8String(1);

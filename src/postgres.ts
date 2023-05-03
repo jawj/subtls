@@ -35,7 +35,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
   const sslRequest = new Bytes(8);
   const endSslRequest = sslRequest.writeLengthUint32Incl(chatty && 'SSL request');
-  sslRequest.writeUint32(0x04d2162f, 'SSL request code');
+  sslRequest.writeUint32(0x04d2162f, 'SSL request code (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST)');
   endSslRequest();
 
   chatty && log('First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:');
@@ -49,7 +49,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   } else {
     transport.write(writePreData);
     const SorN = await transport.read(1);
-    chatty && log('The server confirms it can speak SSL/TLS:');
+    chatty && log('The server tells us if it can speak SSL/TLS ("S" for yes, "N" for no):');
     const byte = new Bytes(SorN!);
     byte.expectUint8(0x53, '"S" = SSL connection supported');
     chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
@@ -69,7 +69,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
   const msg = new Bytes(1024);
 
-  const endStartupMessage = msg.writeLengthUint32Incl(chatty && 'startup message');
+  const endStartupMessage = msg.writeLengthUint32Incl(chatty && 'startup message (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE)');
   msg.writeUint32(0x0003_0000, chatty && 'protocol version');
   msg.writeUTF8StringNullTerminated('user');
   msg.writeUTF8StringNullTerminated(user);
@@ -79,13 +79,13 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   endStartupMessage();
 
   msg.writeUTF8String('p');
-  chatty && msg.comment('= password');
+  chatty && msg.comment('= password (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)');
   const endPasswordMessage = msg.writeLengthUint32Incl(chatty && 'password message');
   msg.writeUTF8StringNullTerminated(password);
   endPasswordMessage();
 
   msg.writeUTF8String('Q');
-  chatty && msg.comment('= simple query');
+  chatty && msg.comment('= simple query (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)');
   const endQuery = msg.writeLengthUint32Incl(chatty && 'query');
   msg.writeUTF8StringNullTerminated('SELECT now()');
   endQuery();
@@ -106,7 +106,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
   const authMechanism = preAuthBytes.readUint32();
   if (authMechanism === 3) {
-    chatty && preAuthBytes.comment('request cleartext password auth');
+    chatty && preAuthBytes.comment('request cleartext password auth (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONCLEARTEXTPASSWORD)');
 
   } else if (authMechanism === 10) {
     chatty && preAuthBytes.comment('request SASL auth');
@@ -135,7 +135,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
   postAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
   const [endAuthOK] = postAuthBytes.expectLengthUint32Incl(chatty && 'result');
-  postAuthBytes.expectUint32(0, chatty && 'authentication successful');
+  postAuthBytes.expectUint32(0, chatty && 'authentication successful (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)');
   endAuthOK();
 
   while (postAuthBytes.remaining() > 0) {
