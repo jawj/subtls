@@ -14,7 +14,7 @@ export async function verifyCerts(host: string, certs: Cert[], rootCerts: Truste
   chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates received from host');
   for (const cert of certs) chatty && log(...highlightColonList(cert.description()));
 
-  chatty && log('Now we have all the certificates, which are summarised above. First, we do some basic checks on the end-user certificate — i.e. the one this server is presenting as its own:');
+  chatty && log('Now we have all the certificates, which are summarised above. First, we do some basic checks on the end-user certificate — i.e. the one this server is presenting as its own ([source](https://github.com/jawj/subtls/blob/main/src/tls/verifyCerts.ts)):');
 
   const userCert = certs[0];
   const matchingSubjectAltName = userCert.subjectAltNameMatchingHost(host);

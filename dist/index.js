@@ -1585,7 +1585,7 @@ async function verifyCerts(host, certs, rootCerts) {
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates received from host");
   for (const cert of certs)
     log(...highlightColonList(cert.description()));
-  log("Now we have all the certificates, which are summarised above. First, we do some basic checks on the end-user certificate \u2014\xA0i.e. the one this server is presenting as its own:");
+  log("Now we have all the certificates, which are summarised above. First, we do some basic checks on the end-user certificate \u2014\xA0i.e. the one this server is presenting as its own ([source](https://github.com/jawj/subtls/blob/main/src/tls/verifyCerts.ts)):");
   const userCert = certs[0];
   const matchingSubjectAltName = userCert.subjectAltNameMatchingHost(host);
   if (matchingSubjectAltName === void 0)
