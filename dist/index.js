@@ -346,7 +346,7 @@ function highlightColonList(s) {
 }
 
 // src/presentation/log.ts
-function htmlEscape(s, linkUrls = true, abbreviateUrls = true) {
+function htmlEscape(s, linkUrls = true) {
   const escapes = {
     // initialize here, not globally, or this appears in exported output
     "&": "&amp;",
@@ -355,11 +355,24 @@ function htmlEscape(s, linkUrls = true, abbreviateUrls = true) {
     '"': "&quot;",
     "'": "&apos;"
   };
+  const urlre = /\bhttps?:[/][/][^\s\u200b"'<>)]+[^\s\u200b"'<>).,:;?!]\b/;
   const regexp = new RegExp(
-    (linkUrls ? `\\bhttps?:[/][/][^\\s\\u200b"'<>]+[^\\s\\u200b"'<>.),:;?!]\\b|` : "") + "[" + Object.keys(escapes).join("") + "]",
+    (linkUrls ? `\\[[^\\]\\n]+\\]\\(${urlre.source}\\)|${urlre.source}|` : "") + "[" + Object.keys(escapes).join("") + "]",
     "gi"
   );
-  const replaced = s.replace(regexp, (match) => match.length === 1 ? escapes[match] : `<a title="${match}" target="_blank" href="${match}">${htmlEscape(abbreviateUrls ? match.match(/^https?:[/][/]([^/]+([/]([^/]+)))/)[1] : match, false)}</a>`);
+  const replaced = s.replace(regexp, (match) => {
+    if (match.length === 1)
+      return escapes[match];
+    let linkText, url;
+    if (match.charAt(0) === "[") {
+      const closeBracketPos = match.indexOf("]");
+      linkText = htmlEscape(match.substring(1, closeBracketPos), false);
+      url = htmlEscape(match.substring(closeBracketPos + 2, match.length - 1), false);
+    } else {
+      url = linkText = htmlEscape(match, false);
+    }
+    return `<a href="${url}" target="_blank">${linkText}</a>`;
+  });
   return replaced;
 }
 function htmlFromLogArgs(...args) {
@@ -377,7 +390,7 @@ function htmlFromLogArgs(...args) {
         if (sub === "c") {
           result += `</span><span style="${args.shift()}">`;
         } else if (sub === "s") {
-          result += args.shift();
+          result += htmlEscape(args.shift());
         } else if (sub === "o" || sub === "O") {
           result += JSON.stringify(args.shift(), void 0, sub === "O" ? 2 : void 0);
         } else if (sub === "i" || sub === "d" || sub === "f") {
@@ -407,26 +420,26 @@ function log(...args) {
 function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const h = new Bytes(1024);
   h.writeUint8(22, "record type: handshake");
-  h.writeUint16(769, "TLS legacy record version 1.0 (https://datatracker.ietf.org/doc/html/rfc8446#section-5.1)");
+  h.writeUint16(769, "TLS legacy record version 1.0 ([RFC8446 \xA75.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))");
   const endRecordHeader = h.writeLengthUint16();
   h.writeUint8(1, "handshake type: client hello");
   const endHandshakeHeader = h.writeLengthUint24();
-  h.writeUint16(771, "TLS version 1.2 (middlebox compatibility: https://blog.cloudflare.com/why-tls-1-3-isnt-in-browsers-yet)");
+  h.writeUint16(771, "TLS version 1.2 (middlebox compatibility: see [blog.cloudflare.com](https://blog.cloudflare.com/why-tls-1-3-isnt-in-browsers-yet))");
   crypto.getRandomValues(h.subarray(32));
   h.comment("client random");
   const endSessionId = h.writeLengthUint8("session ID");
   h.writeBytes(sessionId);
-  h.comment("session ID (middlebox compatibility again)");
+  h.comment("session ID (middlebox compatibility again: [RFC8446 appendix D4](https://datatracker.ietf.org/doc/html/rfc8446#appendix-D.4))");
   endSessionId();
-  const endCiphers = h.writeLengthUint16("ciphers (https://datatracker.ietf.org/doc/html/rfc8446#appendix-B.4)");
+  const endCiphers = h.writeLengthUint16("ciphers ([RFC8446 appendix B4](https://datatracker.ietf.org/doc/html/rfc8446#appendix-B.4))");
   h.writeUint16(4865, "cipher: TLS_AES_128_GCM_SHA256");
   endCiphers();
   const endCompressionMethods = h.writeLengthUint8("compression methods");
   h.writeUint8(0, "compression method: none");
   endCompressionMethods();
-  const endExtensions = h.writeLengthUint16("extensions (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2)");
+  const endExtensions = h.writeLengthUint16("extensions ([RFC8446 \xA74.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2))");
   if (useSNI) {
-    h.writeUint16(0, "extension type: SNI (https://datatracker.ietf.org/doc/html/rfc6066#section-3)");
+    h.writeUint16(0, "extension type: SNI ([RFC6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
     const endSNIExt = h.writeLengthUint16("SNI data");
     const endSNI = h.writeLengthUint16("SNI records");
     h.writeUint8(0, "list entry type: DNS hostname");
@@ -436,35 +449,35 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
     endSNI();
     endSNIExt();
   }
-  h.writeUint16(11, "extension type: EC point formats (middlebox compatibility, https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2)");
+  h.writeUint16(11, "extension type: EC point formats (for middlebox compatibility, from TLS 1.2: [RFC8422 \xA75.1.2](https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2))");
   const endFormatTypesExt = h.writeLengthUint16("formats data");
   const endFormatTypes = h.writeLengthUint8("formats");
   h.writeUint8(0, "format: uncompressed");
   endFormatTypes();
   endFormatTypesExt();
-  h.writeUint16(10, "extension type: supported groups (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7)");
+  h.writeUint16(10, "extension type: supported groups ([RFC8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
   const endGroupsExt = h.writeLengthUint16("groups data");
   const endGroups = h.writeLengthUint16("groups");
   h.writeUint16(23, "curve secp256r1");
   endGroups();
   endGroupsExt();
-  h.writeUint16(13, "extension type: signature algorithms (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3)");
+  h.writeUint16(13, "extension type: signature algorithms ([RFC8446 \xA74.2.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3))");
   const endSigsExt = h.writeLengthUint16("signature algorithms data");
   const endSigs = h.writeLengthUint16("signature algorithms");
   h.writeUint16(1027, "ecdsa_secp256r1_sha256");
   h.writeUint16(2052, "rsa_pss_rsae_sha256");
   endSigs();
   endSigsExt();
-  h.writeUint16(43, "extension type: supported TLS versions (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.1)");
+  h.writeUint16(43, "extension type: supported TLS versions ([RFC8446 \xA74.2.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.1))");
   const endVersionsExt = h.writeLengthUint16("TLS versions data");
   const endVersions = h.writeLengthUint8("TLS versions");
   h.writeUint16(772, "TLS version 1.3");
   endVersions();
   endVersionsExt();
-  h.writeUint16(51, "extension type: key share (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8)");
+  h.writeUint16(51, "extension type: key share ([RFC8446 \xA74.2.8](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8))");
   const endKeyShareExt = h.writeLengthUint16("key share data");
   const endKeyShares = h.writeLengthUint16("key shares");
-  h.writeUint16(23, "secp256r1 (NIST P-256) key share (https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7)");
+  h.writeUint16(23, "secp256r1 (NIST P-256) key share ([RFC8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
   const endKeyShare = h.writeLengthUint16("key share");
   h.writeBytes(new Uint8Array(publicKey));
   h.comment("key");
@@ -528,7 +541,7 @@ function parseServerHello(hello, sessionId) {
     156
   ]))
     throw new Error("Unexpected HelloRetryRequest");
-  hello.comment('server random \u2014 not SHA256("HelloRetryRequest"), per https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.3');
+  hello.comment('server random \u2014 [not SHA256("HelloRetryRequest")](https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.3)');
   hello.expectUint8(sessionId.length, "session ID length (matches client session ID)");
   hello.expectBytes(sessionId, "session ID (matches client session ID)");
   hello.expectUint16(4865, "cipher (matches client hello)");
@@ -665,7 +678,7 @@ async function makeEncryptedTlsRecords(plaintext, encrypter, type) {
 // src/util/cryptoProxy.ts
 var cryptoProxy_default = crypto.subtle;
 
-// src/tls/keys.ts
+// src/tls/hkdf.ts
 var txtEnc2 = new TextEncoder();
 async function hkdfExtract(salt, keyMaterial, hashBits) {
   const hmacKey = await cryptoProxy_default.importKey("raw", salt, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
@@ -692,7 +705,6 @@ async function hkdfExpandLabel(key, label, context, length, hashBits) {
   const labelData = txtEnc2.encode(label);
   const hkdfLabel = concat(
     [(length & 65280) >> 8, length & 255],
-    // desired length, split into high + low bytes
     [tls13_Bytes.length + labelData.length],
     tls13_Bytes,
     labelData,
@@ -701,8 +713,10 @@ async function hkdfExpandLabel(key, label, context, length, hashBits) {
   );
   return hkdfExpand(key, hkdfLabel, length, hashBits);
 }
+
+// src/tls/keys.ts
 async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, keyLength) {
-  const hashBytes = hashBits >> 3;
+  const hashBytes = hashBits >>> 3;
   const zeroKey = new Uint8Array(hashBytes);
   const publicKey = await cryptoProxy_default.importKey("raw", serverPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
   const sharedSecretBuffer = await cryptoProxy_default.deriveBits({ name: "ECDH", public: publicKey }, privateKey, 256);
@@ -735,7 +749,7 @@ async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, k
   return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV, handshakeSecret, clientSecret, serverSecret };
 }
 async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyLength) {
-  const hashBytes = hashBits >> 3;
+  const hashBytes = hashBits >>> 3;
   const zeroKey = new Uint8Array(hashBytes);
   const emptyHashBuffer = await cryptoProxy_default.digest(`SHA-${hashBits}`, new Uint8Array(0));
   const emptyHash = new Uint8Array(emptyHashBuffer);
@@ -1645,16 +1659,16 @@ async function verifyCerts(host, certs, rootCerts) {
 var txtEnc3 = new TextEncoder();
 async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos, rootCerts) {
   const hs = new ASN1Bytes(await readHandshakeRecord());
-  hs.expectUint8(8, "handshake record type: encrypted extensions (https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1)");
+  hs.expectUint8(8, "handshake record type: encrypted extensions ([RFC8446 \xA74.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))");
   const [eeMessageEnd] = hs.expectLengthUint24();
   const [extEnd, extRemaining] = hs.expectLengthUint16("extensions");
   while (extRemaining() > 0) {
     const extType = hs.readUint16("extension type: ");
     if (extType === 0) {
       hs.comment("SNI");
-      hs.expectUint16(0, "no extension data (https://datatracker.ietf.org/doc/html/rfc6066#section-3)");
+      hs.expectUint16(0, "no extension data ([RFC6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
     } else if (extType === 10) {
-      hs.comment("supported groups (https://www.rfc-editor.org/rfc/rfc8446#section-4.2)");
+      hs.comment("supported groups ([RFC8446 \xA74.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2))");
       const [endGroups, groupsRemaining] = hs.expectLengthUint16("groups data");
       hs.skip(groupsRemaining(), "ignored");
       endGroups();
@@ -1669,7 +1683,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   let clientCertRequested = false;
   let certMsgType = hs.readUint8();
   if (certMsgType === 13) {
-    hs.comment("handshake record type: certificate request");
+    hs.comment("handshake record type: certificate request ([RFC8446 \xA74.3.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.2))");
     clientCertRequested = true;
     const [endCertReq] = hs.expectLengthUint24("certificate request data");
     hs.expectUint8(0, "length of certificate request context");
@@ -1683,7 +1697,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   }
   if (certMsgType !== 11)
     throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
-  hs.comment("handshake record type: server certificate (https://datatracker.ietf.org/doc/html/rfc8446#section-4)");
+  hs.comment("handshake record type: certificate ([RFC8446 \xA74.4.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2))");
   const [endCertPayload] = hs.expectLengthUint24("certificate payload");
   hs.expectUint8(0, "0 bytes of request context follow");
   const [endCerts, certsRemaining] = hs.expectLengthUint24("certificates");
@@ -1709,7 +1723,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const certVerifySignedData = concat(txtEnc3.encode(" ".repeat(64) + "TLS 1.3, server CertificateVerify"), [0], certVerifyHash);
   if (hs.remaining() === 0)
     hs.extend(await readHandshakeRecord());
-  hs.expectUint8(15, "handshake message type: certificate verify");
+  hs.expectUint8(15, "handshake message type: certificate verify ([RFC8446 \xA74.4.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.3))");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   const sigType = hs.readUint16();
   log("verifying end-user certificate ...");
@@ -1746,7 +1760,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
   if (hs.remaining() === 0)
     hs.extend(await readHandshakeRecord());
-  hs.expectUint8(20, "handshake message type: finished");
+  hs.expectUint8(20, "handshake message type: finished ([RFC8446 \xA74.4.4](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.4))");
   const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24("verify hash");
   const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
   hs.comment("verify hash");
@@ -1798,7 +1812,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends us a meaningless cipher change record:");
   log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
   log("Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:");
-  log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations");
+  log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))");
   const clientHelloContent = clientHelloData.subarray(5);
   const serverHelloContent = serverHelloRecord.content;
   const hellos = concat(clientHelloContent, serverHelloContent);
@@ -1861,7 +1875,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
     partialHandshakeHash = new Uint8Array(partialHandshakeHashBuffer);
   }
   log("Both parties now have what they need to calculate the keys and IVs that will protect the application data:");
-  log("%c%s", `color: ${"#c88" /* header */}`, "application key computations");
+  log("%c%s", `color: ${"#c88" /* header */}`, "application key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))");
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, partialHandshakeHash, 256, 16);
   const clientApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, true, ["encrypt"]);
   const applicationEncrypter = new Crypter("encrypt", clientApplicationKey, applicationKeys.clientApplicationIV);
@@ -1912,7 +1926,7 @@ async function postgres(urlStr2, transportFactory) {
   });
   const sslRequest = new Bytes(8);
   const endSslRequest = sslRequest.writeLengthUint32Incl("SSL request");
-  sslRequest.writeUint32(80877103, "SSL request code (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST)");
+  sslRequest.writeUint32(80877103, "SSL request code ([Postgres docs: SSLRequest](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST))");
   endSslRequest();
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
@@ -1935,7 +1949,7 @@ async function postgres(urlStr2, transportFactory) {
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
   const [read, write] = pipelineSSLRequest ? await startTls(host, rootCert, transport.read, transport.write, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') : await startTls(host, rootCert, transport.read, transport.write, !useSNIHack);
   const msg = new Bytes(1024);
-  const endStartupMessage = msg.writeLengthUint32Incl("startup message (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE)");
+  const endStartupMessage = msg.writeLengthUint32Incl("[StartupMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE)");
   msg.writeUint32(196608, "protocol version");
   msg.writeUTF8StringNullTerminated("user");
   msg.writeUTF8StringNullTerminated(user);
@@ -1944,12 +1958,12 @@ async function postgres(urlStr2, transportFactory) {
   msg.writeUint8(0, "end of message");
   endStartupMessage();
   msg.writeUTF8String("p");
-  msg.comment("= password (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)");
+  msg.comment("= [PasswordMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)");
   const endPasswordMessage = msg.writeLengthUint32Incl("password message");
   msg.writeUTF8StringNullTerminated(password);
   endPasswordMessage();
   msg.writeUTF8String("Q");
-  msg.comment("= simple query (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)");
+  msg.comment("= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)");
   const endQuery = msg.writeLengthUint32Incl("query");
   msg.writeUTF8StringNullTerminated("SELECT now()");
   endQuery();
@@ -1964,7 +1978,7 @@ async function postgres(urlStr2, transportFactory) {
   const [endAuthReq, authReqRemaining] = preAuthBytes.expectLengthUint32Incl("request");
   const authMechanism = preAuthBytes.readUint32();
   if (authMechanism === 3) {
-    preAuthBytes.comment("request cleartext password auth (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONCLEARTEXTPASSWORD)");
+    preAuthBytes.comment("request password auth ([AuthenticationCleartextPassword](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONCLEARTEXTPASSWORD))");
   } else if (authMechanism === 10) {
     preAuthBytes.comment("request SASL auth");
     while (authReqRemaining() > 1) {
@@ -1985,13 +1999,13 @@ async function postgres(urlStr2, transportFactory) {
   const postAuthResponse = await read();
   const postAuthBytes = new Bytes(postAuthResponse);
   postAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
-  const [endAuthOK] = postAuthBytes.expectLengthUint32Incl("result");
-  postAuthBytes.expectUint32(0, "authentication successful (https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)");
+  const [endAuthOK] = postAuthBytes.expectLengthUint32Incl("authentication result");
+  postAuthBytes.expectUint32(0, "[AuthenticationOk](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)");
   endAuthOK();
   while (postAuthBytes.remaining() > 0) {
     const msgType = postAuthBytes.readUTF8String(1);
     if (msgType === "S") {
-      postAuthBytes.comment("= parameter status");
+      postAuthBytes.comment("= [ParameterStatus](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PARAMETERSTATUS)");
       const [endParams, paramsRemaining] = postAuthBytes.expectLengthUint32Incl("run-time parameters");
       while (paramsRemaining() > 0) {
         const k = postAuthBytes.readUTF8StringNullTerminated();

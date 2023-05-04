@@ -1,4 +1,4 @@
-function htmlEscape(s: string, linkUrls = true, abbreviateUrls = true): string {
+function htmlEscape(s: string, linkUrls = true): string {
   const escapes = {  // initialize here, not globally, or this appears in exported output
     '&': '&amp;',
     '<': '&lt;',
@@ -6,16 +6,27 @@ function htmlEscape(s: string, linkUrls = true, abbreviateUrls = true): string {
     '"': '&quot;',
     "'": '&apos;',
   };
+  const urlre = /\bhttps?:[/][/][^\s\u200b"'<>)]+[^\s\u200b"'<>).,:;?!]\b/;
   const regexp = new RegExp(
-    (linkUrls ? `\\bhttps?:[/][/][^\\s\\u200b"'<>]+[^\\s\\u200b"'<>.),:;?!]\\b|` : '') +
+    (linkUrls ? `\\[[^\\]\\n]+\\]\\(${urlre.source}\\)|${urlre.source}|` : '') +
     '[' + Object.keys(escapes).join('') + ']',
     'gi'
   );
-  const replaced = s.replace(regexp, match =>
-    match.length === 1 ?
-      escapes[match as keyof typeof escapes] :
-      `<a title="${match}" target="_blank" href="${match}">${htmlEscape(abbreviateUrls ? match.match(/^https?:[/][/]([^/]+([/]([^/]+)))/)![1] : match, false)}</a>`);
+  const replaced = s.replace(regexp, match => {
+    if (match.length === 1) return escapes[match as keyof typeof escapes];
 
+    let linkText, url;
+    if (match.charAt(0) === '[') {
+      const closeBracketPos = match.indexOf(']');
+      linkText = htmlEscape(match.substring(1, closeBracketPos), false);
+      url = htmlEscape(match.substring(closeBracketPos + 2, match.length - 1), false);
+
+    } else {
+      url = linkText = htmlEscape(match, false);
+    }
+
+    return `<a href="${url}" target="_blank">${linkText}</a>`
+  });
   return replaced;
 };
 
@@ -42,7 +53,7 @@ function htmlFromLogArgs(...args: string[]) {
         if (sub === 'c') {
           result += `</span><span style="${args.shift()!}">`;
         } else if (sub === 's') {
-          result += args.shift();
+          result += htmlEscape(args.shift()!);
         } else if (sub === 'o' || sub === 'O') {
           result += JSON.stringify(args.shift(), undefined, sub === 'O' ? 2 : undefined);
         } else if (sub === 'i' || sub === 'd' || sub === 'f') {

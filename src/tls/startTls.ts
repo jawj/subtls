@@ -1,7 +1,8 @@
 import makeClientHello from './makeClientHello';
 import parseServerHello from './parseServerHello';
 import { makeEncryptedTlsRecords, readEncryptedTlsRecord, readTlsRecord, RecordType } from './tlsRecord';
-import { getApplicationKeys, getHandshakeKeys, hkdfExpandLabel } from './keys';
+import { getApplicationKeys, getHandshakeKeys } from './keys';
+import { hkdfExpandLabel } from "./hkdf";
 import { Crypter } from './aesgcm';
 import { readEncryptedHandshake } from './readEncryptedHandshake';
 import { Bytes } from '../util/bytes';
@@ -63,7 +64,7 @@ export async function startTls(
 
   // handshake keys, encryption/decryption instances
   chatty && log('Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:');
-  chatty && log('%c%s', `color: ${LogColours.header}`, 'handshake key computations');
+  chatty && log('%c%s', `color: ${LogColours.header}`, 'handshake key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))');
   const clientHelloContent = clientHelloData.subarray(5);  // cut off the 5-byte record header
   const serverHelloContent = serverHelloRecord.content;    // 5-byte record header is already excluded
   const hellos = concat(clientHelloContent, serverHelloContent);
@@ -143,7 +144,7 @@ export async function startTls(
 
   // application keys, encryption/decryption instances
   chatty && log('Both parties now have what they need to calculate the keys and IVs that will protect the application data:');
-  chatty && log('%c%s', `color: ${LogColours.header}`, 'application key computations');
+  chatty && log('%c%s', `color: ${LogColours.header}`, 'application key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))');
   const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, partialHandshakeHash, 256, 16);
   const clientApplicationKey = await cs.importKey('raw', applicationKeys.clientApplicationKey, { name: 'AES-GCM' }, true /* TODO make false */, ['encrypt']);
   const applicationEncrypter = new Crypter('encrypt', clientApplicationKey, applicationKeys.clientApplicationIV);
