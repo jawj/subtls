@@ -1770,7 +1770,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true)
     throw new Error("Invalid server verify hash");
-  log("Decrypted using the server handshake key, the server\u2019s handshake messages are parsed as follows. This is a long section, since X.509 certificates are quite complex and there will be several of them:");
+  log("Decrypted using the server handshake key, the server\u2019s handshake messages are parsed as follows ([source](https://github.com/jawj/subtls/blob/main/src/tls/readEncryptedHandshake.ts)). This is a long section, since X.509 certificates are quite complex and there will be several of them:");
   log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);
   if (!verifiedToTrustedRoot)
@@ -1789,7 +1789,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
   networkWrite(initialData);
-  log("The server responds:");
+  log("The server sends a response, and we parse it ([source](https://github.com/jawj/subtls/blob/main/src/tls/parseServerHello.ts)):");
   if (expectPreData) {
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData))
@@ -1940,9 +1940,8 @@ async function postgres(urlStr2, transportFactory) {
     const byte = new Bytes(SorN);
     byte.expectUint8(83, '"S" = SSL connection supported');
     log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
-    log("We then start a TLS handshake, which begins with the \u2018client hello\u2019:");
+    log("We then start a TLS handshake, which begins with the \u2018client hello\u2019 ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):");
   }
-  log("*** Hint: click the handshake log message below to expand. ***");
   const sslResponse = new Bytes(1);
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();

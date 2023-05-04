@@ -187,7 +187,7 @@ export async function readEncryptedHandshake(
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true) throw new Error('Invalid server verify hash');
 
-  chatty && log('Decrypted using the server handshake key, the server’s handshake messages are parsed as follows. This is a long section, since X.509 certificates are quite complex and there will be several of them:');
+  chatty && log('Decrypted using the server handshake key, the server’s handshake messages are parsed as follows ([source](https://github.com/jawj/subtls/blob/main/src/tls/readEncryptedHandshake.ts)). This is a long section, since X.509 certificates are quite complex and there will be several of them:');
   chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
 
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);

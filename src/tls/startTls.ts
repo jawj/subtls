@@ -36,7 +36,7 @@ export async function startTls(
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
   networkWrite(initialData);
 
-  chatty && log('The server responds:');
+  chatty && log('The server sends a response, and we parse it ([source](https://github.com/jawj/subtls/blob/main/src/tls/parseServerHello.ts)):');
   if (expectPreData) {
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData)) throw new Error('Pre data did not match expectation');
