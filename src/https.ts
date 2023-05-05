@@ -24,7 +24,7 @@ export async function https(urlStr: string, method: string, transportFactory: ty
   const port = url.port || 443;  // not `?? 443`, because it's an empty string if unspecified
   const reqPath = url.pathname + url.search;
 
-  chatty && log('We begin the TLS handshake by sending a client hello message:');
+  chatty && log('We begin the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):');
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + baltimoreroot);
 

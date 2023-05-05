@@ -31,11 +31,9 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     if (!done) throw new Error('Unexpected connection close');
   });
 
-  // https://www.postgresql.org/docs/current/protocol-message-formats.html
-
   const sslRequest = new Bytes(8);
   const endSslRequest = sslRequest.writeLengthUint32Incl(chatty && 'SSL request');
-  sslRequest.writeUint32(0x04d2162f, 'SSL request code ([Postgres docs: SSLRequest](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST))');
+  sslRequest.writeUint32(0x04d2162f, '[SSLRequest](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST) code');
   endSslRequest();
 
   chatty && log('First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:');
@@ -149,14 +147,14 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
       endParams();
 
     } else if (msgType === 'K') {
-      chatty && postAuthBytes.comment('= back-end key data');
+      chatty && postAuthBytes.comment('= [BackendKeyData](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-BACKENDKEYDATA)');
       const [endKeyData] = postAuthBytes.expectLengthUint32Incl();
       postAuthBytes.readUint32(chatty && 'backend process ID');
       postAuthBytes.readUint32(chatty && 'backend secret key');
       endKeyData();
 
     } else if (msgType === 'Z') {
-      chatty && postAuthBytes.comment('= ready for query');
+      chatty && postAuthBytes.comment('= [ReadyForQuery](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-READYFORQUERY)');
       const [endStatus] = postAuthBytes.expectLengthUint32Incl(chatty && 'status');
       postAuthBytes.expectUint8('I'.charCodeAt(0), chatty && '"I" = status: idle');
       endStatus();
@@ -169,7 +167,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   const queryResult = await read();
   const queryResultBytes = new Bytes(queryResult!);
 
-  queryResultBytes.expectUint8('T'.charCodeAt(0), chatty && '"T" = row description');
+  queryResultBytes.expectUint8('T'.charCodeAt(0), chatty && '"T" = [RowDescription](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-ROWDESCRIPTION)');
   const [endRowDescription] = queryResultBytes.expectLengthUint32Incl();
   const fieldsPerRow = queryResultBytes.readUint16(chatty && 'fields per row');
   for (let i = 0; i < fieldsPerRow; i++) {
@@ -189,7 +187,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   while (queryResultBytes.remaining() > 0) {
     const msgType = queryResultBytes.readUTF8String(1);
     if (msgType === 'D') {
-      chatty && queryResultBytes.comment('= data row');
+      chatty && queryResultBytes.comment('= [DataRow](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-DATAROW)');
       const [endDataRow] = queryResultBytes.expectLengthUint32Incl();
       const columnsToFollow = queryResultBytes.readUint16(chatty && 'columns to follow');
       for (let i = 0; i < columnsToFollow; i++) {
@@ -201,14 +199,14 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
       endDataRow();
 
     } else if (msgType === 'C') {
-      chatty && queryResultBytes.comment('= close command');
+      chatty && queryResultBytes.comment('= [Close](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-CLOSE)');
       const [endClose] = queryResultBytes.expectLengthUint32Incl();
       queryResultBytes.readUTF8StringNullTerminated();
       chatty && queryResultBytes.comment('= command tag', queryResultBytes.offset - 1);
       endClose();
 
     } else if (msgType === 'Z') {
-      chatty && queryResultBytes.comment('= ready for query');
+      chatty && queryResultBytes.comment('= [ReadyForQuery](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-READYFORQUERY)');
       const [endReady] = queryResultBytes.expectLengthUint32Incl();
       queryResultBytes.expectUint8('I'.charCodeAt(0), chatty && '"I" = status: idle');
       endReady();
@@ -226,7 +224,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
   const endBytes = new Bytes(5);
   endBytes.writeUTF8String('X');
-  chatty && endBytes.comment('= terminate');
+  chatty && endBytes.comment('= [Terminate](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-TERMINATE)');
   const endTerminate = endBytes.writeLengthUint32Incl();
   endTerminate();
 

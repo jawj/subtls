@@ -1789,7 +1789,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
   networkWrite(initialData);
-  log("The server sends a response, and we parse it ([source](https://github.com/jawj/subtls/blob/main/src/tls/parseServerHello.ts)):");
+  log("The server returns a response, and we parse it ([source](https://github.com/jawj/subtls/blob/main/src/tls/parseServerHello.ts)):");
   if (expectPreData) {
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData))
@@ -1926,7 +1926,7 @@ async function postgres(urlStr2, transportFactory) {
   });
   const sslRequest = new Bytes(8);
   const endSslRequest = sslRequest.writeLengthUint32Incl("SSL request");
-  sslRequest.writeUint32(80877103, "SSL request code ([Postgres docs: SSLRequest](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST))");
+  sslRequest.writeUint32(80877103, "[SSLRequest](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST) code");
   endSslRequest();
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
@@ -2013,13 +2013,13 @@ async function postgres(urlStr2, transportFactory) {
       }
       endParams();
     } else if (msgType === "K") {
-      postAuthBytes.comment("= back-end key data");
+      postAuthBytes.comment("= [BackendKeyData](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-BACKENDKEYDATA)");
       const [endKeyData] = postAuthBytes.expectLengthUint32Incl();
       postAuthBytes.readUint32("backend process ID");
       postAuthBytes.readUint32("backend secret key");
       endKeyData();
     } else if (msgType === "Z") {
-      postAuthBytes.comment("= ready for query");
+      postAuthBytes.comment("= [ReadyForQuery](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-READYFORQUERY)");
       const [endStatus] = postAuthBytes.expectLengthUint32Incl("status");
       postAuthBytes.expectUint8("I".charCodeAt(0), '"I" = status: idle');
       endStatus();
@@ -2030,7 +2030,7 @@ async function postgres(urlStr2, transportFactory) {
   log("Lastly, it returns our query result. Encrypted:");
   const queryResult = await read();
   const queryResultBytes = new Bytes(queryResult);
-  queryResultBytes.expectUint8("T".charCodeAt(0), '"T" = row description');
+  queryResultBytes.expectUint8("T".charCodeAt(0), '"T" = [RowDescription](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-ROWDESCRIPTION)');
   const [endRowDescription] = queryResultBytes.expectLengthUint32Incl();
   const fieldsPerRow = queryResultBytes.readUint16("fields per row");
   for (let i = 0; i < fieldsPerRow; i++) {
@@ -2049,7 +2049,7 @@ async function postgres(urlStr2, transportFactory) {
   while (queryResultBytes.remaining() > 0) {
     const msgType = queryResultBytes.readUTF8String(1);
     if (msgType === "D") {
-      queryResultBytes.comment("= data row");
+      queryResultBytes.comment("= [DataRow](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-DATAROW)");
       const [endDataRow] = queryResultBytes.expectLengthUint32Incl();
       const columnsToFollow = queryResultBytes.readUint16("columns to follow");
       for (let i = 0; i < columnsToFollow; i++) {
@@ -2060,13 +2060,13 @@ async function postgres(urlStr2, transportFactory) {
       }
       endDataRow();
     } else if (msgType === "C") {
-      queryResultBytes.comment("= close command");
+      queryResultBytes.comment("= [Close](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-CLOSE)");
       const [endClose] = queryResultBytes.expectLengthUint32Incl();
       queryResultBytes.readUTF8StringNullTerminated();
       queryResultBytes.comment("= command tag", queryResultBytes.offset - 1);
       endClose();
     } else if (msgType === "Z") {
-      queryResultBytes.comment("= ready for query");
+      queryResultBytes.comment("= [ReadyForQuery](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-READYFORQUERY)");
       const [endReady] = queryResultBytes.expectLengthUint32Incl();
       queryResultBytes.expectUint8("I".charCodeAt(0), '"I" = status: idle');
       endReady();
@@ -2080,7 +2080,7 @@ async function postgres(urlStr2, transportFactory) {
   log("%c%s", "font-size: 2em", lastColumnData);
   const endBytes = new Bytes(5);
   endBytes.writeUTF8String("X");
-  endBytes.comment("= terminate");
+  endBytes.comment("= [Terminate](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-TERMINATE)");
   const endTerminate = endBytes.writeLengthUint32Incl();
   endTerminate();
   log("Last of all, we send a termination command. Before encryption, that\u2019s:");
@@ -2112,7 +2112,7 @@ async function https(urlStr2, method, transportFactory) {
   const host = url.hostname;
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
-  log("We begin the TLS handshake by sending a client hello message:");
+  log("We begin the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):");
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default);
   const transport = await transportFactory(host, port);
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write);

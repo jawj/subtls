@@ -54,6 +54,10 @@
       text-decoration: underline;
     }
 
+    #logs .section a:hover {
+      background: #ffc;
+    }
+
     .section:before {
       content: '◀︎|▶︎ Click to expand';
       text-transform: uppercase;
@@ -116,7 +120,7 @@
     <a href="#" onclick="document.querySelectorAll('input').forEach(i => i.checked = false); return false;">▶︎|◀︎ Collapse all</a>
   </div>
   <div class="discussion">
-    <h1 id="heading">Watch this page fetch itself, byte by byte, over TLS</h1>
+    <h1 id="heading">See this page fetch itself, byte by byte, over TLS</h1>
     <ul>
       <li>This page performs a live, annotated <i>https:</i> request for its own source. It’s inspired by <a href="https://tls13.xargs.org/">The Illustrated TLS 1.3 Connection</a> and Julia Evans’ <a href="https://jvns.ca/blog/2022/03/23/a-toy-version-of-tls/">toy TLS 1.3</a>.</li>
       <li>It’s built on <a href="https://github.com/jawj/subtls">subtls</a>, a pure-JS TLS 1.3 implementation that depends only on <a href="https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto">SubtleCrypto</a>. Raw TCP traffic is carried via a <a href="https://github.com/neondatabase/wsproxy">WebSocket proxy</a>.</li>
