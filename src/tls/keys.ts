@@ -4,7 +4,7 @@ import { highlightColonList } from '../presentation/highlights';
 import cs from '../util/cryptoProxy';
 import { hkdfExtract, hkdfExpandLabel } from './hkdf';
 
-export async function getHandshakeKeys(serverPublicKey: Uint8Array, privateKey: CryptoKey, hellos: Uint8Array, hashBits: 256 | 384, keyLength: 16 | 32) {  // keyLength: 16 for ASE128, 32 for AES256
+export async function getHandshakeKeys(serverPublicKey: Uint8Array, privateKey: CryptoKey, hellos: Uint8Array, hashBits: 256 | 384, keyLength: 16 | 32) {  // keyLength: 16 for AES128, 32 for AES256
   const hashBytes = hashBits >>> 3;
   const zeroKey = new Uint8Array(hashBytes);
 

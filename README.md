@@ -28,7 +28,7 @@ Fundamentally, there’s not much of a state machine here: we just expect a most
 
 ## How could this ever be useful?
 
-Why would we need a JS implementation of TLS? On Node.js, there’s `tls.connect`. In browsers, TLS-secured connections are easy using WebSockets and the `fetch` API ... and in any case, there’s no TCP!
+Why would we need a JS implementation of TLS? On Node.js, there’s `tls.connect()`. In browsers, TLS-secured connections are easy using WebSockets and the `fetch` API ... and in any case, there’s no TCP!
 
 Well, this library arose out of wanting to speak TCP-based protocols (e.g. Postgres) from V8 isolate-based serverless environments which don’t do TCP.
 
@@ -42,7 +42,7 @@ Note: there are some annoying roadblocks to using this in web browsers. From an 
 
 Thankfully, almost no actual crypto is implemented here: [SubtleCrypto](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto) covers almost everything we need. 
 
-The one exception is the HKDF functions in `tls/keys.ts`. SubtleCrypto’s documentation is not very good, but from what I could make out [its HKDF support](https://developer.mozilla.org/en-US/docs/Web/API/HkdfParams) is not quite flexible enough to use here (please tell me if I'm wrong, which is very possible).
+The one exception is the HKDF functions in `src/tls/hkdf.ts`. SubtleCrypto’s documentation is not very good, but from what I could make out [its HKDF support](https://developer.mozilla.org/en-US/docs/Web/API/HkdfParams) is not quite flexible enough to use here (please tell me if I'm wrong, which is very possible).
 
 Of course, my HKDF implementation leans heavily on HMAC calculations which are themselves punted to SubtleCrypto.
 
@@ -52,19 +52,23 @@ This code really needs auditing and testing. As a start, it's a shame that https
 
 ## SubtleCrypto wishlist
 
-It would be nice if SubtleCrypto added support for Curve25519 and x448, and for ChaCha20 and Poly1305.
+Things that would be nice to see in SubtleCrypto in future:
 
-It would also be really nice (and save some memory and CPU) if SubtleCrypto offered digest streams. Cloudflare have already noticed this and added [non-standardised support](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/#constructors).
+* Support for Curve25519 and x448, and for ChaCha20 and Poly1305.
+* Digest streams. These can save memory and CPU. Cloudflare have already noticed this and added [non-standardised support](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/#constructors).
+* Better documentation and more examples!
+
+There are also some interesting differences between SubtleCrypto implementations across platforms. In particular, successive calls to `encrypt` and `decrypt` return `Promise` objects that, on some platforms (e.g. Chrome), appear to always resolve in the same order that they were returned but, on other platforms (e.g. Node), occasionally resolve out of order.
 
 ## Navigating the code
 
-For an outline of the code, start in `tls/startTls.ts`, which orchestrates most of it.
+For an outline of the code, start in `src/tls/startTls.ts`, which orchestrates most of it.
 
-You’ll notice heavy use of the `Bytes` class (found in `util/bytes.ts`) throughout. This is used for writing and parsing binary data, and is a wrapper around a `Uint8Array` and a `DataView`, offering three key additional features:
+You’ll notice heavy use of the `Bytes` class (found in `src/util/bytes.ts`) throughout. This is used for writing and parsing binary data, and is a wrapper around a `Uint8Array` and a `DataView`, offering three key additional features:
 
 * **A cursor** &nbsp; It keeps an `offset` property up to date, making it easy to write a sequence of binary data types.
 
-* **Lengths** &nbsp; It has methods for reading and writing fields that correspond to the lengths of upcoming data. For example, when writing the ClientHello message, we do this:
+* **Lengths and [TLV](https://en.wikipedia.org/wiki/Type%E2%80%93length%E2%80%93value)** &nbsp; It has methods for reading and writing fields that correspond to the lengths of upcoming data. For example, when writing the ClientHello message, we do this:
 
   ```typescript
   const endCiphers = h.writeLengthUint16();
@@ -151,7 +155,7 @@ The name _subtls_ is a play on SubtleCrypto + TLS, and perhaps also conveys the 
 
 First of all: **don’t**. This code is not ready to be used in production.
 
-Second, there are example uses in `https.ts` and `postgres.ts`. 
+Second, there are example uses in `src/https.ts` and `src/postgres.ts`. 
 
 Essentially, you call `startTls` with a hostname, one or more PEM-format root certificates, and functions it can use to read and write unencrypted data to and from the network.
 
