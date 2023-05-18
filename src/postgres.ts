@@ -60,8 +60,19 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
   const [read, write] = pipelineSSLRequest ?
-    await startTls(host, rootCert, transport.read, transport.write, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') :
-    await startTls(host, rootCert, transport.read, transport.write, !useSNIHack);
+    await startTls(host, rootCert, transport.read, transport.write, {
+      useSNI: !useSNIHack,
+      requireServerTlsExtKeyUsage: false,
+      requireDigitalSigKeyUsage: false,
+      writePreData,
+      expectPreData,
+      commentPreData: '"S" = SSL connection supported',
+    }) :
+    await startTls(host, rootCert, transport.read, transport.write, {
+      useSNI: !useSNIHack,
+      requireServerTlsExtKeyUsage: false,
+      requireDigitalSigKeyUsage: false,
+    });
 
   const msg = new Bytes(1024);
 

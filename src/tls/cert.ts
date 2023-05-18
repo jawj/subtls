@@ -1,6 +1,7 @@
 
 import { base64Decode } from '../util/base64';
 import { ASN1Bytes } from '../util/asn1bytes';
+import stableStringify from '../util/stableStringify';
 
 import {
   universalTypeBitString,
@@ -55,6 +56,14 @@ export class Cert {
   subjectKeyIdentifier?: Uint8Array;
   basicConstraints?: { critical?: boolean; ca?: boolean; pathLength?: number } | undefined;
   signedData: Uint8Array;
+
+  static distinguishedNamesAreEqual(dn1: Record<string, string>, dn2: Record<string, string>) {
+    return stableStringify(dn1) === stableStringify(dn2);
+  }
+
+  static readableDN(dn: Record<string, string>) {
+    return Object.entries(dn).map(x => x.join('=')).join(', ');
+  }
 
   constructor(certData: Uint8Array | ASN1Bytes) {
     const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
@@ -206,14 +215,27 @@ export class Cert {
             chatty && cb.comment('authority key identifier');
             endAuthKeyId();
 
-          } else if (authKeyIdDatumType === (contextSpecificType | 1) || authKeyIdDatumType === (contextSpecificType | 2)) {
-            chatty && cb.comment('context-specific type: authority cert issuer or authority cert serial number');
-            const [endAuthKeyIdExtra, authKeyIdExtraRemaining] = cb.expectASN1Length(chatty && 'authority cert issuer or authority cert serial number');
-            cb.skip(authKeyIdExtraRemaining(), chatty && 'ignored');
-            endAuthKeyIdExtra();
+          } else if (authKeyIdDatumType === (contextSpecificType | 1)) {
+            chatty && cb.comment('context-specific type: authority cert issuer');
+            const [endAuthKeyIdCertIssuer, authKeyIdCertIssuerRemaining] = cb.expectASN1Length(chatty && 'authority cert issuer');
+            cb.skip(authKeyIdCertIssuerRemaining(), chatty && 'ignored');
+            endAuthKeyIdCertIssuer();
+
+          } else if (authKeyIdDatumType === (contextSpecificType | 2)) {
+            chatty && cb.comment('context-specific type: authority cert serial number');
+            const [endAuthKeyIdCertSerialNo, authKeyIdCertSerialNoRemaining] = cb.expectASN1Length(chatty && 'authority cert issuer or authority cert serial number');
+            cb.skip(authKeyIdCertSerialNoRemaining(), chatty && 'ignored');
+            endAuthKeyIdCertSerialNo();
+
+          } else if (authKeyIdDatumType === (contextSpecificType | 33)) {  // where is this documented?!
+            chatty && cb.comment('context-specific type: DirName');
+            const [endDirName, dirNameRemaining] = cb.expectASN1Length(chatty && 'DirName');
+            cb.skip(dirNameRemaining(), chatty && 'ignored');
+            chatty && console.log(cb.commentedString());
+            endDirName();
 
           } else {
-            throw new Error('Unexpected data type in authorityKeyIdentifier certificate extension');
+            throw new Error(`Unexpected data type ${authKeyIdDatumType} in authorityKeyIdentifier certificate extension`);
           }
         }
 
@@ -351,10 +373,10 @@ export class Cert {
   }
 
   description() {
-    return 'subject: ' + Object.entries(this.subject).map(x => x.join('=')).join(', ') +
+    return 'subject: ' + Cert.readableDN(this.subject) +
       (this.subjectAltNames ? '\nsubject alt names: ' + this.subjectAltNames.join(', ') : '') +
       (this.subjectKeyIdentifier ? `\nsubject key id: ${hexFromU8(this.subjectKeyIdentifier, ' ')}` : '') +
-      '\nissuer: ' + Object.entries(this.issuer).map(x => x.join('=')).join(', ') +
+      '\nissuer: ' + Cert.readableDN(this.issuer) +
       (this.authorityKeyIdentifier ? `\nauthority key id: ${hexFromU8(this.authorityKeyIdentifier, ' ')}` : '') +
       '\nvalidity: ' + this.validityPeriod.notBefore.toISOString() + ' – ' + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? 'currently valid' : 'not valid'})` +
       (this.keyUsage ? `\nkey usage (${this.keyUsage.critical ? 'critical' : 'non-critical'}): ` +

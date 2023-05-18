@@ -8,7 +8,13 @@ import { ASN1Bytes } from '../util/asn1bytes';
 import { ecdsaVerify } from './ecdsa';
 import cs from '../util/cryptoProxy';
 
-export async function verifyCerts(host: string, certs: Cert[], rootCerts: TrustedCert[]) {
+export async function verifyCerts(
+  host: string,
+  certs: Cert[],
+  rootCerts: TrustedCert[],
+  requireServerTlsExtKeyUsage = true,
+  requireDigitalSigKeyUsage = true,
+) {
 
   // end-user certificate checks
   chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates received from host');
@@ -25,8 +31,10 @@ export async function verifyCerts(host: string, certs: Cert[], rootCerts: Truste
   if (!validNow) throw new Error('End-user certificate is not valid now');
   chatty && log(`%c✓ end-user certificate is valid now`, 'color: #8c8;');
 
-  if (!userCert.extKeyUsage?.serverTls) throw new Error('End-user certificate has no TLS server extKeyUsage');
-  chatty && log(`%c✓ end-user certificate has TLS server extKeyUsage`, 'color: #8c8;');
+  if (requireServerTlsExtKeyUsage) {
+    if (!userCert.extKeyUsage?.serverTls) throw new Error('End-user certificate has no TLS server extKeyUsage');
+    chatty && log(`%c✓ end-user certificate has TLS server extKeyUsage`, 'color: #8c8;');
+  }
 
   // certificate chain checks
   chatty && log('Next, we verify the signature of each certificate using the public key of the next certificate in the chain. This carries on until we find a certificate we can verify using one of our own trusted root certificates (or until we reach the end of the chain and therefore fail):');
@@ -39,11 +47,23 @@ export async function verifyCerts(host: string, certs: Cert[], rootCerts: Truste
   for (let i = 0, len = certs.length; i < len; i++) {
     const subjectCert = certs[i];
     const subjectAuthKeyId = subjectCert.authorityKeyIdentifier;
-    if (subjectAuthKeyId === undefined) throw new Error('Certificates without an authorityKeyIdentifier are not supported');
 
-    // first, see if any trusted root cert has a subjKeyId matching the authKeyId
-    let signingCert: Cert | undefined = rootCerts.find(cert =>
-      cert.subjectKeyIdentifier !== undefined && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
+    // if (subjectAuthKeyId === undefined) throw new Error('Certificates without an authorityKeyIdentifier are not supported');
+    let signingCert: Cert | undefined;
+
+    // first, see if any trusted root cert has a subjKeyId matching the authKeyId, or if there's no subjKeyId, an issuer matching the subject
+    if (subjectAuthKeyId === undefined) {
+      signingCert = rootCerts.find(cert =>
+        Cert.distinguishedNamesAreEqual(cert.subject, subjectCert.issuer));
+
+      signingCert && chatty && log('matched certificates on subject/issuer distinguished name: %s', Cert.readableDN(signingCert.subject));
+
+    } else {
+      signingCert = rootCerts.find(cert =>
+        cert.subjectKeyIdentifier !== undefined && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
+
+      signingCert && chatty && log('matched certificates on key id: %s', hexFromU8(subjectAuthKeyId, ' '));
+    }
 
     // if not, try the next supplied certificate
     if (signingCert === undefined) signingCert = certs[i + 1];
@@ -51,11 +71,9 @@ export async function verifyCerts(host: string, certs: Cert[], rootCerts: Truste
     // if we still didn't find a signing certificate, give up
     if (signingCert === undefined) throw new Error('Ran out of certificates before reaching trusted root');
 
-    chatty && log('matched certificates on key id %s', hexFromU8(subjectAuthKeyId, ' '));
-
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
     if (signingCert.isValidAtMoment() !== true) throw new Error('Signing certificate is not valid now');
-    if (signingCert.keyUsage?.usages.has('digitalSignature') !== true) throw new Error('Signing certificate keyUsage does not include digital signatures');
+    if (requireDigitalSigKeyUsage && signingCert.keyUsage?.usages.has('digitalSignature') !== true) throw new Error('Signing certificate keyUsage does not include digital signatures');
     if (signingCert.basicConstraints?.ca !== true) throw new Error('Signing certificate basicConstraints do not indicate a CA certificate');
     const { pathLength } = signingCert.basicConstraints;
     if (pathLength !== undefined && pathLength < i) throw new Error('Exceeded certificate path length');

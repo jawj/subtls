@@ -19,11 +19,19 @@ export async function startTls(
   rootCerts: TrustedCert[],
   networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
   networkWrite: (data: Uint8Array) => void,
-  useSNI = true,
-  writePreData?: Uint8Array,
-  expectPreData?: Uint8Array,
-  commentPreData?: string,
+  { useSNI, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData }: {
+    useSNI?: boolean,
+    requireServerTlsExtKeyUsage?: boolean,
+    requireDigitalSigKeyUsage?: boolean,
+    writePreData?: Uint8Array,
+    expectPreData?: Uint8Array,
+    commentPreData?: string,
+  } = {}
 ) {
+  useSNI ??= true;
+  requireServerTlsExtKeyUsage ??= true;
+  requireDigitalSigKeyUsage ??= true;
+
   const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
   const rawPublicKey = await cs.exportKey('raw', ecdhKeys.publicKey);
 
@@ -80,7 +88,15 @@ export async function startTls(
     if (tlsRecord === undefined) throw new Error('Premature end of encrypted server handshake');
     return tlsRecord;
   };
-  const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
+  const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(
+    host,
+    readHandshakeRecord,
+    handshakeKeys.serverSecret,
+    hellos,
+    rootCerts,
+    requireServerTlsExtKeyUsage,
+    requireDigitalSigKeyUsage,
+  );
 
   // dummy cipher change
   chatty && log('For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, it’s the client’s turn to send a meaningless cipher change record:');

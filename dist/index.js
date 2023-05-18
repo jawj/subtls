@@ -927,6 +927,15 @@ var ASN1Bytes = class extends Bytes {
   }
 };
 
+// src/util/stableStringify.ts
+function stableStringify(x, replacer = (_, v) => v, indent) {
+  const deterministicReplacer = (k, v) => replacer(
+    k,
+    typeof v !== "object" || v === null || Array.isArray(v) ? v : Object.fromEntries(Object.entries(v).sort(([ka], [kb]) => ka < kb ? -1 : ka > kb ? 1 : 0))
+  );
+  return JSON.stringify(x, deterministicReplacer, indent);
+}
+
 // src/tls/certUtils.ts
 var universalTypeBoolean = 1;
 var universalTypeInteger = 2;
@@ -1279,6 +1288,12 @@ var Cert = class {
   subjectKeyIdentifier;
   basicConstraints;
   signedData;
+  static distinguishedNamesAreEqual(dn1, dn2) {
+    return stableStringify(dn1) === stableStringify(dn2);
+  }
+  static readableDN(dn) {
+    return Object.entries(dn).map((x) => x.join("=")).join(", ");
+  }
   constructor(certData) {
     const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate)");
@@ -1399,13 +1414,24 @@ var Cert = class {
             this.authorityKeyIdentifier = cb.readBytes(authKeyIdRemaining());
             cb.comment("authority key identifier");
             endAuthKeyId();
-          } else if (authKeyIdDatumType === (contextSpecificType | 1) || authKeyIdDatumType === (contextSpecificType | 2)) {
-            cb.comment("context-specific type: authority cert issuer or authority cert serial number");
-            const [endAuthKeyIdExtra, authKeyIdExtraRemaining] = cb.expectASN1Length("authority cert issuer or authority cert serial number");
-            cb.skip(authKeyIdExtraRemaining(), "ignored");
-            endAuthKeyIdExtra();
+          } else if (authKeyIdDatumType === (contextSpecificType | 1)) {
+            cb.comment("context-specific type: authority cert issuer");
+            const [endAuthKeyIdCertIssuer, authKeyIdCertIssuerRemaining] = cb.expectASN1Length("authority cert issuer");
+            cb.skip(authKeyIdCertIssuerRemaining(), "ignored");
+            endAuthKeyIdCertIssuer();
+          } else if (authKeyIdDatumType === (contextSpecificType | 2)) {
+            cb.comment("context-specific type: authority cert serial number");
+            const [endAuthKeyIdCertSerialNo, authKeyIdCertSerialNoRemaining] = cb.expectASN1Length("authority cert issuer or authority cert serial number");
+            cb.skip(authKeyIdCertSerialNoRemaining(), "ignored");
+            endAuthKeyIdCertSerialNo();
+          } else if (authKeyIdDatumType === (contextSpecificType | 33)) {
+            cb.comment("context-specific type: DirName");
+            const [endDirName, dirNameRemaining] = cb.expectASN1Length("DirName");
+            cb.skip(dirNameRemaining(), "ignored");
+            console.log(cb.commentedString());
+            endDirName();
           } else {
-            throw new Error("Unexpected data type in authorityKeyIdentifier certificate extension");
+            throw new Error(`Unexpected data type ${authKeyIdDatumType} in authorityKeyIdentifier certificate extension`);
           }
         }
         endAuthKeyIdSeq();
@@ -1510,8 +1536,8 @@ var Cert = class {
     return moment >= this.validityPeriod.notBefore && moment <= this.validityPeriod.notAfter;
   }
   description() {
-    return "subject: " + Object.entries(this.subject).map((x) => x.join("=")).join(", ") + (this.subjectAltNames ? "\nsubject alt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
-subject key id: ${hexFromU8(this.subjectKeyIdentifier, " ")}` : "") + "\nissuer: " + Object.entries(this.issuer).map((x) => x.join("=")).join(", ") + (this.authorityKeyIdentifier ? `
+    return "subject: " + Cert.readableDN(this.subject) + (this.subjectAltNames ? "\nsubject alt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
+subject key id: ${hexFromU8(this.subjectKeyIdentifier, " ")}` : "") + "\nissuer: " + Cert.readableDN(this.issuer) + (this.authorityKeyIdentifier ? `
 authority key id: ${hexFromU8(this.authorityKeyIdentifier, " ")}` : "") + "\nvalidity: " + this.validityPeriod.notBefore.toISOString() + " \u2013 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? "currently valid" : "not valid"})` + (this.keyUsage ? `
 key usage (${this.keyUsage.critical ? "critical" : "non-critical"}): ` + [...this.keyUsage.usages].join(", ") : "") + (this.extKeyUsage ? `
 extended key usage: TLS server \u2014\xA0${this.extKeyUsage.serverTls}, TLS client \u2014\xA0${this.extKeyUsage.clientTls}` : "") + (this.basicConstraints ? `
@@ -1581,7 +1607,7 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
 }
 
 // src/tls/verifyCerts.ts
-async function verifyCerts(host, certs, rootCerts) {
+async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates received from host");
   for (const cert of certs)
     log(...highlightColonList(cert.description()));
@@ -1595,9 +1621,11 @@ async function verifyCerts(host, certs, rootCerts) {
   if (!validNow)
     throw new Error("End-user certificate is not valid now");
   log(`%c\u2713 end-user certificate is valid now`, "color: #8c8;");
-  if (!userCert.extKeyUsage?.serverTls)
-    throw new Error("End-user certificate has no TLS server extKeyUsage");
-  log(`%c\u2713 end-user certificate has TLS server extKeyUsage`, "color: #8c8;");
+  if (requireServerTlsExtKeyUsage) {
+    if (!userCert.extKeyUsage?.serverTls)
+      throw new Error("End-user certificate has no TLS server extKeyUsage");
+    log(`%c\u2713 end-user certificate has TLS server extKeyUsage`, "color: #8c8;");
+  }
   log("Next, we verify the signature of each certificate using the public key of the next certificate in the chain. This carries on until we find a certificate we can verify using one of our own trusted root certificates (or until we reach the end of the chain and therefore fail):");
   let verifiedToTrustedRoot = false;
   log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
@@ -1606,18 +1634,22 @@ async function verifyCerts(host, certs, rootCerts) {
   for (let i = 0, len = certs.length; i < len; i++) {
     const subjectCert = certs[i];
     const subjectAuthKeyId = subjectCert.authorityKeyIdentifier;
-    if (subjectAuthKeyId === void 0)
-      throw new Error("Certificates without an authorityKeyIdentifier are not supported");
-    let signingCert = rootCerts.find((cert) => cert.subjectKeyIdentifier !== void 0 && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
+    let signingCert;
+    if (subjectAuthKeyId === void 0) {
+      signingCert = rootCerts.find((cert) => Cert.distinguishedNamesAreEqual(cert.subject, subjectCert.issuer));
+      signingCert && true && log("matched certificates on subject/issuer distinguished name: %s", Cert.readableDN(signingCert.subject));
+    } else {
+      signingCert = rootCerts.find((cert) => cert.subjectKeyIdentifier !== void 0 && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
+      signingCert && true && log("matched certificates on key id: %s", hexFromU8(subjectAuthKeyId, " "));
+    }
     if (signingCert === void 0)
       signingCert = certs[i + 1];
     if (signingCert === void 0)
       throw new Error("Ran out of certificates before reaching trusted root");
-    log("matched certificates on key id %s", hexFromU8(subjectAuthKeyId, " "));
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
     if (signingCert.isValidAtMoment() !== true)
       throw new Error("Signing certificate is not valid now");
-    if (signingCert.keyUsage?.usages.has("digitalSignature") !== true)
+    if (requireDigitalSigKeyUsage && signingCert.keyUsage?.usages.has("digitalSignature") !== true)
       throw new Error("Signing certificate keyUsage does not include digital signatures");
     if (signingCert.basicConstraints?.ca !== true)
       throw new Error("Signing certificate basicConstraints do not indicate a CA certificate");
@@ -1657,7 +1689,7 @@ async function verifyCerts(host, certs, rootCerts) {
 
 // src/tls/readEncryptedHandshake.ts
 var txtEnc3 = new TextEncoder();
-async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos, rootCerts) {
+async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos, rootCerts, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
   const hs = new ASN1Bytes(await readHandshakeRecord());
   hs.expectUint8(8, "handshake record type: encrypted extensions ([RFC8446 \xA74.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))");
   const [eeMessageEnd] = hs.expectLengthUint24();
@@ -1772,14 +1804,17 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     throw new Error("Invalid server verify hash");
   log("Decrypted using the server handshake key, the server\u2019s handshake messages are parsed as follows ([source](https://github.com/jawj/subtls/blob/main/src/tls/readEncryptedHandshake.ts)). This is a long section, since X.509 certificates are quite complex and there will be several of them:");
   log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
-  const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts);
+  const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot)
     throw new Error("Validated certificate chain did not end in a trusted root");
   return [hs.data, clientCertRequested];
 }
 
 // src/tls/startTls.ts
-async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = true, writePreData, expectPreData, commentPreData) {
+async function startTls(host, rootCerts, networkRead, networkWrite, { useSNI, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData } = {}) {
+  useSNI ??= true;
+  requireServerTlsExtKeyUsage ??= true;
+  requireDigitalSigKeyUsage ??= true;
   const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKey = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
   const sessionId = new Uint8Array(32);
@@ -1828,7 +1863,15 @@ async function startTls(host, rootCerts, networkRead, networkWrite, useSNI = tru
       throw new Error("Premature end of encrypted server handshake");
     return tlsRecord;
   };
-  const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(host, readHandshakeRecord, handshakeKeys.serverSecret, hellos, rootCerts);
+  const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(
+    host,
+    readHandshakeRecord,
+    handshakeKeys.serverSecret,
+    hellos,
+    rootCerts,
+    requireServerTlsExtKeyUsage,
+    requireDigitalSigKeyUsage
+  );
   log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, it\u2019s the client\u2019s turn to send a meaningless cipher change record:");
   const clientCipherChange = new Bytes(6);
   clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
@@ -1946,7 +1989,18 @@ async function postgres(urlStr2, transportFactory) {
   sslResponse.writeUTF8String("S");
   const expectPreData = sslResponse.array();
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
-  const [read, write] = pipelineSSLRequest ? await startTls(host, rootCert, transport.read, transport.write, !useSNIHack, writePreData, expectPreData, '"S" = SSL connection supported') : await startTls(host, rootCert, transport.read, transport.write, !useSNIHack);
+  const [read, write] = pipelineSSLRequest ? await startTls(host, rootCert, transport.read, transport.write, {
+    useSNI: !useSNIHack,
+    requireServerTlsExtKeyUsage: false,
+    requireDigitalSigKeyUsage: false,
+    writePreData,
+    expectPreData,
+    commentPreData: '"S" = SSL connection supported'
+  }) : await startTls(host, rootCert, transport.read, transport.write, {
+    useSNI: !useSNIHack,
+    requireServerTlsExtKeyUsage: false,
+    requireDigitalSigKeyUsage: false
+  });
   const msg = new Bytes(1024);
   const endStartupMessage = msg.writeLengthUint32Incl("[StartupMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE)");
   msg.writeUint32(196608, "protocol version");
