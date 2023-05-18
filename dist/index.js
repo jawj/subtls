@@ -2194,35 +2194,15 @@ Host: ${host}\r
 }
 
 // src/util/readqueue.ts
-var PretendWebSocket = class {
-  addEventListener(...args) {
-  }
-};
 var ReadQueue = class {
-  constructor(socket) {
-    this.socket = socket;
-    this.queue = [];
-    if (socket instanceof (globalThis.WebSocket ?? PretendWebSocket)) {
-      this.socketIsWebSocket = true;
-      socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
-      socket.addEventListener("close", () => this.dequeue());
-    } else {
-      this.socketIsWebSocket = false;
-      socket.on("data", (data) => this.enqueue(new Uint8Array(data)));
-      socket.on("close", () => this.dequeue());
-    }
-  }
   queue;
-  socketIsWebSocket;
   outstandingRequest;
+  constructor() {
+    this.queue = [];
+  }
   enqueue(data) {
     this.queue.push(data);
     this.dequeue();
-  }
-  socketIsNotClosed() {
-    const { socket } = this;
-    const { readyState } = socket;
-    return this.socketIsWebSocket ? readyState <= 1 /* OPEN */ : readyState === "opening" || readyState === "open";
   }
   dequeue() {
     if (this.outstandingRequest === void 0)
@@ -2277,6 +2257,19 @@ var ReadQueue = class {
     });
   }
 };
+var WebSocketReadQueue = class extends ReadQueue {
+  constructor(socket) {
+    super();
+    this.socket = socket;
+    socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+    socket.addEventListener("close", () => this.dequeue());
+  }
+  socketIsNotClosed() {
+    const { socket } = this;
+    const { readyState } = socket;
+    return readyState <= 1 /* OPEN */;
+  }
+};
 
 // src/util/wsTransport.ts
 async function wsTransport(host, port, close = () => {
@@ -2293,7 +2286,7 @@ async function wsTransport(host, port, close = () => {
       close();
     });
   });
-  const reader = new ReadQueue(ws);
+  const reader = new WebSocketReadQueue(ws);
   const read = reader.read.bind(reader);
   const write = ws.send.bind(ws);
   return { read, write };

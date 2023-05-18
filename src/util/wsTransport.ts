@@ -1,4 +1,4 @@
-import { ReadQueue } from "./readqueue";
+import { WebSocketReadQueue } from "./readqueue";
 
 export default async function wsTransport(host: string, port: string | number, close = () => { }) {
   const ws = await new Promise<WebSocket>(resolve => {
@@ -11,7 +11,7 @@ export default async function wsTransport(host: string, port: string | number, c
       close();
     })
   });
-  const reader = new ReadQueue(ws);
+  const reader = new WebSocketReadQueue(ws);
   const read = reader.read.bind(reader);
   const write = ws.send.bind(ws);
   return { read, write };

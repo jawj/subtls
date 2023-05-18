@@ -12,43 +12,19 @@ enum WebSocketReadyState {
   CLOSED = 3,
 }
 
-class PretendWebSocket {
-  addEventListener(...args: any[]) {
-    void args;
-  }
-}
-
-export class ReadQueue {
+abstract class ReadQueue {
   queue: Uint8Array[];
-  socketIsWebSocket: boolean;
   outstandingRequest: DataRequest | undefined;
 
-  constructor(private socket: Socket | WebSocket) {
+  constructor() {
     this.queue = [];
-
-    if (socket instanceof (globalThis.WebSocket ?? PretendWebSocket)) {
-      this.socketIsWebSocket = true;
-      socket.addEventListener('message', (msg: any) => this.enqueue(new Uint8Array(msg.data)));
-      socket.addEventListener('close', () => this.dequeue());
-
-    } else {
-      this.socketIsWebSocket = false;
-      socket.on('data', (data: Buffer) => this.enqueue(new Uint8Array(data)));
-      socket.on('close', () => this.dequeue());
-    }
   }
+
+  abstract socketIsNotClosed(): boolean;
 
   enqueue(data: Uint8Array) {
     this.queue.push(data);
     this.dequeue();
-  }
-
-  socketIsNotClosed() {
-    const { socket } = this;
-    const { readyState } = socket;
-    return this.socketIsWebSocket ?
-      (readyState as WebSocketReadyState) <= WebSocketReadyState.OPEN :
-      readyState === 'opening' || readyState === 'open';
   }
 
   dequeue() {
@@ -109,5 +85,36 @@ export class ReadQueue {
       this.outstandingRequest = { resolve, bytes };
       this.dequeue();
     });
+  }
+}
+
+
+export class WebSocketReadQueue extends ReadQueue {
+
+  constructor(private socket: WebSocket) {
+    super();
+    socket.addEventListener('message', (msg: any) => this.enqueue(new Uint8Array(msg.data)));
+    socket.addEventListener('close', () => this.dequeue());
+  }
+
+  socketIsNotClosed() {
+    const { socket } = this;
+    const { readyState } = socket;
+    return readyState <= WebSocketReadyState.OPEN;
+  }
+}
+
+export class SocketReadQueue extends ReadQueue {
+
+  constructor(private socket: Socket) {
+    super();
+    socket.on('data', (data: Buffer) => this.enqueue(new Uint8Array(data)));
+    socket.on('close', () => this.dequeue());
+  }
+
+  socketIsNotClosed() {
+    const { socket } = this;
+    const { readyState } = socket;
+    return readyState === 'opening' || readyState === 'open';
   }
 }

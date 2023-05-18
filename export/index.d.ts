@@ -5,8 +5,14 @@ export declare class TrustedCert {
   description(): string;
 }
 
-export declare class ReadQueue {
-  constructor(private ws: WebSocket | Socket);
+export declare class WebSocketReadQueue {
+  constructor(ws: WebSocket);
+  async read(bytes: number): Promise<Uint8Array | undefined>;
+  bytesInQueue(): number;
+}
+
+export declare class SocketReadQueue {
+  constructor(socket: Socket);
   async read(bytes: number): Promise<Uint8Array | undefined>;
   bytesInQueue(): number;
 }
