@@ -12,6 +12,8 @@ import isrgrootx1 from './roots/isrg-root-x1.pem';
 import isrgrootx2 from './roots/isrg-root-x2.pem';
 // @ts-ignore
 import baltimoreroot from './roots/baltimore.pem';
+// @ts-ignore
+import digicertroot from './roots/digicert-global-root.pem';
 
 const txtDec = new TextDecoder();
 
@@ -26,7 +28,7 @@ export async function https(urlStr: string, method: string, transportFactory: ty
 
   chatty && log('We begin the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):');
 
-  const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + baltimoreroot);
+  const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + baltimoreroot + digicertroot);
 
   const transport = await transportFactory(host, port);
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write);

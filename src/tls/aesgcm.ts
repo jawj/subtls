@@ -1,9 +1,7 @@
 import cs from '../util/cryptoProxy';
 
-const maxRecords = (2 ** 31) - 1;  // because JS bit-twiddling is done on signed Int32
-
 export class Crypter {
-  recordsProcessed = 0;
+  recordsProcessed = 0n;
   priorPromise = Promise.resolve(new Uint8Array());
 
   constructor(
@@ -21,16 +19,18 @@ export class Crypter {
 
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
   async processUnsequenced(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
-    const record = this.recordsProcessed;
-    if (record === maxRecords) throw new Error('Cannot encrypt/decrypt any more records');
-    this.recordsProcessed += 1;
+    const recordIndex = this.recordsProcessed;
+    this.recordsProcessed += 1n;
 
     const iv = this.initialIv.slice();
-    const ivLength = iv.length;
-    iv[ivLength - 1] ^= record /* */ & 0xff;
-    iv[ivLength - 2] ^= record >>> 8 & 0xff;
-    iv[ivLength - 3] ^= record >>> 16 & 0xff;
-    iv[ivLength - 4] ^= record >>> 24 & 0xff;
+    const ivLength = BigInt(iv.length);
+
+    const lastIndex = ivLength - 1n;
+    for (let i = 0n; i < ivLength; i++) {
+      const shifted = recordIndex >> (i << 3n);
+      if (shifted === 0n) break;  // nothing more to be XORed
+      iv[Number(lastIndex - i)] ^= Number(shifted & 0xffn);
+    }
 
     const tagLength = authTagLength << 3;  // byte count -> bit count
     const algorithm = { name: 'AES-GCM', iv, tagLength, additionalData };

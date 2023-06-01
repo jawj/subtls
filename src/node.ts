@@ -1,5 +1,5 @@
 import { webcrypto } from 'crypto';
-globalThis.crypto = webcrypto as any;
+globalThis.crypto ??= webcrypto as any;
 
 import ws from 'ws';
 globalThis.WebSocket = ws as any;
