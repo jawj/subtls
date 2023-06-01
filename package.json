@@ -7,7 +7,7 @@
   "scripts": {
     "check": "tsc --noEmit",
     "export": "npm run check && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2022 --outfile=export/index.js --minify",
-    "build": "npm run check && esbuild --define:chatty=0 src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.min.js --minify",
+    "build": "npm run check && esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.min.js --minify",
     "watch": "esbuild --define:chatty=true src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.js --watch",
     "serve": "servor dist index.html 6543",
     "start": "npm-run-all --parallel --race watch serve",
