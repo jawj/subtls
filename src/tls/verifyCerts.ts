@@ -72,11 +72,25 @@ export async function verifyCerts(
     if (signingCert === undefined) throw new Error('Ran out of certificates before reaching trusted root');
 
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
+
+    chatty && log(`checking ${signingCertIsTrustedRoot ? 'trusted root' : 'intermediate'} signing certificate CN "${signingCert.subject.CN} ..."`);
+
     if (signingCert.isValidAtMoment() !== true) throw new Error('Signing certificate is not valid now');
-    if (requireDigitalSigKeyUsage && signingCert.keyUsage?.usages.has('digitalSignature') !== true) throw new Error('Signing certificate keyUsage does not include digital signatures');
+    chatty && log(`%c✓ certificate is valid now`, 'color: #8c8;');
+
+    if (requireDigitalSigKeyUsage) {
+      if (signingCert.keyUsage?.usages.has('digitalSignature') !== true) throw new Error('Signing certificate keyUsage does not include digital signatures');
+      chatty && log(`%c✓ certificate keyUsage includes digital signatures`, 'color: #8c8;');
+    }
+
     if (signingCert.basicConstraints?.ca !== true) throw new Error('Signing certificate basicConstraints do not indicate a CA certificate');
+    chatty && log(`%c✓ certificate basicConstraints indicate a CA certificate`, 'color: #8c8;');
+
     const { pathLength } = signingCert.basicConstraints;
-    if (pathLength !== undefined && pathLength < i) throw new Error('Exceeded certificate path length');
+    if (pathLength !== undefined) {
+      if (pathLength < i) throw new Error('Exceeded certificate pathLength');
+      chatty && log(`%c✓ certificate pathLength is not exceeded`, 'color: #8c8;');
+    }
 
     // verify cert chain signature
     chatty && log(`verifying certificate CN "${subjectCert.subject.CN}" is signed by %c${signingCertIsTrustedRoot ? 'trusted root' : 'intermediate'}%c certificate CN "${signingCert.subject.CN}" ...`,
@@ -103,6 +117,7 @@ export async function verifyCerts(
     }
 
     if (signingCertIsTrustedRoot) {
+      chatty && log(`%c✓ chain of trust validated back to a trusted root`, 'color: #8c8;');
       verifiedToTrustedRoot = true;
       break;
     }

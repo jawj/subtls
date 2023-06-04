@@ -774,14 +774,13 @@ async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyL
 }
 
 // src/tls/aesgcm.ts
-var maxRecords = 2 ** 31 - 1;
 var Crypter = class {
   constructor(mode, key, initialIv) {
     this.mode = mode;
     this.key = key;
     this.initialIv = initialIv;
   }
-  recordsProcessed = 0;
+  recordsProcessed = 0n;
   priorPromise = Promise.resolve(new Uint8Array());
   // The `Promise`s returned by successive calls to this function always resolve in sequence,
   // which is not true for `processUnsequenced` in Node (even if it seems to be in browsers)
@@ -791,16 +790,17 @@ var Crypter = class {
   }
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
   async processUnsequenced(data, authTagLength, additionalData) {
-    const record = this.recordsProcessed;
-    if (record === maxRecords)
-      throw new Error("Cannot encrypt/decrypt any more records");
-    this.recordsProcessed += 1;
+    const recordIndex = this.recordsProcessed;
+    this.recordsProcessed += 1n;
     const iv = this.initialIv.slice();
-    const ivLength = iv.length;
-    iv[ivLength - 1] ^= record & 255;
-    iv[ivLength - 2] ^= record >>> 8 & 255;
-    iv[ivLength - 3] ^= record >>> 16 & 255;
-    iv[ivLength - 4] ^= record >>> 24 & 255;
+    const ivLength = BigInt(iv.length);
+    const lastIndex = ivLength - 1n;
+    for (let i = 0n; i < ivLength; i++) {
+      const shifted = recordIndex >> (i << 3n);
+      if (shifted === 0n)
+        break;
+      iv[Number(lastIndex - i)] ^= Number(shifted & 0xffn);
+    }
     const tagLength = authTagLength << 3;
     const algorithm = { name: "AES-GCM", iv, tagLength, additionalData };
     const resultBuffer = await cryptoProxy_default[this.mode](algorithm, this.key, data);
@@ -1647,15 +1647,24 @@ async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage =
     if (signingCert === void 0)
       throw new Error("Ran out of certificates before reaching trusted root");
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
+    log(`checking ${signingCertIsTrustedRoot ? "trusted root" : "intermediate"} signing certificate CN "${signingCert.subject.CN} ..."`);
     if (signingCert.isValidAtMoment() !== true)
       throw new Error("Signing certificate is not valid now");
-    if (requireDigitalSigKeyUsage && signingCert.keyUsage?.usages.has("digitalSignature") !== true)
-      throw new Error("Signing certificate keyUsage does not include digital signatures");
+    log(`%c\u2713 certificate is valid now`, "color: #8c8;");
+    if (requireDigitalSigKeyUsage) {
+      if (signingCert.keyUsage?.usages.has("digitalSignature") !== true)
+        throw new Error("Signing certificate keyUsage does not include digital signatures");
+      log(`%c\u2713 certificate keyUsage includes digital signatures`, "color: #8c8;");
+    }
     if (signingCert.basicConstraints?.ca !== true)
       throw new Error("Signing certificate basicConstraints do not indicate a CA certificate");
+    log(`%c\u2713 certificate basicConstraints indicate a CA certificate`, "color: #8c8;");
     const { pathLength } = signingCert.basicConstraints;
-    if (pathLength !== void 0 && pathLength < i)
-      throw new Error("Exceeded certificate path length");
+    if (pathLength !== void 0) {
+      if (pathLength < i)
+        throw new Error("Exceeded certificate pathLength");
+      log(`%c\u2713 certificate pathLength is not exceeded`, "color: #8c8;");
+    }
     log(
       `verifying certificate CN "${subjectCert.subject.CN}" is signed by %c${signingCertIsTrustedRoot ? "trusted root" : "intermediate"}%c certificate CN "${signingCert.subject.CN}" ...`,
       `background: ${signingCertIsTrustedRoot ? "#ffc" : "#eee"}`,
@@ -1680,6 +1689,7 @@ async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage =
       throw new Error("Unsupported signing algorithm");
     }
     if (signingCertIsTrustedRoot) {
+      log(`%c\u2713 chain of trust validated back to a trusted root`, "color: #8c8;");
       verifiedToTrustedRoot = true;
       break;
     }
@@ -2156,6 +2166,9 @@ function parse(url, parseQueryString = false) {
 // src/roots/baltimore.pem
 var baltimore_default = "-----BEGIN CERTIFICATE-----\r\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\r\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\r\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\r\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\r\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\r\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\r\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\r\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\r\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\r\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\r\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\r\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\r\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\r\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\r\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\r\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\r\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\r\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\r\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\r\n-----END CERTIFICATE-----\r\n";
 
+// src/roots/digicert-global-root.pem
+var digicert_global_root_default = "-----BEGIN CERTIFICATE-----\r\nMIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh\r\nMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\r\nd3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBD\r\nQTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVT\r\nMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j\r\nb20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG\r\n9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsB\r\nCSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97\r\nnh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt\r\n43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7P\r\nT19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4\r\ngdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAO\r\nBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbR\r\nTLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUw\r\nDQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/Esr\r\nhMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg\r\n06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJF\r\nPnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0ls\r\nYSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQk\r\nCAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=\r\n-----END CERTIFICATE-----\r\n";
+
 // src/https.ts
 var txtDec2 = new TextDecoder();
 async function https(urlStr2, method, transportFactory) {
@@ -2167,7 +2180,7 @@ async function https(urlStr2, method, transportFactory) {
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
   log("We begin the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):");
-  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default);
+  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default + digicert_global_root_default);
   const transport = await transportFactory(host, port);
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write);
   log("Here\u2019s a GET request:");
