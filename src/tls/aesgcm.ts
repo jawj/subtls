@@ -18,7 +18,7 @@ export class Crypter {
   }
 
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
-  async processUnsequenced(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
+  async processUnsequenced(data: Uint8Array, authTagByteLength: number, additionalData: Uint8Array) {
     const recordIndex = this.recordsProcessed;
     this.recordsProcessed += 1n;
 
@@ -32,8 +32,8 @@ export class Crypter {
       iv[Number(lastIndex - i)] ^= Number(shifted & 0xffn);
     }
 
-    const tagLength = authTagLength << 3;  // byte count -> bit count
-    const algorithm = { name: 'AES-GCM', iv, tagLength, additionalData };
+    const authTagBitLength = authTagByteLength << 3;  // byte count -> bit count
+    const algorithm = { name: 'AES-GCM', iv, tagLength: authTagBitLength, additionalData };
     const resultBuffer = await cs[this.mode](algorithm, this.key, data);
     const result = new Uint8Array(resultBuffer);
     return result;

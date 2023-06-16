@@ -22,7 +22,12 @@ export declare function startTls(
   rootCerts: TrustedCert[],
   networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
   networkWrite: (data: Uint8Array) => void,
-  useSNI?: boolean,
-  writePreData?: Uint8Array,
-  expectPreData?: Uint8Array,
+  options?: {
+    useSNI?: boolean,
+    requireServerTlsExtKeyUsage?: boolean,
+    requireDigitalSigKeyUsage?: boolean,
+    writePreData?: Uint8Array,
+    expectPreData?: Uint8Array,
+    commentPreData?: string,
+  } = {},
 ): Promise<readonly [() => Promise<Uint8Array | undefined>, (data: Uint8Array) => Promise<void>]>;
