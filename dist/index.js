@@ -789,7 +789,7 @@ var Crypter = class {
     return this.priorPromise = this.priorPromise.then(() => newPromise);
   }
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
-  async processUnsequenced(data, authTagLength, additionalData) {
+  async processUnsequenced(data, authTagByteLength, additionalData) {
     const recordIndex = this.recordsProcessed;
     this.recordsProcessed += 1n;
     const iv = this.initialIv.slice();
@@ -801,8 +801,8 @@ var Crypter = class {
         break;
       iv[Number(lastIndex - i)] ^= Number(shifted & 0xffn);
     }
-    const tagLength = authTagLength << 3;
-    const algorithm = { name: "AES-GCM", iv, tagLength, additionalData };
+    const authTagBitLength = authTagByteLength << 3;
+    const algorithm = { name: "AES-GCM", iv, tagLength: authTagBitLength, additionalData };
     const resultBuffer = await cryptoProxy_default[this.mode](algorithm, this.key, data);
     const result = new Uint8Array(resultBuffer);
     return result;
@@ -1273,7 +1273,7 @@ var allKeyUsages = [
   "decipherOnly"
   // (8)
 ];
-var Cert = class {
+var Cert = class _Cert {
   serialNumber;
   algorithm;
   issuer;
@@ -1536,8 +1536,8 @@ var Cert = class {
     return moment >= this.validityPeriod.notBefore && moment <= this.validityPeriod.notAfter;
   }
   description() {
-    return "subject: " + Cert.readableDN(this.subject) + (this.subjectAltNames ? "\nsubject alt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
-subject key id: ${hexFromU8(this.subjectKeyIdentifier, " ")}` : "") + "\nissuer: " + Cert.readableDN(this.issuer) + (this.authorityKeyIdentifier ? `
+    return "subject: " + _Cert.readableDN(this.subject) + (this.subjectAltNames ? "\nsubject alt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
+subject key id: ${hexFromU8(this.subjectKeyIdentifier, " ")}` : "") + "\nissuer: " + _Cert.readableDN(this.issuer) + (this.authorityKeyIdentifier ? `
 authority key id: ${hexFromU8(this.authorityKeyIdentifier, " ")}` : "") + "\nvalidity: " + this.validityPeriod.notBefore.toISOString() + " \u2013 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? "currently valid" : "not valid"})` + (this.keyUsage ? `
 key usage (${this.keyUsage.critical ? "critical" : "non-critical"}): ` + [...this.keyUsage.usages].join(", ") : "") + (this.extKeyUsage ? `
 extended key usage: TLS server \u2014\xA0${this.extKeyUsage.serverTls}, TLS client \u2014\xA0${this.extKeyUsage.clientTls}` : "") + (this.basicConstraints ? `
@@ -1976,6 +1976,7 @@ async function postgres(urlStr2, transportFactory) {
   const transport = await transportFactory(host, port, () => {
     if (!done)
       throw new Error("Unexpected connection close");
+    log("Connection closed");
   });
   const sslRequest = new Bytes(8);
   const endSslRequest = sslRequest.writeLengthUint32Incl("SSL request");

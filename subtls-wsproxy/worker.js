@@ -1,5 +1,9 @@
 import { connect } from 'cloudflare:sockets';
 
+// note: as at 11 September 2023, Safari needs:
+// compatibility_flags = [ "no_web_socket_compression" ]
+// in wrangler.toml (or disabled 'NSURLSession WebSockets' under Develop > Experimental Features)
+
 export default {
   async fetch(req, env, ctx) {
     // various sanity checks
@@ -25,7 +29,7 @@ export default {
     wsServer.accept();
 
     // deal with data from WebSocket to TCP
-    wsServer.addEventListener('message', event => { 
+    wsServer.addEventListener('message', event => {
       socketWriter.write(event.data);
     });
     wsServer.addEventListener('close', () => {
@@ -37,7 +41,7 @@ export default {
       write(chunk) {
         wsServer.send(chunk);
       },
-      close() { 
+      close() {
         wsServer.close(1000 /* normal closure */, 'TCP connection closed');
       },
       abort(reason) {
@@ -45,7 +49,7 @@ export default {
       },
     });
     const pipe = socket.readable.pipeTo(wsWritableStream);
-    
+
     // don't quit yet
     ctx.waitUntil(pipe);
 

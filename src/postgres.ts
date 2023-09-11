@@ -29,6 +29,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   let done = false;
   const transport = await transportFactory(host, port, () => {
     if (!done) throw new Error('Unexpected connection close');
+    log('Connection closed');
   });
 
   const sslRequest = new Bytes(8);
