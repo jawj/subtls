@@ -1716,7 +1716,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const [eeMessageEnd] = hs.expectLengthUint24();
   const [extEnd, extRemaining] = hs.expectLengthUint16("extensions");
   while (extRemaining() > 0) {
-    const extType = hs.readUint16("extension type: ");
+    const extType = hs.readUint16("extension type:");
     if (extType === 0) {
       hs.comment("SNI");
       hs.expectUint16(0, "no extension data ([RFC6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
