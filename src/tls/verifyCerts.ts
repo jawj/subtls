@@ -73,7 +73,7 @@ export async function verifyCerts(
 
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
 
-    chatty && log(`checking ${signingCertIsTrustedRoot ? 'trusted root' : 'intermediate'} signing certificate CN "${signingCert.subject.CN} ..."`);
+    chatty && log(`checking ${signingCertIsTrustedRoot ? 'trusted root' : 'intermediate'} signing certificate CN "${signingCert.subject.CN}" ...`);
 
     if (signingCert.isValidAtMoment() !== true) throw new Error('Signing certificate is not valid now');
     chatty && log(`%c✓ certificate is valid now`, 'color: #8c8;');

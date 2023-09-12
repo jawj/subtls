@@ -1658,7 +1658,7 @@ async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage =
     if (signingCert === void 0)
       throw new Error("Ran out of certificates before reaching trusted root");
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
-    log(`checking ${signingCertIsTrustedRoot ? "trusted root" : "intermediate"} signing certificate CN "${signingCert.subject.CN} ..."`);
+    log(`checking ${signingCertIsTrustedRoot ? "trusted root" : "intermediate"} signing certificate CN "${signingCert.subject.CN}" ...`);
     if (signingCert.isValidAtMoment() !== true)
       throw new Error("Signing certificate is not valid now");
     log(`%c\u2713 certificate is valid now`, "color: #8c8;");
