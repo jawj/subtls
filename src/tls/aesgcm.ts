@@ -2,7 +2,7 @@ import cs from '../util/cryptoProxy';
 
 export class Crypter {
   recordsProcessed = 0n;
-  priorPromise = Promise.resolve(new Uint8Array());
+  priorPromise: Promise<any> = Promise.resolve(new Uint8Array());
 
   constructor(
     private mode: 'encrypt' | 'decrypt',
@@ -13,8 +13,13 @@ export class Crypter {
   // The `Promise`s returned by successive calls to this function always resolve in sequence,
   // which is not true for `processUnsequenced` in Node (even if it seems to be in browsers)
   async process(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
-    const newPromise = this.processUnsequenced(data, authTagLength, additionalData);
-    return this.priorPromise = this.priorPromise.then(() => newPromise);
+    return this.sequence(this.processUnsequenced(data, authTagLength, additionalData));
+  }
+
+  async sequence<T>(promise: Promise<T>) {
+    const sequenced = this.priorPromise.then(() => promise);
+    this.priorPromise = sequenced;
+    return sequenced;
   }
 
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt

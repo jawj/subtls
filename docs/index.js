@@ -792,8 +792,12 @@ var Crypter = class {
   // The `Promise`s returned by successive calls to this function always resolve in sequence,
   // which is not true for `processUnsequenced` in Node (even if it seems to be in browsers)
   async process(data, authTagLength, additionalData) {
-    const newPromise = this.processUnsequenced(data, authTagLength, additionalData);
-    return this.priorPromise = this.priorPromise.then(() => newPromise);
+    return this.sequence(this.processUnsequenced(data, authTagLength, additionalData));
+  }
+  async sequence(promise) {
+    const sequenced = this.priorPromise.then(() => promise);
+    this.priorPromise = sequenced;
+    return sequenced;
   }
   // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
   async processUnsequenced(data, authTagByteLength, additionalData) {
@@ -2189,12 +2193,15 @@ async function https(urlStr2, method, transportFactory) {
   const reqPath = url.pathname + url.search;
   log("We begin the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):");
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default + digicert_global_root_default);
-  const transport = await transportFactory(host, port);
+  const transport = await transportFactory(host, port, () => {
+    log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");
+  });
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write);
   log("Here\u2019s a GET request:");
   const request = new Bytes(1024);
-  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
+  request.writeUTF8String(`${method} ${reqPath} HTTP/1.1\r
 Host: ${host}\r
+Connection: close\r
 \r
 `);
   log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
@@ -2302,10 +2309,7 @@ async function wsTransport(host, port, close = () => {
     ws2.addEventListener("error", (err) => {
       console.log("ws error:", err);
     });
-    ws2.addEventListener("close", () => {
-      console.log("connection closed");
-      close();
-    });
+    ws2.addEventListener("close", close);
   });
   const reader = new WebSocketReadQueue(ws);
   const read = reader.read.bind(reader);

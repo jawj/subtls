@@ -886,8 +886,12 @@ var init_aesgcm = __esm({
       // The `Promise`s returned by successive calls to this function always resolve in sequence,
       // which is not true for `processUnsequenced` in Node (even if it seems to be in browsers)
       async process(data, authTagLength, additionalData) {
-        const newPromise = this.processUnsequenced(data, authTagLength, additionalData);
-        return this.priorPromise = this.priorPromise.then(() => newPromise);
+        return this.sequence(this.processUnsequenced(data, authTagLength, additionalData));
+      }
+      async sequence(promise) {
+        const sequenced = this.priorPromise.then(() => promise);
+        this.priorPromise = sequenced;
+        return sequenced;
       }
       // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
       async processUnsequenced(data, authTagByteLength, additionalData) {
@@ -2500,10 +2504,7 @@ async function wsTransport(host, port, close = () => {
     ws3.addEventListener("error", (err) => {
       console.log("ws error:", err);
     });
-    ws3.addEventListener("close", () => {
-      console.log("connection closed");
-      close();
-    });
+    ws3.addEventListener("close", close);
   });
   const reader = new WebSocketReadQueue(ws2);
   const read = reader.read.bind(reader);
@@ -2548,12 +2549,15 @@ async function https(urlStr, method, transportFactory) {
   const reqPath = url.pathname + url.search;
   log("We begin the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):");
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default + digicert_global_root_default);
-  const transport = await transportFactory(host, port);
+  const transport = await transportFactory(host, port, () => {
+    log("Connection closed");
+  });
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write);
   log("Here\u2019s a GET request:");
   const request = new Bytes(1024);
-  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
+  request.writeUTF8String(`${method} ${reqPath} HTTP/1.1\r
 Host: ${host}\r
+Connection: close\r
 \r
 `);
   log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
@@ -2596,15 +2600,14 @@ __export(tcpTransport_exports, {
   default: () => tcpTransport
 });
 import { Socket } from "net";
-async function tcpTransport(host, port) {
+async function tcpTransport(host, port, close = () => {
+}) {
   const socket = new Socket();
   await new Promise((resolve) => socket.connect(Number(port), host, resolve));
   socket.on("error", (err) => {
     console.log("socket error:", err);
   });
-  socket.on("close", () => {
-    console.log("connection closed");
-  });
+  socket.on("close", close);
   const reader = new SocketReadQueue(socket);
   const read = reader.read.bind(reader);
   const write = socket.write.bind(socket);

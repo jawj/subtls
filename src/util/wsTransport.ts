@@ -6,10 +6,7 @@ export default async function wsTransport(host: string, port: string | number, c
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('error', (err) => { console.log('ws error:', err); });
-    ws.addEventListener('close', () => {
-      console.log('connection closed');
-      close();
-    })
+    ws.addEventListener('close', close);
   });
   const reader = new WebSocketReadQueue(ws);
   const read = reader.read.bind(reader);

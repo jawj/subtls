@@ -30,12 +30,14 @@ export async function https(urlStr: string, method: string, transportFactory: ty
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + baltimoreroot + digicertroot);
 
-  const transport = await transportFactory(host, port);
+  const transport = await transportFactory(host, port, () => {
+    chatty && log('Connection closed (this message may appear out of order, before the last data has been decrypted and logged)');
+  });
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write);
 
   chatty && log('Here’s a GET request:');
   const request = new Bytes(1024);
-  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r\nHost: ${host}\r\n\r\n`);
+  request.writeUTF8String(`${method} ${reqPath} HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`);
   chatty && log(...highlightBytes(request.commentedString(), LogColours.client));
   chatty && log('Which goes to the server encrypted like so:');
   await write(request.array());
