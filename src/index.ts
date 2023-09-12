@@ -14,5 +14,5 @@ if (pg) {
 
 goBtn.addEventListener('click', () => {
   if (pg) postgres(urlStr, wsTransport);
-  else https('https://subtls.pages.dev', 'GET', wsTransport);
+  else https('https://bytebybyte.dev', 'GET', wsTransport);
 });

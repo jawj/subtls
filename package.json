@@ -6,18 +6,18 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit",
-    "export": "npm run check && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2022 --outfile=export/index.js --minify --line-limit=80",
-    "build": "npm run check && esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.min.js --minify --line-limit=80",
-    "watch": "esbuild --define:chatty=true src/index.ts --bundle --format=esm --target=es2022 --loader:.pem=text --outfile=dist/index.js --watch",
-    "serve": "servor dist index.html 6543",
+    "export": "npm run check && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2020 --outfile=export/index.js --minify --line-limit=80",
+    "build": "npm run check && esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --loader:.pem=text --outfile=docs/index.js",
+    "watch": "esbuild --define:chatty=true src/index.ts --bundle --format=esm --target=es2020 --loader:.pem=text --outfile=docs/index.js --watch",
+    "serve": "servor docs index.html 6543",
     "start": "npm-run-all --parallel --race watch serve",
-    "nodeChatty": "esbuild --define:chatty=true src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js",
-    "nodeQuiet": "esbuild --define:chatty=false src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js"
+    "nodeChatty": "esbuild --define:chatty=true src/node.ts --bundle --format=esm --target=es2020 --platform=node --external:ws --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js",
+    "nodeQuiet": "esbuild --define:chatty=false src/node.ts --bundle --format=esm --target=es2020 --platform=node --external:ws --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js"
   },
   "author": "George MacKerron",
   "license": "MIT",
   "devDependencies": {
-    "esbuild": "^0.18.11",
+    "esbuild": "^0.19.2",
     "npm-run-all": "^4.1.5",
     "servor": "^4.0.2",
     "typescript": "^5.0.4"

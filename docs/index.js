@@ -1,3 +1,10 @@
+var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField = (obj, key, value) => {
+  __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+  return value;
+};
+
 // src/util/array.ts
 function concat(...arrs) {
   if (arrs.length === 1 && arrs[0] instanceof Uint8Array)
@@ -28,13 +35,13 @@ var indentChars = "\xB7\xB7 ";
 var txtEnc = new TextEncoder();
 var txtDec = new TextDecoder();
 var Bytes = class {
-  offset;
-  dataView;
-  data;
-  comments;
-  indents;
-  indent;
   constructor(arrayOrMaxBytes) {
+    __publicField(this, "offset");
+    __publicField(this, "dataView");
+    __publicField(this, "data");
+    __publicField(this, "comments");
+    __publicField(this, "indents");
+    __publicField(this, "indent");
     this.offset = 0;
     this.data = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
@@ -779,9 +786,9 @@ var Crypter = class {
     this.mode = mode;
     this.key = key;
     this.initialIv = initialIv;
+    __publicField(this, "recordsProcessed", 0n);
+    __publicField(this, "priorPromise", Promise.resolve(new Uint8Array()));
   }
-  recordsProcessed = 0n;
-  priorPromise = Promise.resolve(new Uint8Array());
   // The `Promise`s returned by successive calls to this function always resolve in sequence,
   // which is not true for `processUnsequenced` in Node (even if it seems to be in browsers)
   async process(data, authTagLength, additionalData) {
@@ -1274,27 +1281,21 @@ var allKeyUsages = [
   // (8)
 ];
 var Cert = class _Cert {
-  serialNumber;
-  algorithm;
-  issuer;
-  validityPeriod;
-  subject;
-  publicKey;
-  signature;
-  keyUsage;
-  subjectAltNames;
-  extKeyUsage;
-  authorityKeyIdentifier;
-  subjectKeyIdentifier;
-  basicConstraints;
-  signedData;
-  static distinguishedNamesAreEqual(dn1, dn2) {
-    return stableStringify(dn1) === stableStringify(dn2);
-  }
-  static readableDN(dn) {
-    return Object.entries(dn).map((x) => x.join("=")).join(", ");
-  }
   constructor(certData) {
+    __publicField(this, "serialNumber");
+    __publicField(this, "algorithm");
+    __publicField(this, "issuer");
+    __publicField(this, "validityPeriod");
+    __publicField(this, "subject");
+    __publicField(this, "publicKey");
+    __publicField(this, "signature");
+    __publicField(this, "keyUsage");
+    __publicField(this, "subjectAltNames");
+    __publicField(this, "extKeyUsage");
+    __publicField(this, "authorityKeyIdentifier");
+    __publicField(this, "subjectKeyIdentifier");
+    __publicField(this, "basicConstraints");
+    __publicField(this, "signedData");
     const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate)");
     const [endCertSeq] = cb.expectASN1Length("certificate sequence");
@@ -1506,6 +1507,12 @@ var Cert = class _Cert {
     cb.comment("signature");
     endCertSeq();
   }
+  static distinguishedNamesAreEqual(dn1, dn2) {
+    return stableStringify(dn1) === stableStringify(dn2);
+  }
+  static readableDN(dn) {
+    return Object.entries(dn).map((x) => x.join("=")).join(", ");
+  }
   static fromPEM(pem) {
     const tag = "[A-Z0-9 ]+";
     const pattern = new RegExp(`-{5}BEGIN ${tag}-{5}([a-zA-Z0-9=+\\/\\n\\r]+)-{5}END ${tag}-{5}`, "g");
@@ -1637,10 +1644,10 @@ async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage =
     let signingCert;
     if (subjectAuthKeyId === void 0) {
       signingCert = rootCerts.find((cert) => Cert.distinguishedNamesAreEqual(cert.subject, subjectCert.issuer));
-      signingCert && true && log("matched certificates on subject/issuer distinguished name: %s", Cert.readableDN(signingCert.subject));
+      signingCert && 1 && log("matched certificates on subject/issuer distinguished name: %s", Cert.readableDN(signingCert.subject));
     } else {
       signingCert = rootCerts.find((cert) => cert.subjectKeyIdentifier !== void 0 && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
-      signingCert && true && log("matched certificates on key id: %s", hexFromU8(subjectAuthKeyId, " "));
+      signingCert && 1 && log("matched certificates on key id: %s", hexFromU8(subjectAuthKeyId, " "));
     }
     if (signingCert === void 0)
       signingCert = certs[i + 1];
@@ -1822,9 +1829,9 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
 
 // src/tls/startTls.ts
 async function startTls(host, rootCerts, networkRead, networkWrite, { useSNI, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData } = {}) {
-  useSNI ??= true;
-  requireServerTlsExtKeyUsage ??= true;
-  requireDigitalSigKeyUsage ??= true;
+  useSNI ?? (useSNI = true);
+  requireServerTlsExtKeyUsage ?? (requireServerTlsExtKeyUsage = true);
+  requireDigitalSigKeyUsage ?? (requireDigitalSigKeyUsage = true);
   const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKey = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
   const sessionId = new Uint8Array(32);
@@ -2209,9 +2216,9 @@ Host: ${host}\r
 
 // src/util/readqueue.ts
 var ReadQueue = class {
-  queue;
-  outstandingRequest;
   constructor() {
+    __publicField(this, "queue");
+    __publicField(this, "outstandingRequest");
     this.queue = [];
   }
   enqueue(data) {
@@ -2289,7 +2296,7 @@ var WebSocketReadQueue = class extends ReadQueue {
 async function wsTransport(host, port, close = () => {
 }) {
   const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`wss://ws.manipulexity.com/v1?address=${host}:${port}`);
+    const ws2 = new WebSocket(`wss://subtls-wsproxy.jawj.workers.dev/?address=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
     ws2.addEventListener("open", () => resolve(ws2));
     ws2.addEventListener("error", (err) => {
@@ -2319,5 +2326,5 @@ goBtn.addEventListener("click", () => {
   if (pg)
     postgres(urlStr, wsTransport);
   else
-    https("https://subtls.pages.dev", "GET", wsTransport);
+    https("https://bytebybyte.dev", "GET", wsTransport);
 });
