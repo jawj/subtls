@@ -19,7 +19,7 @@ if (dbUrl) {
   const { https } = await import('./https');  // dynamic import picks up globalThis additions
   const { default: tcpTransport } = await import('./util/tcpTransport');
   for (let i = 0; i < iterations; i++) {
-    const html = await https('https://subtls.pages.dev', 'GET', tcpTransport);
+    const html = await https('https://bytebybyte.dev', 'GET', tcpTransport);
     !chatty && console.log(html);
     if (i < iterations - 1) await new Promise(resolve => setTimeout(resolve, 250));
   }
