@@ -28,7 +28,7 @@ export async function readEncryptedHandshake(
   const [extEnd, extRemaining] = hs.expectLengthUint16(chatty && 'extensions');
 
   while (extRemaining() > 0) {
-    const extType = hs.readUint16(chatty && 'extension type: ');
+    const extType = hs.readUint16(chatty && 'extension type:');
 
     if (extType === 0x0000) {
       /*
