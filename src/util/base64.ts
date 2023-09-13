@@ -20,21 +20,23 @@ export function stdCharCodes(charCode: number) {  // https://developer.mozilla.o
 
 export function urlCharCodes(charCode: number) {
   /*
-  ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789  -  _  =';
-  65                      90 97                     122 48      57 45 95 61 
-   0                      25 26                      51 52      61 62 63 64
+  ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789  -  _  = .';
+  65                      90 97                     122 48      57 45 95 61 46
+   0                      25 26                      51 52      61 62 63 64 64
   */
   return charCode > 64 && charCode < 91 ? charCode - 65 :
     charCode > 96 && charCode < 123 ? charCode - 71 :
       charCode > 47 && charCode < 58 ? charCode + 4 :
         charCode === 45 ? 62 :
           charCode === 95 ? 63 :
-            charCode === 61 ? 64 :
+            charCode === 61 || charCode === 46 ? 64 :
               base64Error(charCode);
 }
 
-export function base64Decode(input: string, charCodes = stdCharCodes) {
+export function base64Decode(input: string, charCodes = stdCharCodes, autoPad = true) {
   const len = input.length;
+  if (autoPad) input += '='.repeat(len % 4);
+
   let inputIdx = 0, outputIdx = 0;
   let enc1 = 64, enc2 = 64, enc3 = 64, enc4 = 64;
   const output = new Uint8Array(len * .75);

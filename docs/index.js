@@ -486,7 +486,7 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const endKeyShares = h.writeLengthUint16("key shares");
   h.writeUint16(23, "secp256r1 (NIST P-256) key share ([RFC8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
   const endKeyShare = h.writeLengthUint16("key share");
-  if (1) {
+  if (true) {
     h.writeUint8(publicKey[0], "legacy point format: always 4, which means uncompressed ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
     h.writeBytes(publicKey.subarray(1, 33));
     h.comment("x coordinate");
@@ -573,7 +573,7 @@ function parseServerHello(hello, sessionId) {
       const keyShareLength = keyShareRemaining();
       if (keyShareLength !== 65)
         throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
-      if (1) {
+      if (true) {
         hello.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
         const x = hello.readBytes(32);
         hello.comment("x coordinate");
@@ -847,10 +847,12 @@ function stdCharCodes(charCode) {
   return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode > 47 && charCode < 58 ? charCode + 4 : charCode === 43 ? 62 : charCode === 47 ? 63 : charCode === 61 ? 64 : base64Error(charCode);
 }
 function urlCharCodes(charCode) {
-  return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode > 47 && charCode < 58 ? charCode + 4 : charCode === 45 ? 62 : charCode === 95 ? 63 : charCode === 61 ? 64 : base64Error(charCode);
+  return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode > 47 && charCode < 58 ? charCode + 4 : charCode === 45 ? 62 : charCode === 95 ? 63 : charCode === 61 || charCode === 46 ? 64 : base64Error(charCode);
 }
-function base64Decode(input, charCodes = stdCharCodes) {
+function base64Decode(input, charCodes = stdCharCodes, autoPad = true) {
   const len = input.length;
+  if (autoPad)
+    input += "=".repeat(len % 4);
   let inputIdx = 0, outputIdx = 0;
   let enc1 = 64, enc2 = 64, enc3 = 64, enc4 = 64;
   const output = new Uint8Array(len * 0.75);
@@ -1673,10 +1675,10 @@ async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage =
     let signingCert;
     if (subjectAuthKeyId === void 0) {
       signingCert = rootCerts.find((cert) => Cert.distinguishedNamesAreEqual(cert.subject, subjectCert.issuer));
-      signingCert && 1 && log("matched certificates on subject/issuer distinguished name: %s", Cert.readableDN(signingCert.subject));
+      signingCert && true && log("matched certificates on subject/issuer distinguished name: %s", Cert.readableDN(signingCert.subject));
     } else {
       signingCert = rootCerts.find((cert) => cert.subjectKeyIdentifier !== void 0 && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
-      signingCert && 1 && log("matched certificates on key id: %s", hexFromU8(subjectAuthKeyId, " "));
+      signingCert && true && log("matched certificates on key id: %s", hexFromU8(subjectAuthKeyId, " "));
     }
     if (signingCert === void 0)
       signingCert = certs[i + 1];
@@ -1864,7 +1866,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, { useSNI, re
   const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKeyBuffer = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
   const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
-  if (1) {
+  if (true) {
     const privateKeyJWK = await cryptoProxy_default.exportKey("jwk", ecdhKeys.privateKey);
     log("We begin the TLS connection by generating a new [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, is a random 256-bit integer.");
     log(...highlightColonList("d: " + hexFromU8(base64Decode(privateKeyJWK.d, urlCharCodes))));
@@ -2007,17 +2009,14 @@ var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAII
 var isrg_root_x2_default = "-----BEGIN CERTIFICATE-----\nMIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\nCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\nR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\nMDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\nZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\nEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\nItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\nAQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\nzj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\ntL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n/q4AaOeMSQ+2b1tbFfLn\n-----END CERTIFICATE-----\n";
 
 // src/postgres.ts
-async function postgres(urlStr2, transportFactory) {
+async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true) {
   const t0 = Date.now();
   const url = parse(urlStr2);
   const host = url.hostname;
-  const isNeon = /[.]neon[.]tech$/.test(host);
-  const pipelineSSLRequest = false;
-  const useSNIHack = isNeon;
   const port = url.port || "5432";
-  const user = url.username;
-  const password = useSNIHack ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);
+  const user = url.username;
+  const password = neonPasswordPipelining ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
   let done = false;
   const transport = await transportFactory(host, port, () => {
     if (!done)
@@ -2031,30 +2030,16 @@ async function postgres(urlStr2, transportFactory) {
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
   const writePreData = sslRequest.array();
-  if (pipelineSSLRequest) {
-    log("With Neon, we don\u2019t need to wait for the reply: we run this server, so we know it\u2019s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a \u2018client hello\u2019:");
-  } else {
-    transport.write(writePreData);
-    const SorN = await transport.read(1);
-    log('The server tells us if it can speak SSL/TLS ("S" for yes, "N" for no):');
-    const byte = new Bytes(SorN);
-    byte.expectUint8(83, '"S" = SSL connection supported');
-    log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
-    log("We then start a TLS handshake, which begins with the \u2018client hello\u2019 ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):");
-  }
-  const sslResponse = new Bytes(1);
-  sslResponse.writeUTF8String("S");
-  const expectPreData = sslResponse.array();
+  transport.write(writePreData);
+  const SorN = await transport.read(1);
+  log('The server tells us if it can speak SSL/TLS ("S" for yes, "N" for no):');
+  const byte = new Bytes(SorN);
+  byte.expectUint8(83, '"S" = SSL connection supported');
+  log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
+  log("We then start a TLS handshake, which begins with the \u2018client hello\u2019 ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):");
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
-  const [read, write] = pipelineSSLRequest ? await startTls(host, rootCert, transport.read, transport.write, {
-    useSNI: !useSNIHack,
-    requireServerTlsExtKeyUsage: false,
-    requireDigitalSigKeyUsage: false,
-    writePreData,
-    expectPreData,
-    commentPreData: '"S" = SSL connection supported'
-  }) : await startTls(host, rootCert, transport.read, transport.write, {
-    useSNI: !useSNIHack,
+  const [read, write] = await startTls(host, rootCert, transport.read, transport.write, {
+    useSNI: !neonPasswordPipelining,
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false
   });
@@ -2188,7 +2173,7 @@ async function postgres(urlStr2, transportFactory) {
   log("Decrypted and parsed:");
   log(...highlightBytes(queryResultBytes.commentedString(true), "#88c" /* server */));
   log("We pick out our result \u2014\xA0the current time on our server:");
-  log("%c%s", "font-size: 2em", lastColumnData);
+  log("%c%s", "font-size: 2em; color: #000;", lastColumnData);
   const endBytes = new Bytes(5);
   endBytes.writeUTF8String("X");
   endBytes.comment("= [Terminate](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-TERMINATE)");

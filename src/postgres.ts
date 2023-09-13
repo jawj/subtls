@@ -11,20 +11,18 @@ import isrgrootx1 from './roots/isrg-root-x1.pem';
 // @ts-ignore
 import isrgrootx2 from './roots/isrg-root-x2.pem';
 
-export async function postgres(urlStr: string, transportFactory: typeof wsTransport) {
+export async function postgres(urlStr: string, transportFactory: typeof wsTransport, neonPasswordPipelining = true) {
   const t0 = Date.now();
 
   const url = parse(urlStr);
   const host = url.hostname;
 
-  const isNeon = /[.]neon[.]tech$/.test(host);
-  const pipelineSSLRequest = false;  // previously: = isNeon
-  const useSNIHack = isNeon;
-
   const port = url.port || '5432';  // not `?? '5432'`, because it's an empty string if unspecified
-  const user = url.username;
-  const password = useSNIHack ? `project=${host.match(/^[^.]+/)![0]};${url.password}` : url.password;
   const db = url.pathname.slice(1);
+  const user = url.username;
+  const password = neonPasswordPipelining ?
+    `project=${host.match(/^[^.]+/)![0]};${url.password}` :
+    url.password;
 
   let done = false;
   const transport = await transportFactory(host, port, () => {
@@ -42,38 +40,20 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   chatty && log(...highlightBytes(sslRequest.commentedString(), LogColours.client));
   const writePreData = sslRequest.array();
 
-  if (pipelineSSLRequest) {
-    chatty && log('With Neon, we don’t need to wait for the reply: we run this server, so we know it’s going to answer yes. We thus save time by ploughing straight on with the TLS handshake, which begins with a ‘client hello’:');
-
-  } else {
-    transport.write(writePreData);
-    const SorN = await transport.read(1);
-    chatty && log('The server tells us if it can speak SSL/TLS ("S" for yes, "N" for no):');
-    const byte = new Bytes(SorN!);
-    byte.expectUint8(0x53, '"S" = SSL connection supported');
-    chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
-    chatty && log('We then start a TLS handshake, which begins with the ‘client hello’ ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):');
-  }
-
-  const sslResponse = new Bytes(1);
-  sslResponse.writeUTF8String('S');
-  const expectPreData = sslResponse.array();
+  transport.write(writePreData);
+  const SorN = await transport.read(1);
+  chatty && log('The server tells us if it can speak SSL/TLS ("S" for yes, "N" for no):');
+  const byte = new Bytes(SorN!);
+  byte.expectUint8(0x53, '"S" = SSL connection supported');
+  chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
+  chatty && log('We then start a TLS handshake, which begins with the ‘client hello’ ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):');
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
-  const [read, write] = pipelineSSLRequest ?
-    await startTls(host, rootCert, transport.read, transport.write, {
-      useSNI: !useSNIHack,
-      requireServerTlsExtKeyUsage: false,
-      requireDigitalSigKeyUsage: false,
-      writePreData,
-      expectPreData,
-      commentPreData: '"S" = SSL connection supported',
-    }) :
-    await startTls(host, rootCert, transport.read, transport.write, {
-      useSNI: !useSNIHack,
-      requireServerTlsExtKeyUsage: false,
-      requireDigitalSigKeyUsage: false,
-    });
+  const [read, write] = await startTls(host, rootCert, transport.read, transport.write, {
+    useSNI: !neonPasswordPipelining,
+    requireServerTlsExtKeyUsage: false,
+    requireDigitalSigKeyUsage: false,
+  });
 
   const msg = new Bytes(1024);
 
@@ -231,7 +211,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   chatty && log('Decrypted and parsed:');
   chatty && log(...highlightBytes(queryResultBytes.commentedString(true), LogColours.server));
   chatty && log('We pick out our result — the current time on our server:');
-  log('%c%s', 'font-size: 2em', lastColumnData);
+  log('%c%s', 'font-size: 2em; color: #000;', lastColumnData);
   chatty || log(`time taken: ${Date.now() - t0}ms`);
 
   const endBytes = new Bytes(5);
