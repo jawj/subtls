@@ -9,9 +9,10 @@ import { Bytes } from '../util/bytes';
 import { concat, equal } from '../util/array';
 import { hexFromU8 } from '../util/hex';
 import { LogColours } from '../presentation/appearance';
-import { highlightBytes } from '../presentation/highlights';
+import { highlightBytes, highlightColonList } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { TrustedCert } from './cert';
+import { base64Decode, urlCharCodes } from '../util/base64';
 import cs from '../util/cryptoProxy';
 
 export async function startTls(
@@ -33,7 +34,19 @@ export async function startTls(
   requireDigitalSigKeyUsage ??= true;
 
   const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
-  const rawPublicKey = await cs.exportKey('raw', ecdhKeys.publicKey);
+  const rawPublicKeyBuffer = await cs.exportKey('raw', ecdhKeys.publicKey);
+  const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
+
+  if (chatty) {
+    const privateKeyJWK = await cs.exportKey('jwk', ecdhKeys.privateKey);
+    log('We begin the TLS connection by generating a new [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, is a random 256-bit integer.');
+    log(...highlightColonList('d: ' + hexFromU8(base64Decode(privateKeyJWK.d!, urlCharCodes))));
+    log('The public key consists of the x and y coordinates of a point on the curve (derived as d·G, where G is a curve-specific base point).');
+    log(...highlightColonList('x: ' + hexFromU8(base64Decode(privateKeyJWK.x!, urlCharCodes))));
+    log(...highlightColonList('y: ' + hexFromU8(base64Decode(privateKeyJWK.y!, urlCharCodes))));
+  }
+
+  chatty && log('Now we start the handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)), including the key:');
 
   // client hello
   const sessionId = new Uint8Array(32);

@@ -1,4 +1,4 @@
-import { equal } from '../util/array';
+import { concat, equal } from '../util/array';
 import { Bytes } from '../util/bytes';
 import { hexFromU8 } from '../util/hex';
 
@@ -40,12 +40,23 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
 
     } else if (extensionType === 0x0033) {
       hello.expectUint16(0x0017, chatty && 'secp256r1 (NIST P-256) key share');
-      hello.expectUint16(65);
-      serverPublicKey = hello.readBytes(65);
+      const [endKeyShare, keyShareRemaining] = hello.expectLengthUint16('key share');
+      const keyShareLength = keyShareRemaining();
+      if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
+      if (chatty) {
+        hello.expectUint8(4, 'always the number 4 ([RFC8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2))')
+        const x = hello.readBytes(32);
+        hello.comment('x coordinate');
+        const y = hello.readBytes(32);
+        hello.comment('y coordinate');
+        serverPublicKey = concat([4], x, y);
+      } else {
+        serverPublicKey = hello.readBytes(keyShareLength);
+      }
       // TODO: will SubtleCrypto validate this for us when deriving the shared secret, or must we do it?
       // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2
       // + e.g. https://neilmadden.blog/2017/05/17/so-how-do-you-validate-nist-ecdh-public-keys/
-      chatty && hello.comment('key');
+      endKeyShare();
 
     } else {
       throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`)

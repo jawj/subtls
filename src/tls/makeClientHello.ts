@@ -1,6 +1,6 @@
 import { Bytes } from '../util/bytes';
 
-export default function makeClientHello(host: string, publicKey: ArrayBuffer, sessionId: Uint8Array, useSNI = true) {
+export default function makeClientHello(host: string, publicKey: Uint8Array, sessionId: Uint8Array, useSNI = true) {
   const h = new Bytes(1024);
 
   h.writeUint8(0x16, chatty && 'record type: handshake');
@@ -76,8 +76,16 @@ export default function makeClientHello(host: string, publicKey: ArrayBuffer, se
   const endKeyShares = h.writeLengthUint16(chatty && 'key shares');
   h.writeUint16(0x0017, chatty && 'secp256r1 (NIST P-256) key share ([RFC8446 §4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
   const endKeyShare = h.writeLengthUint16(chatty && 'key share');
-  h.writeBytes(new Uint8Array(publicKey));
-  chatty && h.comment('key');
+  if (chatty) {
+    h.writeUint8(publicKey[0], 'always the number 4 ([RFC8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2))')
+    h.writeBytes(publicKey.subarray(1, 33));
+    h.comment('x coordinate');
+    h.writeBytes(publicKey.subarray(33, 65));
+    h.comment('y coordinate');
+
+  } else {
+    h.writeBytes(publicKey);
+  }
   endKeyShare();
   endKeyShares();
   endKeyShareExt();

@@ -486,8 +486,15 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const endKeyShares = h.writeLengthUint16("key shares");
   h.writeUint16(23, "secp256r1 (NIST P-256) key share ([RFC8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
   const endKeyShare = h.writeLengthUint16("key share");
-  h.writeBytes(new Uint8Array(publicKey));
-  h.comment("key");
+  if (1) {
+    h.writeUint8(publicKey[0], "always the number 4 ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2))");
+    h.writeBytes(publicKey.subarray(1, 33));
+    h.comment("x coordinate");
+    h.writeBytes(publicKey.subarray(33, 65));
+    h.comment("y coordinate");
+  } else {
+    h.writeBytes(publicKey);
+  }
   endKeyShare();
   endKeyShares();
   endKeyShareExt();
@@ -562,9 +569,21 @@ function parseServerHello(hello, sessionId) {
       tlsVersionSpecified = true;
     } else if (extensionType === 51) {
       hello.expectUint16(23, "secp256r1 (NIST P-256) key share");
-      hello.expectUint16(65);
-      serverPublicKey = hello.readBytes(65);
-      hello.comment("key");
+      const [endKeyShare, keyShareRemaining] = hello.expectLengthUint16("key share");
+      const keyShareLength = keyShareRemaining();
+      if (keyShareLength !== 65)
+        throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
+      if (1) {
+        hello.expectUint8(4, "always the number 4 ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2))");
+        const x = hello.readBytes(32);
+        hello.comment("x coordinate");
+        const y = hello.readBytes(32);
+        hello.comment("y coordinate");
+        serverPublicKey = concat([4], x, y);
+      } else {
+        serverPublicKey = hello.readBytes(keyShareLength);
+      }
+      endKeyShare();
     } else {
       throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`);
     }
@@ -728,7 +747,7 @@ async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, k
   const publicKey = await cryptoProxy_default.importKey("raw", serverPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
   const sharedSecretBuffer = await cryptoProxy_default.deriveBits({ name: "ECDH", public: publicKey }, privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
-  log(...highlightColonList("shared secret: " + hexFromU8(sharedSecret)));
+  log(...highlightColonList("shared secret (via ECDH): " + hexFromU8(sharedSecret)));
   const hellosHashBuffer = await cryptoProxy_default.digest("SHA-256", hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
   log(...highlightColonList("hellos hash: " + hexFromU8(hellosHash)));
@@ -821,19 +840,22 @@ var Crypter = class {
 };
 
 // src/util/base64.ts
-function charCodeMap(charCode) {
+function stdCharCodes(charCode) {
   return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode > 47 && charCode < 58 ? charCode + 4 : charCode === 43 ? 62 : charCode === 47 ? 63 : charCode === 61 ? 64 : void 0;
 }
-function base64Decode(input) {
+function urlCharCodes(charCode) {
+  return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode > 47 && charCode < 58 ? charCode + 4 : charCode === 45 ? 62 : charCode === 95 ? 63 : charCode === 61 ? 64 : void 0;
+}
+function base64Decode(input, charCodes = stdCharCodes) {
   const len = input.length;
   let inputIdx = 0, outputIdx = 0;
   let enc1 = 64, enc2 = 64, enc3 = 64, enc4 = 64;
   const output = new Uint8Array(len * 0.75);
   while (inputIdx < len) {
-    enc1 = charCodeMap(input.charCodeAt(inputIdx++));
-    enc2 = charCodeMap(input.charCodeAt(inputIdx++));
-    enc3 = charCodeMap(input.charCodeAt(inputIdx++));
-    enc4 = charCodeMap(input.charCodeAt(inputIdx++));
+    enc1 = charCodes(input.charCodeAt(inputIdx++));
+    enc2 = charCodes(input.charCodeAt(inputIdx++));
+    enc3 = charCodes(input.charCodeAt(inputIdx++));
+    enc4 = charCodes(input.charCodeAt(inputIdx++));
     output[outputIdx++] = enc1 << 2 | enc2 >> 4;
     output[outputIdx++] = (enc2 & 15) << 4 | enc3 >> 2;
     output[outputIdx++] = (enc3 & 3) << 6 | enc4;
@@ -1837,7 +1859,17 @@ async function startTls(host, rootCerts, networkRead, networkWrite, { useSNI, re
   requireServerTlsExtKeyUsage ?? (requireServerTlsExtKeyUsage = true);
   requireDigitalSigKeyUsage ?? (requireDigitalSigKeyUsage = true);
   const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
-  const rawPublicKey = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
+  const rawPublicKeyBuffer = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
+  const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
+  if (1) {
+    const privateKeyJWK = await cryptoProxy_default.exportKey("jwk", ecdhKeys.privateKey);
+    log("We begin the TLS connection by generating a new [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, is a random 256-bit integer.");
+    log(...highlightColonList("d: " + hexFromU8(base64Decode(privateKeyJWK.d, urlCharCodes))));
+    log("The public key consists of the x and y coordinates of a point on the curve (derived as d\xB7G, where G is a curve-specific base point).");
+    log(...highlightColonList("x: " + hexFromU8(base64Decode(privateKeyJWK.x, urlCharCodes))));
+    log(...highlightColonList("y: " + hexFromU8(base64Decode(privateKeyJWK.y, urlCharCodes))));
+  }
+  log("Now we start the handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)), including the key:");
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
@@ -2191,7 +2223,6 @@ async function https(urlStr2, method, transportFactory) {
   const host = url.hostname;
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
-  log("We begin the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):");
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default + digicert_global_root_default);
   const transport = await transportFactory(host, port, () => {
     log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");

@@ -11,7 +11,7 @@ export async function getHandshakeKeys(serverPublicKey: Uint8Array, privateKey: 
   const publicKey = await cs.importKey('raw', serverPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false /* extractable */, []);
   const sharedSecretBuffer = await cs.deriveBits({ name: 'ECDH', public: publicKey }, privateKey, 256);
   const sharedSecret = new Uint8Array(sharedSecretBuffer);
-  chatty && log(...highlightColonList('shared secret: ' + hexFromU8(sharedSecret)));
+  chatty && log(...highlightColonList('shared secret (via ECDH): ' + hexFromU8(sharedSecret)));
 
   const hellosHashBuffer = await cs.digest('SHA-256', hellos);
   const hellosHash = new Uint8Array(hellosHashBuffer);
