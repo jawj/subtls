@@ -486,7 +486,7 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const endKeyShares = h.writeLengthUint16("key shares");
   h.writeUint16(23, "secp256r1 (NIST P-256) key share ([RFC8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
   const endKeyShare = h.writeLengthUint16("key share");
-  if (true) {
+  if (1) {
     h.writeUint8(publicKey[0], "legacy point format: always 4, which means uncompressed ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
     h.writeBytes(publicKey.subarray(1, 33));
     h.comment("x coordinate");
@@ -573,7 +573,7 @@ function parseServerHello(hello, sessionId) {
       const keyShareLength = keyShareRemaining();
       if (keyShareLength !== 65)
         throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
-      if (true) {
+      if (1) {
         hello.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
         const x = hello.readBytes(32);
         hello.comment("x coordinate");
@@ -1675,10 +1675,10 @@ async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage =
     let signingCert;
     if (subjectAuthKeyId === void 0) {
       signingCert = rootCerts.find((cert) => Cert.distinguishedNamesAreEqual(cert.subject, subjectCert.issuer));
-      signingCert && true && log("matched certificates on subject/issuer distinguished name: %s", Cert.readableDN(signingCert.subject));
+      signingCert && 1 && log("matched certificates on subject/issuer distinguished name: %s", Cert.readableDN(signingCert.subject));
     } else {
       signingCert = rootCerts.find((cert) => cert.subjectKeyIdentifier !== void 0 && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
-      signingCert && true && log("matched certificates on key id: %s", hexFromU8(subjectAuthKeyId, " "));
+      signingCert && 1 && log("matched certificates on key id: %s", hexFromU8(subjectAuthKeyId, " "));
     }
     if (signingCert === void 0)
       signingCert = certs[i + 1];
@@ -1866,7 +1866,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, { useSNI, re
   const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKeyBuffer = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
   const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
-  if (true) {
+  if (1) {
     const privateKeyJWK = await cryptoProxy_default.exportKey("jwk", ecdhKeys.privateKey);
     log("We begin the TLS connection by generating a new [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, is a random 256-bit integer.");
     log(...highlightColonList("d: " + hexFromU8(base64Decode(privateKeyJWK.d, urlCharCodes))));

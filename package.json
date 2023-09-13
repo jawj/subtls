@@ -8,11 +8,11 @@
     "check": "tsc --noEmit",
     "export": "npm run check && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2020 --outfile=export/index.js --minify --line-limit=80",
     "build": "npm run check && esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --loader:.pem=text --outfile=docs/index.js",
-    "watch": "esbuild --define:chatty=true src/index.ts --bundle --format=esm --target=es2020 --loader:.pem=text --outfile=docs/index.js --watch",
+    "watch": "esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --loader:.pem=text --outfile=docs/index.js --watch",
     "serve": "servor docs index.html 6543",
     "start": "npm-run-all --parallel --race watch serve",
-    "nodeChatty": "esbuild --define:chatty=true src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js",
-    "nodeQuiet": "esbuild --define:chatty=false src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js"
+    "nodeChatty": "esbuild --define:chatty=1 src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js",
+    "nodeQuiet": "esbuild --define:chatty=0 src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text --outfile=nodeDist/index.js && node nodeDist/index.js"
   },
   "author": "George MacKerron",
   "license": "MIT",
