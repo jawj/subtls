@@ -1,4 +1,8 @@
 
+function base64Error(charCode: number) {
+  throw new Error(`Invalid base 64 character: ${String.fromCharCode(charCode)}`);
+}
+
 export function stdCharCodes(charCode: number) {  // https://developer.mozilla.org/en-US/docs/Glossary/Base64
   /*
   ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789  +  /  =';
@@ -11,7 +15,7 @@ export function stdCharCodes(charCode: number) {  // https://developer.mozilla.o
         charCode === 43 ? 62 :
           charCode === 47 ? 63 :
             charCode === 61 ? 64 :
-              undefined;
+              base64Error(charCode);
 }
 
 export function urlCharCodes(charCode: number) {
@@ -26,7 +30,7 @@ export function urlCharCodes(charCode: number) {
         charCode === 45 ? 62 :
           charCode === 95 ? 63 :
             charCode === 61 ? 64 :
-              undefined;
+              base64Error(charCode);
 }
 
 export function base64Decode(input: string, charCodes = stdCharCodes) {

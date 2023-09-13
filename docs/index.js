@@ -840,11 +840,14 @@ var Crypter = class {
 };
 
 // src/util/base64.ts
+function base64Error(charCode) {
+  throw new Error(`Invalid base 64 character: ${String.fromCharCode(charCode)}`);
+}
 function stdCharCodes(charCode) {
-  return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode > 47 && charCode < 58 ? charCode + 4 : charCode === 43 ? 62 : charCode === 47 ? 63 : charCode === 61 ? 64 : void 0;
+  return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode > 47 && charCode < 58 ? charCode + 4 : charCode === 43 ? 62 : charCode === 47 ? 63 : charCode === 61 ? 64 : base64Error(charCode);
 }
 function urlCharCodes(charCode) {
-  return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode > 47 && charCode < 58 ? charCode + 4 : charCode === 45 ? 62 : charCode === 95 ? 63 : charCode === 61 ? 64 : void 0;
+  return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode > 47 && charCode < 58 ? charCode + 4 : charCode === 45 ? 62 : charCode === 95 ? 63 : charCode === 61 ? 64 : base64Error(charCode);
 }
 function base64Decode(input, charCodes = stdCharCodes) {
   const len = input.length;

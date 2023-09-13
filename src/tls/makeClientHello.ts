@@ -77,7 +77,7 @@ export default function makeClientHello(host: string, publicKey: Uint8Array, ses
   h.writeUint16(0x0017, chatty && 'secp256r1 (NIST P-256) key share ([RFC8446 §4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
   const endKeyShare = h.writeLengthUint16(chatty && 'key share');
   if (chatty) {
-    h.writeUint8(publicKey[0], 'legacy point format: always 4, which means uncompressed ([RFC8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 §5.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))')
+    h.writeUint8(publicKey[0], 'legacy point format: always 4, which means uncompressed ([RFC8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 §5.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))');
     h.writeBytes(publicKey.subarray(1, 33));
     h.comment('x coordinate');
     h.writeBytes(publicKey.subarray(33, 65));
