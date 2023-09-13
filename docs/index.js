@@ -487,7 +487,7 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   h.writeUint16(23, "secp256r1 (NIST P-256) key share ([RFC8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
   const endKeyShare = h.writeLengthUint16("key share");
   if (1) {
-    h.writeUint8(publicKey[0], "always the number 4 ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2))");
+    h.writeUint8(publicKey[0], "legacy point format: always 4, which means uncompressed ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
     h.writeBytes(publicKey.subarray(1, 33));
     h.comment("x coordinate");
     h.writeBytes(publicKey.subarray(33, 65));
@@ -574,7 +574,7 @@ function parseServerHello(hello, sessionId) {
       if (keyShareLength !== 65)
         throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
       if (1) {
-        hello.expectUint8(4, "always the number 4 ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2))");
+        hello.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
         const x = hello.readBytes(32);
         hello.comment("x coordinate");
         const y = hello.readBytes(32);

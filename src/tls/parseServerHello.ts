@@ -44,7 +44,7 @@ export default function parseServerHello(hello: Bytes, sessionId: Uint8Array) {
       const keyShareLength = keyShareRemaining();
       if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
       if (chatty) {
-        hello.expectUint8(4, 'always the number 4 ([RFC8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2))')
+        hello.expectUint8(4, 'legacy point format: always 4, which means uncompressed ([RFC8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 §5.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))')
         const x = hello.readBytes(32);
         hello.comment('x coordinate');
         const y = hello.readBytes(32);
