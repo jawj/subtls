@@ -2036,7 +2036,6 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   const byte = new Bytes(SorN);
   byte.expectUint8(83, '"S" = SSL connection supported');
   log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
-  log("We then start a TLS handshake, which begins with the \u2018client hello\u2019 ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):");
   const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write, {
     useSNI: !neonPasswordPipelining,

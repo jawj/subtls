@@ -46,7 +46,6 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   const byte = new Bytes(SorN!);
   byte.expectUint8(0x53, '"S" = SSL connection supported');
   chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
-  chatty && log('We then start a TLS handshake, which begins with the ‘client hello’ ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)):');
 
   const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2);
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write, {
