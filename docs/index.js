@@ -1368,7 +1368,7 @@ var Cert = class _Cert {
     const tbsCertStartOffset = cb.offset;
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate info)");
     const [endCertInfoSeq] = cb.expectASN1Length("certificate info");
-    cb.expectBytes([160, 3, 2, 1, 2], "certificate version v3");
+    cb.expectBytes([160, 3, 2, 1, 2], "certificate version 3");
     cb.expectUint8(universalTypeInteger, "integer");
     const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length("serial number");
     this.serialNumber = cb.subarray(serialNumberRemaining());
@@ -1824,8 +1824,8 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     const cert = new Cert(hs);
     certs.push(cert);
     endCert();
-    const [endCertExt, certExtRemaining] = hs.expectLengthUint16();
-    const certExtData = hs.subarray(certExtRemaining());
+    const [endCertExt, certExtRemaining] = hs.expectLengthUint16("certificate extensions");
+    hs.skip(certExtRemaining());
     endCertExt();
   }
   endCerts();

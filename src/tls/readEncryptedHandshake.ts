@@ -110,8 +110,8 @@ export async function readEncryptedHandshake(
     certs.push(cert);
     endCert();
 
-    const [endCertExt, certExtRemaining] = hs.expectLengthUint16();
-    const certExtData = hs.subarray(certExtRemaining());  // TODO: use this for anything?
+    const [endCertExt, certExtRemaining] = hs.expectLengthUint16('certificate extensions');
+    hs.skip(certExtRemaining());
     endCertExt();
   }
   endCerts();

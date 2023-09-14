@@ -76,7 +76,7 @@ export class Cert {
     cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate info)');
     const [endCertInfoSeq] = cb.expectASN1Length(chatty && 'certificate info');
 
-    cb.expectBytes([0xa0, 0x03, 0x02, 0x01, 0x02], chatty && 'certificate version v3');  // must be v3 to have extensions
+    cb.expectBytes([0xa0, 0x03, 0x02, 0x01, 0x02], chatty && 'certificate version 3');  // must be v3 to have extensions
 
     // serial number
     cb.expectUint8(universalTypeInteger, chatty && 'integer');
