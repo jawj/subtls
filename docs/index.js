@@ -1868,13 +1868,13 @@ async function startTls(host, rootCerts, networkRead, networkWrite, { useSNI, re
   const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
   if (1) {
     const privateKeyJWK = await cryptoProxy_default.exportKey("jwk", ecdhKeys.privateKey);
-    log("We begin the TLS connection by generating a new [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, is a random 256-bit integer.");
+    log("We begin the TLS connection by generating an [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, is a random 256-bit integer.");
     log(...highlightColonList("d: " + hexFromU8(base64Decode(privateKeyJWK.d, urlCharCodes))));
-    log("The public key consists of the x and y coordinates of a point on the curve. The point is derived as d\xB7G, where G is a curve-specific base point.");
+    log("The public key is a point on the curve. The point is [derived from d and a base point](https://curves.xargs.org), and identified by coordinates x and y.");
     log(...highlightColonList("x: " + hexFromU8(base64Decode(privateKeyJWK.x, urlCharCodes))));
     log(...highlightColonList("y: " + hexFromU8(base64Decode(privateKeyJWK.y, urlCharCodes))));
   }
-  log("Now we start the handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)), including the public key:");
+  log("Now we can start the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)), which includes the public key:");
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
@@ -1882,7 +1882,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, { useSNI, re
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
   networkWrite(initialData);
-  log("The server returns a response, and we parse it ([source](https://github.com/jawj/subtls/blob/main/src/tls/parseServerHello.ts)):");
+  log("The server returns a response, which includes its own public key, and we parse it ([source](https://github.com/jawj/subtls/blob/main/src/tls/parseServerHello.ts)):");
   if (expectPreData) {
     const receivedPreData = await networkRead(expectPreData.length);
     if (!receivedPreData || !equal(receivedPreData, expectPreData))
