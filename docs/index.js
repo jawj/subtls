@@ -1788,6 +1788,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
       hs.comment("supported groups ([RFC 8446 \xA74.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2), [\xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
       const [endGroupsData] = hs.expectLengthUint16("groups data");
       const [endGroups, groupsRemaining] = hs.expectLengthUint16("groups");
+      hs.comment("(most preferred first)");
       while (groupsRemaining() > 0) {
         const group = hs.readUint16();
         const groupName = {
