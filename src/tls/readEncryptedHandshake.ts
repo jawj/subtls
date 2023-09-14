@@ -59,25 +59,27 @@ export async function readEncryptedHandshake(
       - https://www.rfc-editor.org/rfc/rfc8446#section-4.2
       */
       chatty && hs.comment('supported groups ([RFC 8446 §4.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2), [§4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
-      const [endGroupsData] = hs.expectLengthUint16('groups data');
-      const [endGroups, groupsRemaining] = hs.expectLengthUint16('groups');
-      hs.comment('(most preferred first)');
+      const [endGroupsData] = hs.expectLengthUint16(chatty && 'groups data');
+      const [endGroups, groupsRemaining] = hs.expectLengthUint16(chatty && 'groups');
+      chatty && hs.comment('(most preferred first)');
 
       while (groupsRemaining() > 0) {
         const group = hs.readUint16();
-        const groupName = {
-          0x0017: 'secp256r1',
-          0x0018: 'secp384r1',
-          0x0019: 'secp521r1',
-          0x001D: 'x25519',
-          0x001E: 'x448',
-          0x0100: 'ffdhe2048',
-          0x0101: 'ffdhe3072',
-          0x0102: 'ffdhe4096',
-          0x0103: 'ffdhe6144',
-          0x0104: 'ffdhe8192',
-        }[group] ?? 'unrecognised group';
-        hs.comment(`group ${groupName}`);
+        if (chatty) {
+          const groupName = {
+            0x0017: 'secp256r1',
+            0x0018: 'secp384r1',
+            0x0019: 'secp521r1',
+            0x001D: 'x25519',
+            0x001E: 'x448',
+            0x0100: 'ffdhe2048',
+            0x0101: 'ffdhe3072',
+            0x0102: 'ffdhe4096',
+            0x0103: 'ffdhe6144',
+            0x0104: 'ffdhe8192',
+          }[group] ?? 'unrecognised group';
+          hs.comment(`group: ${groupName}`);
+        }
       }
       endGroups();
       endGroupsData();
