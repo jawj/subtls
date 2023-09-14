@@ -62,7 +62,7 @@ export const extOIDMap: Record<string, string> = {
 };
 
 export const extKeyUsageOIDMap: Record<string, string> = {
-  "1.3.6.1.5.5.7.3.2": "TLSCLientAuth",
+  "1.3.6.1.5.5.7.3.2": "TLSClientAuth",
   "1.3.6.1.5.5.7.3.1": "TLSServerAuth",
 };
 
