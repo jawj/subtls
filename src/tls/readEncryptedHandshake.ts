@@ -58,7 +58,7 @@ export async function readEncryptedHandshake(
       regardless of whether they are currently supported by the client.
       - https://www.rfc-editor.org/rfc/rfc8446#section-4.2
       */
-      chatty && hs.comment('supported groups ([RFC 8446 §4.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2), [§4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
+      chatty && hs.comment('supported groups, most preferred first ([RFC 8446 §4.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2), [§4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
       const [endGroupsData] = hs.expectLengthUint16('groups data');
       const [endGroups, groupsRemaining] = hs.expectLengthUint16('groups');
       while (groupsRemaining() > 0) {
