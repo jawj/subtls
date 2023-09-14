@@ -74,6 +74,9 @@ var Bytes = class {
     this.comments[offset] = result;
     return this;
   }
+  lengthComment(length, comment, inclusive = false) {
+    return length === 1 ? `${length} byte${comment ? ` of ${comment}` : ""} ${inclusive ? "starts here" : "follows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : ""} ${inclusive ? "start here" : "follow"}`;
+  }
   // reading
   readBytes(length) {
     return this.data.slice(this.offset, this.offset += length);
@@ -175,42 +178,42 @@ var Bytes = class {
   }
   expectLengthUint8(comment) {
     const length = this.readUint8();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
+    this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
   expectLengthUint16(comment) {
     const length = this.readUint16();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
+    this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
   expectLengthUint24(comment) {
     const length = this.readUint24();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
+    this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
   expectLengthUint32(comment) {
     const length = this.readUint32();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} follow`);
+    this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
   expectLengthUint8Incl(comment) {
     const length = this.readUint8();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
+    this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 1);
   }
   expectLengthUint16Incl(comment) {
     const length = this.readUint16();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
+    this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 2);
   }
   expectLengthUint24Incl(comment) {
     const length = this.readUint24();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
+    this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 3);
   }
   expectLengthUint32Incl(comment) {
     const length = this.readUint32();
-    this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} start here`);
+    this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 4);
   }
   // writing
@@ -279,7 +282,7 @@ var Bytes = class {
         this.dataView.setUint32(startOffset, length);
       else
         throw new Error(`Invalid length for length field: ${lengthBytes}`);
-      this.comment(`${length} bytes${comment ? ` of ${comment}` : ""} ${inclusive ? "start here" : "follow"}`, endOffset);
+      this.comment(this.lengthComment(length, comment, inclusive), endOffset);
       this.indent -= 1;
       this.indents[this.offset] = this.indent;
     };
@@ -427,8 +430,8 @@ function log(...args) {
 function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const h = new Bytes(1024);
   h.writeUint8(22, "record type: handshake");
-  h.writeUint16(769, "TLS legacy record version 1.0 ([RFC8446 \xA75.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))");
-  const endRecordHeader = h.writeLengthUint16();
+  h.writeUint16(769, "TLS legacy record version 1.0 ([RFC 8446 \xA75.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))");
+  const endRecordHeader = h.writeLengthUint16("TLS record");
   h.writeUint8(1, "handshake type: client hello");
   const endHandshakeHeader = h.writeLengthUint24();
   h.writeUint16(771, "TLS version 1.2 (middlebox compatibility: see [blog.cloudflare.com](https://blog.cloudflare.com/why-tls-1-3-isnt-in-browsers-yet))");
@@ -436,17 +439,17 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   h.comment("client random");
   const endSessionId = h.writeLengthUint8("session ID");
   h.writeBytes(sessionId);
-  h.comment("session ID (middlebox compatibility again: [RFC8446 appendix D4](https://datatracker.ietf.org/doc/html/rfc8446#appendix-D.4))");
+  h.comment("session ID (middlebox compatibility again: [RFC 8446 appendix D4](https://datatracker.ietf.org/doc/html/rfc8446#appendix-D.4))");
   endSessionId();
-  const endCiphers = h.writeLengthUint16("ciphers ([RFC8446 appendix B4](https://datatracker.ietf.org/doc/html/rfc8446#appendix-B.4))");
+  const endCiphers = h.writeLengthUint16("ciphers ([RFC 8446 appendix B4](https://datatracker.ietf.org/doc/html/rfc8446#appendix-B.4))");
   h.writeUint16(4865, "cipher: TLS_AES_128_GCM_SHA256");
   endCiphers();
   const endCompressionMethods = h.writeLengthUint8("compression methods");
   h.writeUint8(0, "compression method: none");
   endCompressionMethods();
-  const endExtensions = h.writeLengthUint16("extensions ([RFC8446 \xA74.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2))");
+  const endExtensions = h.writeLengthUint16("extensions ([RFC 8446 \xA74.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2))");
   if (useSNI) {
-    h.writeUint16(0, "extension type: SNI ([RFC6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
+    h.writeUint16(0, "extension type: SNI ([RFC 6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
     const endSNIExt = h.writeLengthUint16("SNI data");
     const endSNI = h.writeLengthUint16("SNI records");
     h.writeUint8(0, "list entry type: DNS hostname");
@@ -456,38 +459,38 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
     endSNI();
     endSNIExt();
   }
-  h.writeUint16(11, "extension type: EC point formats (for middlebox compatibility, from TLS 1.2: [RFC8422 \xA75.1.2](https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2))");
+  h.writeUint16(11, "extension type: EC point formats (for middlebox compatibility, from TLS 1.2: [RFC 8422 \xA75.1.2](https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2))");
   const endFormatTypesExt = h.writeLengthUint16("formats data");
   const endFormatTypes = h.writeLengthUint8("formats");
   h.writeUint8(0, "format: uncompressed");
   endFormatTypes();
   endFormatTypesExt();
-  h.writeUint16(10, "extension type: supported groups ([RFC8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
+  h.writeUint16(10, "extension type: supported groups ([RFC 8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
   const endGroupsExt = h.writeLengthUint16("groups data");
   const endGroups = h.writeLengthUint16("groups");
   h.writeUint16(23, "curve secp256r1");
   endGroups();
   endGroupsExt();
-  h.writeUint16(13, "extension type: signature algorithms ([RFC8446 \xA74.2.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3))");
+  h.writeUint16(13, "extension type: signature algorithms ([RFC 8446 \xA74.2.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3))");
   const endSigsExt = h.writeLengthUint16("signature algorithms data");
   const endSigs = h.writeLengthUint16("signature algorithms");
   h.writeUint16(1027, "ecdsa_secp256r1_sha256");
   h.writeUint16(2052, "rsa_pss_rsae_sha256");
   endSigs();
   endSigsExt();
-  h.writeUint16(43, "extension type: supported TLS versions ([RFC8446 \xA74.2.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.1))");
+  h.writeUint16(43, "extension type: supported TLS versions ([RFC 8446 \xA74.2.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.1))");
   const endVersionsExt = h.writeLengthUint16("TLS versions data");
   const endVersions = h.writeLengthUint8("TLS versions");
   h.writeUint16(772, "TLS version 1.3");
   endVersions();
   endVersionsExt();
-  h.writeUint16(51, "extension type: key share ([RFC8446 \xA74.2.8](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8))");
+  h.writeUint16(51, "extension type: key share ([RFC 8446 \xA74.2.8](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8))");
   const endKeyShareExt = h.writeLengthUint16("key share data");
   const endKeyShares = h.writeLengthUint16("key shares");
-  h.writeUint16(23, "secp256r1 (NIST P-256) key share ([RFC8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
+  h.writeUint16(23, "secp256r1 (NIST P-256) key share ([RFC 8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
   const endKeyShare = h.writeLengthUint16("key share");
   if (1) {
-    h.writeUint8(publicKey[0], "legacy point format: always 4, which means uncompressed ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
+    h.writeUint8(publicKey[0], "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
     h.writeBytes(publicKey.subarray(1, 33));
     h.comment("x coordinate");
     h.writeBytes(publicKey.subarray(33, 65));
@@ -574,7 +577,7 @@ function parseServerHello(hello, sessionId) {
       if (keyShareLength !== 65)
         throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
       if (1) {
-        hello.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
+        hello.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
         const x = hello.readBytes(32);
         hello.comment("x coordinate");
         const y = hello.readBytes(32);
@@ -599,13 +602,41 @@ function parseServerHello(hello, sessionId) {
   return serverPublicKey;
 }
 
+// src/tls/sessionTicket.ts
+function parseSessionTicket(record) {
+  if (1) {
+    const ticket = new Bytes(record);
+    ticket.expectUint8(4, "session ticket message ([RFC 8846 \xA74.6.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.1))");
+    const [endTicketRecord] = ticket.expectLengthUint24("session ticket message");
+    const ticketSeconds = ticket.readUint32();
+    ticket.comment(`ticket lifetime in seconds: ${ticketSeconds} = ${ticketSeconds / 3600} hours`);
+    ticket.readUint32("ticket age add");
+    const [endTicketNonce, ticketNonceRemaining] = ticket.expectLengthUint8("ticket nonce");
+    ticket.readBytes(ticketNonceRemaining());
+    ticket.comment("ticket nonce");
+    endTicketNonce();
+    const [endTicket, ticketRemaining] = ticket.expectLengthUint16("ticket");
+    ticket.readBytes(ticketRemaining());
+    ticket.comment("ticket");
+    endTicket();
+    const [endTicketExts, ticketExtsRemaining] = ticket.expectLengthUint16("ticket extensions");
+    if (ticketExtsRemaining() > 0) {
+      ticket.readBytes(ticketExtsRemaining());
+      ticket.comment("ticket extensions (ignored)");
+    }
+    endTicketExts();
+    endTicketRecord();
+    log(...highlightBytes(ticket.commentedString(), "#88c" /* server */));
+  }
+}
+
 // src/tls/tlsRecord.ts
 var RecordTypeName = {
-  20: "ChangeCipherSpec",
-  21: "Alert",
-  22: "Handshake",
-  23: "Application",
-  24: "Heartbeat"
+  [20 /* ChangeCipherSpec */]: "ChangeCipherSpec",
+  [21 /* Alert */]: "Alert",
+  [22 /* Handshake */]: "Handshake",
+  [23 /* Application */]: "Application",
+  [24 /* Heartbeat */]: "Heartbeat"
 };
 var maxPlaintextRecordLength = 1 << 14;
 var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
@@ -624,7 +655,8 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
     throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   header.comment(`record type: ${RecordTypeName[type]}`);
   header.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
-  const length = header.readUint16("% bytes of TLS record follow");
+  const length = header.readUint16();
+  header.comment(`${length === 0 ? "no" : length} byte${length === 1 ? "" : "s"} of TLS record follow${length === 1 ? "s" : ""}`);
   if (length > maxLength)
     throw new Error(`Record too long: ${length} bytes`);
   const content = await read(length);
@@ -660,13 +692,13 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
     if (closeNotify)
       return void 0;
   }
+  log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
   if (type === 22 /* Handshake */ && record[0] === 4) {
-    log(...highlightBytes(hexFromU8(record, " ") + "  session ticket message: ignored", "#88c" /* server */));
+    parseSessionTicket(record);
     return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
   if (expectedType !== void 0 && type !== expectedType)
     throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
-  log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
   return record;
 }
 async function makeEncryptedTlsRecord(plaintext, encrypter, type) {
@@ -1739,16 +1771,16 @@ async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage =
 var txtEnc3 = new TextEncoder();
 async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos, rootCerts, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
   const hs = new ASN1Bytes(await readHandshakeRecord());
-  hs.expectUint8(8, "handshake record type: encrypted extensions ([RFC8446 \xA74.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))");
+  hs.expectUint8(8, "handshake record type: encrypted extensions ([RFC 8446 \xA74.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))");
   const [eeMessageEnd] = hs.expectLengthUint24();
   const [extEnd, extRemaining] = hs.expectLengthUint16("extensions");
   while (extRemaining() > 0) {
     const extType = hs.readUint16("extension type:");
     if (extType === 0) {
       hs.comment("SNI");
-      hs.expectUint16(0, "no extension data ([RFC6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
+      hs.expectUint16(0, "no extension data ([RFC 6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
     } else if (extType === 10) {
-      hs.comment("supported groups ([RFC8446 \xA74.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2))");
+      hs.comment("supported groups ([RFC 8446 \xA74.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2))");
       const [endGroups, groupsRemaining] = hs.expectLengthUint16("groups data");
       hs.skip(groupsRemaining(), "ignored");
       endGroups();
@@ -1763,7 +1795,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   let clientCertRequested = false;
   let certMsgType = hs.readUint8();
   if (certMsgType === 13) {
-    hs.comment("handshake record type: certificate request ([RFC8446 \xA74.3.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.2))");
+    hs.comment("handshake record type: certificate request ([RFC 8446 \xA74.3.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.2))");
     clientCertRequested = true;
     const [endCertReq] = hs.expectLengthUint24("certificate request data");
     hs.expectUint8(0, "length of certificate request context");
@@ -1777,7 +1809,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   }
   if (certMsgType !== 11)
     throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
-  hs.comment("handshake record type: certificate ([RFC8446 \xA74.4.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2))");
+  hs.comment("handshake record type: certificate ([RFC 8446 \xA74.4.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2))");
   const [endCertPayload] = hs.expectLengthUint24("certificate payload");
   hs.expectUint8(0, "0 bytes of request context follow");
   const [endCerts, certsRemaining] = hs.expectLengthUint24("certificates");
@@ -1803,7 +1835,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const certVerifySignedData = concat(txtEnc3.encode(" ".repeat(64) + "TLS 1.3, server CertificateVerify"), [0], certVerifyHash);
   if (hs.remaining() === 0)
     hs.extend(await readHandshakeRecord());
-  hs.expectUint8(15, "handshake message type: certificate verify ([RFC8446 \xA74.4.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.3))");
+  hs.expectUint8(15, "handshake message type: certificate verify ([RFC 8446 \xA74.4.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.3))");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   const sigType = hs.readUint16();
   log("verifying end-user certificate ...");
@@ -1840,7 +1872,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
   if (hs.remaining() === 0)
     hs.extend(await readHandshakeRecord());
-  hs.expectUint8(20, "handshake message type: finished ([RFC8446 \xA74.4.4](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.4))");
+  hs.expectUint8(20, "handshake message type: finished ([RFC 8446 \xA74.4.4](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.4))");
   const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24("verify hash");
   const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
   hs.comment("verify hash");

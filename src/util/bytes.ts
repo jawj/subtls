@@ -50,6 +50,12 @@ export class Bytes {
     return this;
   }
 
+  lengthComment(length: number, comment?: string, inclusive = false) {
+    return length === 1 ?
+      `${length} byte${comment ? ` of ${comment}` : ''} ${inclusive ? 'starts here' : 'follows'}` :
+      `${length === 0 ? 'no' : length} bytes${comment ? ` of ${comment}` : ''} ${inclusive ? 'start here' : 'follow'}`;
+  }
+
   // reading
 
   readBytes(length: number) {
@@ -148,49 +154,49 @@ export class Bytes {
 
   expectLengthUint8(comment?: string) {
     const length = this.readUint8();
-    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    chatty && this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
 
   expectLengthUint16(comment?: string) {
     const length = this.readUint16();
-    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    chatty && this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
 
   expectLengthUint24(comment?: string) {
     const length = this.readUint24();
-    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    chatty && this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
 
   expectLengthUint32(comment?: string) {
     const length = this.readUint32();
-    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} follow`);
+    chatty && this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
 
   expectLengthUint8Incl(comment?: string) {
     const length = this.readUint8();
-    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} start here`);
+    chatty && this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 1);
   }
 
   expectLengthUint16Incl(comment?: string) {
     const length = this.readUint16();
-    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} start here`);
+    chatty && this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 2);
   }
 
   expectLengthUint24Incl(comment?: string) {
     const length = this.readUint24();
-    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} start here`);
+    chatty && this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 3);
   }
 
   expectLengthUint32Incl(comment?: string) {
     const length = this.readUint32();
-    chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} start here`);
+    chatty && this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 4);
   }
 
@@ -263,7 +269,7 @@ export class Bytes {
       }
       else if (lengthBytes === 4) this.dataView.setUint32(startOffset, length);
       else throw new Error(`Invalid length for length field: ${lengthBytes}`);
-      chatty && this.comment(`${length} bytes${comment ? ` of ${comment}` : ''} ${inclusive ? 'start here' : 'follow'}`, endOffset);
+      chatty && this.comment(this.lengthComment(length, comment, inclusive), endOffset);
       this.indent -= 1;
       this.indents[this.offset] = this.indent;
     };

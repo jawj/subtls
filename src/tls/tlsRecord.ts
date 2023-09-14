@@ -1,10 +1,11 @@
 import { Crypter } from './aesgcm';
-import { LogColours } from '../presentation/appearance';
 import { Bytes } from '../util/bytes';
+import { concat } from '../util/array';
+import { parseSessionTicket } from './sessionTicket';
+import { LogColours } from '../presentation/appearance';
 import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { hexFromU8 } from '../util/hex';
-import { concat } from '../util/array';
 
 export enum RecordType {
   ChangeCipherSpec = 0x14,
@@ -15,12 +16,12 @@ export enum RecordType {
 }
 
 export const RecordTypeName = {
-  0x14: 'ChangeCipherSpec',
-  0x15: 'Alert',
-  0x16: 'Handshake',
-  0x17: 'Application',
-  0x18: 'Heartbeat',
-};
+  [RecordType.ChangeCipherSpec]: 'ChangeCipherSpec',
+  [RecordType.Alert]: 'Alert',
+  [RecordType.Handshake]: 'Handshake',
+  [RecordType.Application]: 'Application',
+  [RecordType.Heartbeat]: 'Heartbeat',
+} as const;
 
 const maxPlaintextRecordLength = 1 << 14;
 const maxCiphertextRecordLength = maxPlaintextRecordLength + 1 /* record type */ + 255 /* max aead */;
@@ -40,7 +41,8 @@ export async function readTlsRecord(read: (length: number) => Promise<Uint8Array
 
   header.expectUint16(0x0303, 'TLS record version 1.2 (middlebox compatibility)');
 
-  const length = header.readUint16(chatty && '% bytes of TLS record follow');
+  const length = header.readUint16();
+  chatty && header.comment(`${length === 0 ? 'no' : length} byte${length === 1 ? '' : 's'} of TLS record follow${length === 1 ? 's' : ''}`)
   if (length > maxLength) throw new Error(`Record too long: ${length} bytes`)
 
   const content = await read(length);
@@ -76,13 +78,14 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
     if (closeNotify) return undefined;  // 0x00 is close_notify
   }
 
+  chatty && log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, '0'), `color: ${LogColours.server}`, `actual decrypted record type: ${(RecordTypeName as any)[type]}`);
+
   if (type === RecordType.Handshake && record[0] === 0x04) {  // new session ticket message: always ignore these
-    chatty && log(...highlightBytes(hexFromU8(record, ' ') + '  session ticket message: ignored', LogColours.server));
+    parseSessionTicket(record);
     return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
 
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
-  chatty && log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, '0'), `color: ${LogColours.server}`, `actual decrypted record type: ${(RecordTypeName as any)[type]}`);
 
   return record;
 }
