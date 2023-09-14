@@ -1785,10 +1785,27 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
       hs.comment("SNI");
       hs.expectUint16(0, "no extension data ([RFC 6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
     } else if (extType === 10) {
-      hs.comment("supported groups ([RFC 8446 \xA74.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2))");
-      const [endGroups, groupsRemaining] = hs.expectLengthUint16("groups data");
-      hs.skip(groupsRemaining(), "ignored");
+      hs.comment("supported groups ([RFC 8446 \xA74.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2), [\xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
+      const [endGroupsData] = hs.expectLengthUint16("groups data");
+      const [endGroups, groupsRemaining] = hs.expectLengthUint16("groups");
+      while (groupsRemaining() > 0) {
+        const group = hs.readUint16();
+        const groupName = {
+          23: "secp256r1",
+          24: "secp384r1",
+          25: "secp521r1",
+          29: "x25519",
+          30: "x448",
+          256: "ffdhe2048",
+          257: "ffdhe3072",
+          258: "ffdhe4096",
+          259: "ffdhe6144",
+          260: "ffdhe8192"
+        }[group] ?? "unrecognised group";
+        hs.comment(`group ${groupName}`);
+      }
       endGroups();
+      endGroupsData();
     } else {
       throw new Error(`Unsupported server encrypted extension type 0x${hexFromU8([extType]).padStart(4, "0")}`);
     }
