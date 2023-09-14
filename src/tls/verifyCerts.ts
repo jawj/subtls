@@ -87,7 +87,10 @@ export async function verifyCerts(
     chatty && log(`%c✓ certificate basicConstraints indicate a CA certificate`, 'color: #8c8;');
 
     const { pathLength } = signingCert.basicConstraints;
-    if (pathLength !== undefined) {
+    if (pathLength === undefined) {
+      chatty && log(`%c✓ certificate pathLength is not constrained`, 'color: #8c8;');
+
+    } else {
       if (pathLength < i) throw new Error('Exceeded certificate pathLength');
       chatty && log(`%c✓ certificate pathLength is not exceeded`, 'color: #8c8;');
     }

@@ -513,14 +513,14 @@ function hexFromU8(u8, spacer = "") {
 }
 
 // src/tls/parseServerHello.ts
-function parseServerHello(hello, sessionId) {
+function parseServerHello(h, sessionId) {
   let serverPublicKey;
   let tlsVersionSpecified;
-  const [endServerHelloMessage] = hello.expectLength(hello.remaining());
-  hello.expectUint8(2, "handshake type: server hello");
-  const [endServerHello] = hello.expectLengthUint24("server hello");
-  hello.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
-  const serverRandom = hello.readBytes(32);
+  const [endServerHelloMessage] = h.expectLength(h.remaining());
+  h.expectUint8(2, "handshake type: server hello");
+  const [endServerHello] = h.expectLengthUint24("server hello");
+  h.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  const serverRandom = h.readBytes(32);
   if (equal(serverRandom, [
     // SHA-256 of "HelloRetryRequest", https://datatracker.ietf.org/doc/html/rfc8446#page-32
     // see also: echo -n "HelloRetryRequest" | openssl dgst -sha256 -hex
@@ -558,33 +558,36 @@ function parseServerHello(hello, sessionId) {
     156
   ]))
     throw new Error("Unexpected HelloRetryRequest");
-  hello.comment('server random \u2014 [not SHA256("HelloRetryRequest")](https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.3)');
-  hello.expectUint8(sessionId.length, "session ID length (matches client session ID)");
-  hello.expectBytes(sessionId, "session ID (matches client session ID)");
-  hello.expectUint16(4865, "cipher (matches client hello)");
-  hello.expectUint8(0, "no compression");
-  const [endExtensions, extensionsRemaining] = hello.expectLengthUint16("extensions");
+  h.comment('server random \u2014 [not SHA256("HelloRetryRequest")](https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.3)');
+  h.expectUint8(sessionId.length, "session ID length (matches client session ID)");
+  h.expectBytes(sessionId, "session ID (matches client session ID)");
+  h.expectUint16(4865, "cipher (matches client hello)");
+  h.expectUint8(0, "no compression");
+  const [endExtensions, extensionsRemaining] = h.expectLengthUint16("extensions");
   while (extensionsRemaining() > 0) {
-    const extensionType = hello.readUint16("extension type");
-    const [endExtension] = hello.expectLengthUint16("extension");
+    const extensionType = h.readUint16("extension type:");
+    h.comment(
+      extensionType === 43 ? "TLS version" : extensionType === 51 ? "key share" : "unknown"
+    );
+    const [endExtension] = h.expectLengthUint16("extension");
     if (extensionType === 43) {
-      hello.expectUint16(772, "TLS version 1.3");
+      h.expectUint16(772, "TLS version 1.3");
       tlsVersionSpecified = true;
     } else if (extensionType === 51) {
-      hello.expectUint16(23, "secp256r1 (NIST P-256) key share");
-      const [endKeyShare, keyShareRemaining] = hello.expectLengthUint16("key share");
+      h.expectUint16(23, "key share type: secp256r1 (NIST P-256)");
+      const [endKeyShare, keyShareRemaining] = h.expectLengthUint16("key share");
       const keyShareLength = keyShareRemaining();
       if (keyShareLength !== 65)
         throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
       if (1) {
-        hello.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
-        const x = hello.readBytes(32);
-        hello.comment("x coordinate");
-        const y = hello.readBytes(32);
-        hello.comment("y coordinate");
+        h.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
+        const x = h.readBytes(32);
+        h.comment("x coordinate");
+        const y = h.readBytes(32);
+        h.comment("y coordinate");
         serverPublicKey = concat([4], x, y);
       } else {
-        serverPublicKey = hello.readBytes(keyShareLength);
+        serverPublicKey = h.readBytes(keyShareLength);
       }
       endKeyShare();
     } else {
@@ -1730,7 +1733,9 @@ async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage =
       throw new Error("Signing certificate basicConstraints do not indicate a CA certificate");
     log(`%c\u2713 certificate basicConstraints indicate a CA certificate`, "color: #8c8;");
     const { pathLength } = signingCert.basicConstraints;
-    if (pathLength !== void 0) {
+    if (pathLength === void 0) {
+      log(`%c\u2713 certificate pathLength is not constrained`, "color: #8c8;");
+    } else {
       if (pathLength < i)
         throw new Error("Exceeded certificate pathLength");
       log(`%c\u2713 certificate pathLength is not exceeded`, "color: #8c8;");
