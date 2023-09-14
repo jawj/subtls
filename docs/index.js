@@ -1791,19 +1791,21 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
       hs.comment("(most preferred first)");
       while (groupsRemaining() > 0) {
         const group = hs.readUint16();
-        const groupName = {
-          23: "secp256r1",
-          24: "secp384r1",
-          25: "secp521r1",
-          29: "x25519",
-          30: "x448",
-          256: "ffdhe2048",
-          257: "ffdhe3072",
-          258: "ffdhe4096",
-          259: "ffdhe6144",
-          260: "ffdhe8192"
-        }[group] ?? "unrecognised group";
-        hs.comment(`group ${groupName}`);
+        if (1) {
+          const groupName = {
+            23: "secp256r1",
+            24: "secp384r1",
+            25: "secp521r1",
+            29: "x25519",
+            30: "x448",
+            256: "ffdhe2048",
+            257: "ffdhe3072",
+            258: "ffdhe4096",
+            259: "ffdhe6144",
+            260: "ffdhe8192"
+          }[group] ?? "unrecognised group";
+          hs.comment(`group: ${groupName}`);
+        }
       }
       endGroups();
       endGroupsData();
