@@ -1603,7 +1603,6 @@ var Cert = class _Cert {
     return Object.entries(dn).map((x) => x.join("=")).join(", ");
   }
   static fromPEM(pem) {
-    console.log(pem);
     const tag = "[A-Z0-9 ]+";
     const pattern = new RegExp(`-----BEGIN ${tag}-----([a-zA-Z0-9=+\\/\\n\\r]+)-----END ${tag}-----`, "g");
     const res = [];

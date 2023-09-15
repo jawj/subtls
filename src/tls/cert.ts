@@ -368,7 +368,6 @@ export class Cert {
   }
 
   static fromPEM(pem: string) {
-    console.log(pem);
     const tag = "[A-Z0-9 ]+";
     const pattern = new RegExp(`-----BEGIN ${tag}-----([a-zA-Z0-9=+\\/\\n\\r]+)-----END ${tag}-----`, 'g');
     const res = [];
