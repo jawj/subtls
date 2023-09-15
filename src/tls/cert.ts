@@ -18,13 +18,18 @@ import {
   extKeyUsageOIDMap,
   extOIDMap,
   keyOIDMap,
+  extAccessMethodOIDMap,
   algorithmWithOID,
   intFromBitString,
   readNamesSeq,
   readSeqOfSetOfSeq,
   descriptionForAlgorithm,
 } from './certUtils';
+
 import { hexFromU8 } from '../util/hex';
+import { highlightBytes } from '../presentation/highlights';
+import { log } from '../presentation/log';
+import { LogColours } from '../presentation/appearance';
 
 type OID = string;
 
@@ -90,7 +95,7 @@ export class Cert {
     const [endAlgo, algoRemaining] = cb.expectASN1Length(chatty && 'algorithm sequence');
     cb.expectUint8(universalTypeOID, chatty && 'OID');
     this.algorithm = cb.readASN1OID();
-    chatty && cb.comment(`= ${descriptionForAlgorithm(algorithmWithOID(this.algorithm))}`);
+    chatty && cb.comment(`${this.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(this.algorithm))}`);
     if (algoRemaining() > 0) {  // null parameters
       cb.expectUint8(universalTypeNull, chatty && 'null');
       cb.expectUint8(0x00, chatty && 'null length');
@@ -126,8 +131,8 @@ export class Cert {
       if (keyParamRecordType === universalTypeOID) {
         chatty && cb.comment('OID');
         const keyOID = cb.readASN1OID();
+        chatty && cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`)
         publicKeyOIDs.push(keyOID);
-        chatty && cb.comment(`= ${keyOIDMap[keyOID]}`)
 
       } else if (keyParamRecordType === universalTypeNull) {
         chatty && cb.comment('null');
@@ -155,7 +160,7 @@ export class Cert {
       const [endExt, extRemaining] = cb.expectASN1Length();
       cb.expectUint8(universalTypeOID, chatty && 'OID (extension type)');
       const extOID = cb.readASN1OID();
-      chatty && cb.comment(`= ${extOIDMap[extOID]}`);
+      chatty && cb.comment(`${extOID} = ${extOIDMap[extOID]}`);
 
       if (extOID === "2.5.29.17") {  // subjectAltName
         cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
@@ -169,8 +174,7 @@ export class Cert {
 
       } else if (extOID === '2.5.29.15') {  // keyUsage
         cb.expectUint8(universalTypeBoolean, chatty && 'boolean');
-        const keyUsageCritical = cb.readASN1Boolean();
-        chatty && cb.comment('<- critical');
+        const keyUsageCritical = cb.readASN1Boolean(chatty && 'critical: %');
         cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
         const [endKeyUsageDer] = cb.expectASN1Length(chatty && 'DER document');
         cb.expectUint8(universalTypeBitString, chatty && 'bit string');
@@ -193,9 +197,9 @@ export class Cert {
         while (extKeyUsageRemaining() > 0) {
           cb.expectUint8(universalTypeOID, chatty && 'OID');
           const extKeyUsageOID = cb.readASN1OID();
+          chatty && cb.comment(`${extKeyUsageOID} = ${extKeyUsageOIDMap[extKeyUsageOID]}`);
           if (extKeyUsageOID === '1.3.6.1.5.5.7.3.1') this.extKeyUsage.serverTls = true;
           if (extKeyUsageOID === '1.3.6.1.5.5.7.3.2') this.extKeyUsage.clientTls = true;
-          chatty && cb.comment(`= ${extKeyUsageOIDMap[extKeyUsageOID]}`)
         }
         endExtKeyUsage();
         endExtKeyUsageDer();
@@ -257,8 +261,7 @@ export class Cert {
         let bcNextType = cb.readUint8();
         if (bcNextType === universalTypeBoolean) {
           chatty && cb.comment('boolean');
-          basicConstraintsCritical = cb.readASN1Boolean();
-          chatty && cb.comment('= critical');
+          basicConstraintsCritical = cb.readASN1Boolean(chatty && 'critical: %');
           bcNextType = cb.readUint8();
         }
         if (bcNextType !== universalTypeOctetString) throw new Error('Unexpected type in certificate basic constraints');
@@ -270,7 +273,7 @@ export class Cert {
         let basicConstraintsCa = undefined;
         if (constraintsSeqRemaining() > 0) {
           cb.expectUint8(universalTypeBoolean, chatty && 'boolean');
-          basicConstraintsCa = cb.readASN1Boolean();
+          basicConstraintsCa = cb.readASN1Boolean(chatty && 'certificate authority: %');
         }
 
         let basicConstraintsPathLength;
@@ -294,6 +297,32 @@ export class Cert {
           ca: basicConstraintsCa,
           pathLength: basicConstraintsPathLength,
         }
+
+      } else if (extOID === '1.3.6.1.5.5.7.1.1') {  // authorityInfoAccess
+        cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
+        const [endAuthInfoAccessDER, endAuthInfoAccessDERRemaining] = cb.expectASN1Length(chatty && 'DER document');
+
+        cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+        const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+
+        while (authInfoAccessSeqRemaining() > 0) {
+          cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+          const [endAuthInfoAccessSeq2, authInfoAccessSeq2Remaining] = cb.expectASN1Length(chatty && 'sequence');
+
+          cb.expectUint8(universalTypeOID, chatty && 'OID');
+          const accessMethodOID = cb.readASN1OID();
+          chatty && cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? 'unknown method'} `)
+
+          cb.expectUint8(contextSpecificType | GeneralName.uniformResourceIdentifier, chatty && 'context-specific type: URI');
+          const [endMethodURI, methodURIRemaining] = cb.expectASN1Length(chatty && 'access location');
+          cb.readUTF8String(methodURIRemaining());
+          endMethodURI();
+
+          endAuthInfoAccessSeq2()
+        }
+
+        endAuthInfoAccessSeq();
+        endAuthInfoAccessDER();
 
       } else {
         /**
@@ -322,13 +351,13 @@ export class Cert {
     cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (signature algorithm)');
     const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length(chatty && 'signature algorithm sequence');
     cb.expectUint8(universalTypeOID, chatty && 'OID');
-    const sigAlgoOID = cb.readASN1OID();
+    const sigAlgoOID = cb.readASN1OID(chatty && '% (must be same as above)');
     if (sigAlgoRemaining() > 0) {
       cb.expectUint8(universalTypeNull, chatty && 'null');
       cb.expectUint8(0x00, chatty && 'null length');
     }
     endSigAlgo();
-    if (sigAlgoOID !== this.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${this.algorithm}) and out (${sigAlgoOID})`);
+    if (sigAlgoOID !== this.algorithm) throw new Error(`Certificate specifies different signature algorithms inside(${this.algorithm}) and out(${sigAlgoOID})`);
 
     // signature
     cb.expectUint8(universalTypeBitString, chatty && 'bitstring (signature)');
@@ -339,14 +368,17 @@ export class Cert {
   }
 
   static fromPEM(pem: string) {
+    console.log(pem);
     const tag = "[A-Z0-9 ]+";
-    const pattern = new RegExp(`-{5}BEGIN ${tag}-{5}([a-zA-Z0-9=+\\/\\n\\r]+)-{5}END ${tag}-{5}`, 'g');
+    const pattern = new RegExp(`-----BEGIN ${tag}-----([a-zA-Z0-9=+\\/\\n\\r]+)-----END ${tag}-----`, 'g');
     const res = [];
     let matches = null;
     while (matches = pattern.exec(pem)) {
       const base64 = matches[1].replace(/[\r\n]/g, '');
       const binary = base64Decode(base64);
-      const cert = new this(binary);
+      const asn1 = new ASN1Bytes(binary);
+      const cert = new this(asn1);
+      // chatty && log(...highlightBytes(asn1.commentedString(), LogColours.client));
       res.push(cert);
     }
     return res;

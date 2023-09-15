@@ -121,7 +121,7 @@ export async function readEncryptedHandshake(
   chatty && hs.comment('handshake record type: certificate ([RFC 8446 §4.4.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2))');
   const [endCertPayload] = hs.expectLengthUint24(chatty && 'certificate payload');
 
-  hs.expectUint8(0x00, chatty && '0 bytes of request context follow');
+  hs.expectUint8(0x00, chatty && 'no bytes of request context follow');
   const [endCerts, certsRemaining] = hs.expectLengthUint24(chatty && 'certificates');
 
   const certs: Cert[] = [];

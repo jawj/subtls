@@ -5,13 +5,11 @@ import isrgrootx1 from '../roots/isrg-root-x1.pem';
 // @ts-ignore
 import isrgrootx2 from '../roots/isrg-root-x2.pem';
 // @ts-ignore
-import cloudflare from '../roots/cloudflare.pem';
+import baltimoreroot from '../roots/baltimore.pem';
 // @ts-ignore
-import globalsign from '../roots/globalsign.pem';  // google.com
-// @ts-ignore
-import globalsignr3 from '../roots/globalsign-r3.pem';  // guardian.co.uk
+import digicertroot from '../roots/digicert-global-root.pem';
 
 export function getRootCerts() {
-  const rootCerts = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + cloudflare + globalsign + globalsignr3);
+  const rootCerts = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + baltimoreroot + digicertroot);
   return rootCerts;
 }

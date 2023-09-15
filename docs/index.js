@@ -931,7 +931,7 @@ var ASN1Bytes = class extends Bytes {
     const length = this.readASN1Length(comment);
     return this.expectLength(length);
   }
-  readASN1OID() {
+  readASN1OID(comment) {
     const [endOID, OIDRemaining] = this.expectASN1Length("OID");
     const byte1 = this.readUint8();
     let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
@@ -946,11 +946,12 @@ var ASN1Bytes = class extends Bytes {
       }
       oid += `.${value}`;
     }
-    this.comment(oid);
+    if (comment)
+      this.comment(comment.replace(/%/g, oid));
     endOID();
     return oid;
   }
-  readASN1Boolean() {
+  readASN1Boolean(comment) {
     const [endBoolean, booleanRemaining] = this.expectASN1Length("boolean");
     const length = booleanRemaining();
     if (length !== 1)
@@ -963,7 +964,8 @@ var ASN1Bytes = class extends Bytes {
       result = false;
     else
       throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
-    this.comment(result.toString());
+    if (comment)
+      this.comment(comment.replace(/%/g, String(result)));
     endBoolean();
     return result;
   }
@@ -1055,8 +1057,12 @@ var extOIDMap = {
   "2.5.29.31": "CRLDistributionPoints"
 };
 var extKeyUsageOIDMap = {
-  "1.3.6.1.5.5.7.3.2": "TLSCLientAuth",
+  "1.3.6.1.5.5.7.3.2": "TLSClientAuth",
   "1.3.6.1.5.5.7.3.1": "TLSServerAuth"
+};
+var extAccessMethodOIDMap = {
+  "1.3.6.1.5.5.7.48.1": "OCSP",
+  "1.3.6.1.5.5.7.48.2": "Certificate authority issuers"
 };
 function intFromBitString(bs) {
   const { length } = bs;
@@ -1082,7 +1088,7 @@ function readSeqOfSetOfSeq(cb, seqType) {
     cb.expectUint8(universalTypeOID, "OID");
     const itemOID = cb.readASN1OID();
     const itemName = DNOIDMap[itemOID] ?? itemOID;
-    cb.comment(`= ${itemName}`);
+    cb.comment(`${itemOID} = ${itemName}`);
     const valueType = cb.readUint8();
     if (valueType === universalTypePrintableString) {
       cb.comment("printable string");
@@ -1378,7 +1384,7 @@ var Cert = class _Cert {
     const [endAlgo, algoRemaining] = cb.expectASN1Length("algorithm sequence");
     cb.expectUint8(universalTypeOID, "OID");
     this.algorithm = cb.readASN1OID();
-    cb.comment(`= ${descriptionForAlgorithm(algorithmWithOID(this.algorithm))}`);
+    cb.comment(`${this.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(this.algorithm))}`);
     if (algoRemaining() > 0) {
       cb.expectUint8(universalTypeNull, "null");
       cb.expectUint8(0, "null length");
@@ -1405,8 +1411,8 @@ var Cert = class _Cert {
       if (keyParamRecordType === universalTypeOID) {
         cb.comment("OID");
         const keyOID = cb.readASN1OID();
+        cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`);
         publicKeyOIDs.push(keyOID);
-        cb.comment(`= ${keyOIDMap[keyOID]}`);
       } else if (keyParamRecordType === universalTypeNull) {
         cb.comment("null");
         cb.expectUint8(0, "null length");
@@ -1427,7 +1433,7 @@ var Cert = class _Cert {
       const [endExt, extRemaining] = cb.expectASN1Length();
       cb.expectUint8(universalTypeOID, "OID (extension type)");
       const extOID = cb.readASN1OID();
-      cb.comment(`= ${extOIDMap[extOID]}`);
+      cb.comment(`${extOID} = ${extOIDMap[extOID]}`);
       if (extOID === "2.5.29.17") {
         cb.expectUint8(universalTypeOctetString, "octet string");
         const [endSanDerDoc] = cb.expectASN1Length("DER document");
@@ -1437,8 +1443,7 @@ var Cert = class _Cert {
         endSanDerDoc();
       } else if (extOID === "2.5.29.15") {
         cb.expectUint8(universalTypeBoolean, "boolean");
-        const keyUsageCritical = cb.readASN1Boolean();
-        cb.comment("<- critical");
+        const keyUsageCritical = cb.readASN1Boolean("critical: %");
         cb.expectUint8(universalTypeOctetString, "octet string");
         const [endKeyUsageDer] = cb.expectASN1Length("DER document");
         cb.expectUint8(universalTypeBitString, "bit string");
@@ -1460,11 +1465,11 @@ var Cert = class _Cert {
         while (extKeyUsageRemaining() > 0) {
           cb.expectUint8(universalTypeOID, "OID");
           const extKeyUsageOID = cb.readASN1OID();
+          cb.comment(`${extKeyUsageOID} = ${extKeyUsageOIDMap[extKeyUsageOID]}`);
           if (extKeyUsageOID === "1.3.6.1.5.5.7.3.1")
             this.extKeyUsage.serverTls = true;
           if (extKeyUsageOID === "1.3.6.1.5.5.7.3.2")
             this.extKeyUsage.clientTls = true;
-          cb.comment(`= ${extKeyUsageOIDMap[extKeyUsageOID]}`);
         }
         endExtKeyUsage();
         endExtKeyUsageDer();
@@ -1517,8 +1522,7 @@ var Cert = class _Cert {
         let bcNextType = cb.readUint8();
         if (bcNextType === universalTypeBoolean) {
           cb.comment("boolean");
-          basicConstraintsCritical = cb.readASN1Boolean();
-          cb.comment("= critical");
+          basicConstraintsCritical = cb.readASN1Boolean("critical: %");
           bcNextType = cb.readUint8();
         }
         if (bcNextType !== universalTypeOctetString)
@@ -1530,7 +1534,7 @@ var Cert = class _Cert {
         let basicConstraintsCa = void 0;
         if (constraintsSeqRemaining() > 0) {
           cb.expectUint8(universalTypeBoolean, "boolean");
-          basicConstraintsCa = cb.readASN1Boolean();
+          basicConstraintsCa = cb.readASN1Boolean("certificate authority: %");
         }
         let basicConstraintsPathLength;
         if (constraintsSeqRemaining() > 0) {
@@ -1548,6 +1552,25 @@ var Cert = class _Cert {
           ca: basicConstraintsCa,
           pathLength: basicConstraintsPathLength
         };
+      } else if (extOID === "1.3.6.1.5.5.7.1.1") {
+        cb.expectUint8(universalTypeOctetString, "octet string");
+        const [endAuthInfoAccessDER, endAuthInfoAccessDERRemaining] = cb.expectASN1Length("DER document");
+        cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+        const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = cb.expectASN1Length("sequence");
+        while (authInfoAccessSeqRemaining() > 0) {
+          cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+          const [endAuthInfoAccessSeq2, authInfoAccessSeq2Remaining] = cb.expectASN1Length("sequence");
+          cb.expectUint8(universalTypeOID, "OID");
+          const accessMethodOID = cb.readASN1OID();
+          cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? "unknown method"} `);
+          cb.expectUint8(contextSpecificType | 6 /* uniformResourceIdentifier */, "context-specific type: URI");
+          const [endMethodURI, methodURIRemaining] = cb.expectASN1Length("access location");
+          cb.readUTF8String(methodURIRemaining());
+          endMethodURI();
+          endAuthInfoAccessSeq2();
+        }
+        endAuthInfoAccessSeq();
+        endAuthInfoAccessDER();
       } else {
         cb.skip(extRemaining(), "ignored extension data");
       }
@@ -1560,14 +1583,14 @@ var Cert = class _Cert {
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (signature algorithm)");
     const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length("signature algorithm sequence");
     cb.expectUint8(universalTypeOID, "OID");
-    const sigAlgoOID = cb.readASN1OID();
+    const sigAlgoOID = cb.readASN1OID("% (must be same as above)");
     if (sigAlgoRemaining() > 0) {
       cb.expectUint8(universalTypeNull, "null");
       cb.expectUint8(0, "null length");
     }
     endSigAlgo();
     if (sigAlgoOID !== this.algorithm)
-      throw new Error(`Certificate specifies different signature algorithms inside (${this.algorithm}) and out (${sigAlgoOID})`);
+      throw new Error(`Certificate specifies different signature algorithms inside(${this.algorithm}) and out(${sigAlgoOID})`);
     cb.expectUint8(universalTypeBitString, "bitstring (signature)");
     this.signature = cb.readASN1BitString();
     cb.comment("signature");
@@ -1580,14 +1603,16 @@ var Cert = class _Cert {
     return Object.entries(dn).map((x) => x.join("=")).join(", ");
   }
   static fromPEM(pem) {
+    console.log(pem);
     const tag = "[A-Z0-9 ]+";
-    const pattern = new RegExp(`-{5}BEGIN ${tag}-{5}([a-zA-Z0-9=+\\/\\n\\r]+)-{5}END ${tag}-{5}`, "g");
+    const pattern = new RegExp(`-----BEGIN ${tag}-----([a-zA-Z0-9=+\\/\\n\\r]+)-----END ${tag}-----`, "g");
     const res = [];
     let matches = null;
     while (matches = pattern.exec(pem)) {
       const base64 = matches[1].replace(/[\r\n]/g, "");
       const binary = base64Decode(base64);
-      const cert = new this(binary);
+      const asn1 = new ASN1Bytes(binary);
+      const cert = new this(asn1);
       res.push(cert);
     }
     return res;
@@ -1836,7 +1861,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
   hs.comment("handshake record type: certificate ([RFC 8446 \xA74.4.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2))");
   const [endCertPayload] = hs.expectLengthUint24("certificate payload");
-  hs.expectUint8(0, "0 bytes of request context follow");
+  hs.expectUint8(0, "no bytes of request context follow");
   const [endCerts, certsRemaining] = hs.expectLengthUint24("certificates");
   const certs = [];
   while (certsRemaining() > 0) {
@@ -2065,6 +2090,18 @@ var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAII
 // src/roots/isrg-root-x2.pem
 var isrg_root_x2_default = "-----BEGIN CERTIFICATE-----\nMIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\nCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\nR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\nMDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\nZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\nEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\nItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\nAQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\nzj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\ntL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n/q4AaOeMSQ+2b1tbFfLn\n-----END CERTIFICATE-----\n";
 
+// src/roots/baltimore.pem
+var baltimore_default = "-----BEGIN CERTIFICATE-----\r\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\r\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\r\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\r\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\r\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\r\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\r\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\r\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\r\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\r\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\r\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\r\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\r\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\r\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\r\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\r\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\r\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\r\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\r\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\r\n-----END CERTIFICATE-----\r\n";
+
+// src/roots/digicert-global-root.pem
+var digicert_global_root_default = "-----BEGIN CERTIFICATE-----\r\nMIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh\r\nMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\r\nd3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBD\r\nQTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVT\r\nMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j\r\nb20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG\r\n9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsB\r\nCSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97\r\nnh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt\r\n43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7P\r\nT19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4\r\ngdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAO\r\nBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbR\r\nTLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUw\r\nDQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/Esr\r\nhMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg\r\n06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJF\r\nPnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0ls\r\nYSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQk\r\nCAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=\r\n-----END CERTIFICATE-----\r\n";
+
+// src/tls/rootCerts.ts
+function getRootCerts() {
+  const rootCerts = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default + digicert_global_root_default);
+  return rootCerts;
+}
+
 // src/postgres.ts
 async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true) {
   const t0 = Date.now();
@@ -2093,7 +2130,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   const byte = new Bytes(SorN);
   byte.expectUint8(83, '"S" = SSL connection supported');
   log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
-  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default);
+  const rootCert = getRootCerts();
   const [read, write] = await startTls(host, rootCert, transport.read, transport.write, {
     useSNI: !neonPasswordPipelining,
     requireServerTlsExtKeyUsage: false,
@@ -2251,12 +2288,6 @@ function parse(url, parseQueryString = false) {
   return { href: url, protocol, auth, username, password, hostname, port, pathname, search, query, hash };
 }
 
-// src/roots/baltimore.pem
-var baltimore_default = "-----BEGIN CERTIFICATE-----\r\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\r\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\r\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\r\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\r\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\r\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\r\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\r\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\r\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\r\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\r\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\r\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\r\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\r\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\r\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\r\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\r\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\r\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\r\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\r\n-----END CERTIFICATE-----\r\n";
-
-// src/roots/digicert-global-root.pem
-var digicert_global_root_default = "-----BEGIN CERTIFICATE-----\r\nMIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh\r\nMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\r\nd3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBD\r\nQTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVT\r\nMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j\r\nb20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG\r\n9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsB\r\nCSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97\r\nnh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt\r\n43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7P\r\nT19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4\r\ngdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAO\r\nBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbR\r\nTLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUw\r\nDQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/Esr\r\nhMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg\r\n06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJF\r\nPnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0ls\r\nYSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQk\r\nCAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=\r\n-----END CERTIFICATE-----\r\n";
-
 // src/https.ts
 var txtDec2 = new TextDecoder();
 async function https(urlStr2, method, transportFactory) {
@@ -2267,7 +2298,7 @@ async function https(urlStr2, method, transportFactory) {
   const host = url.hostname;
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
-  const rootCert = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default + digicert_global_root_default);
+  const rootCert = getRootCerts();
   const transport = await transportFactory(host, port, () => {
     log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");
   });

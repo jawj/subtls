@@ -66,6 +66,11 @@ export const extKeyUsageOIDMap: Record<string, string> = {
   "1.3.6.1.5.5.7.3.1": "TLSServerAuth",
 };
 
+export const extAccessMethodOIDMap: Record<string, string> = {
+  '1.3.6.1.5.5.7.48.1': 'OCSP',
+  '1.3.6.1.5.5.7.48.2': 'Certificate authority issuers',
+};
+
 export function intFromBitString(bs: Uint8Array) {
   const { length } = bs;
   if (length > 4) throw new Error(`Bit string length ${length} would overflow JS bit operators`);
@@ -95,7 +100,7 @@ export function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for
     cb.expectUint8(universalTypeOID, chatty && 'OID');
     const itemOID = cb.readASN1OID();
     const itemName = DNOIDMap[itemOID] ?? itemOID;
-    chatty && cb.comment(`= ${itemName}`);
+    chatty && cb.comment(`${itemOID} = ${itemName}`);
 
     const valueType = cb.readUint8();
     if (valueType === universalTypePrintableString) {

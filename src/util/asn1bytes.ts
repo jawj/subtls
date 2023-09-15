@@ -23,7 +23,7 @@ export class ASN1Bytes extends Bytes {
     return this.expectLength(length);
   }
 
-  readASN1OID() {  // starting with length (i.e. after OID type value)
+  readASN1OID(comment?: string) {  // starting with length (i.e. after OID type value)
     const [endOID, OIDRemaining] = this.expectASN1Length(chatty && 'OID');
     const byte1 = this.readUint8();
     let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
@@ -37,12 +37,12 @@ export class ASN1Bytes extends Bytes {
       }
       oid += `.${value}`;
     }
-    chatty && this.comment(oid);
+    if (chatty && comment) this.comment(comment.replace(/%/g, oid));
     endOID();
     return oid;
   }
 
-  readASN1Boolean() {
+  readASN1Boolean(comment?: string) {
     const [endBoolean, booleanRemaining] = this.expectASN1Length(chatty && 'boolean');
     const length = booleanRemaining();
     if (length !== 1) throw new Error(`Boolean has weird length: ${length}`);
@@ -51,7 +51,7 @@ export class ASN1Bytes extends Bytes {
     if (byte === 0xff) result = true;
     else if (byte === 0x00) result = false;
     else throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
-    chatty && this.comment(result.toString());
+    if (chatty && comment) this.comment(comment.replace(/%/g, String(result)));
     endBoolean();
     return result;
   }

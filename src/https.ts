@@ -3,17 +3,8 @@ import { LogColours } from './presentation/appearance';
 import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
-import { TrustedCert } from './tls/cert';
+import { getRootCerts } from './tls/rootCerts';
 import type wsTransport from './util/wsTransport';
-
-// @ts-ignore
-import isrgrootx1 from './roots/isrg-root-x1.pem';
-// @ts-ignore
-import isrgrootx2 from './roots/isrg-root-x2.pem';
-// @ts-ignore
-import baltimoreroot from './roots/baltimore.pem';
-// @ts-ignore
-import digicertroot from './roots/digicert-global-root.pem';
 
 const txtDec = new TextDecoder();
 
@@ -26,8 +17,7 @@ export async function https(urlStr: string, method: string, transportFactory: ty
   const port = url.port || 443;  // not `?? 443`, because it's an empty string if unspecified
   const reqPath = url.pathname + url.search;
 
-  const rootCert = TrustedCert.fromPEM(isrgrootx1 + isrgrootx2 + baltimoreroot + digicertroot);
-
+  const rootCert = getRootCerts();
   const transport = await transportFactory(host, port, () => {
     chatty && log('Connection closed (this message may appear out of order, before the last data has been decrypted and logged)');
   });
