@@ -19,17 +19,17 @@ import {
   extOIDMap,
   keyOIDMap,
   extAccessMethodOIDMap,
+  certPolOIDMap,
+  certPolQualOIDMap,
   algorithmWithOID,
   intFromBitString,
   readNamesSeq,
   readSeqOfSetOfSeq,
   descriptionForAlgorithm,
+  universalTypeIA5String,
 } from './certUtils';
 
 import { hexFromU8 } from '../util/hex';
-import { highlightBytes } from '../presentation/highlights';
-import { log } from '../presentation/log';
-import { LogColours } from '../presentation/appearance';
 
 type OID = string;
 
@@ -156,7 +156,7 @@ export class Cert {
     const [endExts, extsRemaining] = cb.expectASN1Length(chatty && 'extensions sequence');
 
     while (extsRemaining() > 0) {
-      cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+      cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate extension)');
       const [endExt, extRemaining] = cb.expectASN1Length();
       cb.expectUint8(universalTypeOID, chatty && 'OID (extension type)');
       const extOID = cb.readASN1OID();
@@ -298,7 +298,7 @@ export class Cert {
           pathLength: basicConstraintsPathLength,
         }
 
-      } else if (extOID === '1.3.6.1.5.5.7.1.1') {  // authorityInfoAccess
+      } else if (chatty && extOID === '1.3.6.1.5.5.7.1.1') {  // authorityInfoAccess -- only parsed for annotation purposes
         cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
         const [endAuthInfoAccessDER] = cb.expectASN1Length(chatty && 'DER document');
 
@@ -324,12 +324,62 @@ export class Cert {
         endAuthInfoAccessSeq();
         endAuthInfoAccessDER();
 
+      } else if (chatty && extOID === '2.5.29.32') {  // certificatePolicies -- only parsed for annotation purposes
+        cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
+        const [endCertPolDER] = cb.expectASN1Length(chatty && 'DER document');
+
+        cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (CertificatePolicies)');
+        const [endCertPolSeq, certPolSeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+
+        while (certPolSeqRemaining() > 0) {
+          cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (PolicyInformation)');
+          const [endCertPolInnerSeq, certPolInnerSeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+
+          cb.expectUint8(universalTypeOID, chatty && 'OID (CertPolicyID)');
+          const certPolOID = cb.readASN1OID();
+          chatty && cb.comment(`${certPolOID} = policy: ${certPolOIDMap[certPolOID] ?? 'unknown policy'} `);
+
+          while (certPolInnerSeqRemaining() > 0) {
+            cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+            const [endCertPolInner2Seq, certPolInner2SeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+
+            while (certPolInner2SeqRemaining() > 0) {
+              cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (PolicyQualifierInformation)');
+              const [endCertPolInner3Seq, certPolInner3SeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+
+              cb.expectUint8(universalTypeOID, chatty && 'OID (policyQualifierId)');
+              const certPolQualOID = cb.readASN1OID();
+              chatty && cb.comment(`${certPolQualOID} = qualifier: ${certPolQualOIDMap[certPolQualOID] ?? 'unknown qualifier'} `)
+
+              const qualType = cb.readUint8();
+              if (chatty && qualType === universalTypeIA5String) {
+                cb.comment('IA5String');
+                const [endQualStr, qualStrRemaining] = cb.expectASN1Length('string');
+                cb.readUTF8String(qualStrRemaining());
+                endQualStr();
+
+              } else {
+                if (certPolInner3SeqRemaining()) cb.skip(certPolInner3SeqRemaining(), 'skipped policy qualifier data');
+              }
+
+              endCertPolInner3Seq();
+            }
+
+            endCertPolInner2Seq();
+          }
+
+          endCertPolInnerSeq();
+        }
+
+        endCertPolSeq();
+        endCertPolDER();
+
+        // cb.skip(extRemaining(), chatty && 'ignored extension data');
+
       } else {
         /**
          * ignored extensions include:
          * - CRL Distribution Points
-         * - Certificate Policies
-         * - Authority Information Access
          * - Signed Certificate Timestamp (SCT) List
          */
         // TODO: check for criticality, throw if critical
@@ -377,7 +427,6 @@ export class Cert {
       const binary = base64Decode(base64);
       const asn1 = new ASN1Bytes(binary);
       const cert = new this(asn1);
-      // chatty && log(...highlightBytes(asn1.commentedString(), LogColours.client));
       res.push(cert);
     }
     return res;

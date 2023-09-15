@@ -1019,6 +1019,7 @@ var constructedUniversalTypeSet = 49;
 var universalTypeOID = 6;
 var universalTypePrintableString = 19;
 var universalTypeUTF8String = 12;
+var universalTypeIA5String = 22;
 var universalTypeUTCTime = 23;
 var universalTypeNull = 5;
 var universalTypeOctetString = 4;
@@ -1062,7 +1063,15 @@ var extKeyUsageOIDMap = {
 };
 var extAccessMethodOIDMap = {
   "1.3.6.1.5.5.7.48.1": "OCSP",
-  "1.3.6.1.5.5.7.48.2": "Certificate authority issuers"
+  "1.3.6.1.5.5.7.48.2": "certificate authority issuers"
+};
+var certPolOIDMap = {
+  "2.23.140.1.2.1": "domain validated",
+  "2.23.140.1.2.2": "subject identity validated",
+  "1.3.6.1.4.1.44947.1.1.1": "ISRG domain validated"
+};
+var certPolQualOIDMap = {
+  "1.3.6.1.5.5.7.2.1": "Certificate Practice Statement"
 };
 function intFromBitString(bs) {
   const { length } = bs;
@@ -1429,7 +1438,7 @@ var Cert = class _Cert {
     cb.expectUint8(constructedUniversalTypeSequence, "sequence (extensions)");
     const [endExts, extsRemaining] = cb.expectASN1Length("extensions sequence");
     while (extsRemaining() > 0) {
-      cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate extension)");
       const [endExt, extRemaining] = cb.expectASN1Length();
       cb.expectUint8(universalTypeOID, "OID (extension type)");
       const extOID = cb.readASN1OID();
@@ -1571,6 +1580,44 @@ var Cert = class _Cert {
         }
         endAuthInfoAccessSeq();
         endAuthInfoAccessDER();
+      } else if (extOID === "2.5.29.32") {
+        cb.expectUint8(universalTypeOctetString, "octet string");
+        const [endCertPolDER] = cb.expectASN1Length("DER document");
+        cb.expectUint8(constructedUniversalTypeSequence, "sequence (CertificatePolicies)");
+        const [endCertPolSeq, certPolSeqRemaining] = cb.expectASN1Length("sequence");
+        while (certPolSeqRemaining() > 0) {
+          cb.expectUint8(constructedUniversalTypeSequence, "sequence (PolicyInformation)");
+          const [endCertPolInnerSeq, certPolInnerSeqRemaining] = cb.expectASN1Length("sequence");
+          cb.expectUint8(universalTypeOID, "OID (CertPolicyID)");
+          const certPolOID = cb.readASN1OID();
+          cb.comment(`${certPolOID} = policy: ${certPolOIDMap[certPolOID] ?? "unknown policy"} `);
+          while (certPolInnerSeqRemaining() > 0) {
+            cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+            const [endCertPolInner2Seq, certPolInner2SeqRemaining] = cb.expectASN1Length("sequence");
+            while (certPolInner2SeqRemaining() > 0) {
+              cb.expectUint8(constructedUniversalTypeSequence, "sequence (PolicyQualifierInformation)");
+              const [endCertPolInner3Seq, certPolInner3SeqRemaining] = cb.expectASN1Length("sequence");
+              cb.expectUint8(universalTypeOID, "OID (policyQualifierId)");
+              const certPolQualOID = cb.readASN1OID();
+              cb.comment(`${certPolQualOID} = qualifier: ${certPolQualOIDMap[certPolQualOID] ?? "unknown qualifier"} `);
+              const qualType = cb.readUint8();
+              if (qualType === universalTypeIA5String) {
+                cb.comment("IA5String");
+                const [endQualStr, qualStrRemaining] = cb.expectASN1Length("string");
+                cb.readUTF8String(qualStrRemaining());
+                endQualStr();
+              } else {
+                if (certPolInner3SeqRemaining())
+                  cb.skip(certPolInner3SeqRemaining(), "skipped policy qualifier data");
+              }
+              endCertPolInner3Seq();
+            }
+            endCertPolInner2Seq();
+          }
+          endCertPolInnerSeq();
+        }
+        endCertPolSeq();
+        endCertPolDER();
       } else {
         cb.skip(extRemaining(), "ignored extension data");
       }

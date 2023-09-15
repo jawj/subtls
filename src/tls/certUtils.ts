@@ -8,6 +8,7 @@ export const constructedUniversalTypeSet = 0x31;
 export const universalTypeOID = 0x06;
 export const universalTypePrintableString = 0x13;
 export const universalTypeUTF8String = 0x0c;
+export const universalTypeIA5String = 0x16;
 export const universalTypeUTCTime = 0x17;
 export const universalTypeNull = 0x05;
 export const universalTypeOctetString = 0x04;
@@ -68,8 +69,18 @@ export const extKeyUsageOIDMap: Record<string, string> = {
 
 export const extAccessMethodOIDMap: Record<string, string> = {
   '1.3.6.1.5.5.7.48.1': 'OCSP',
-  '1.3.6.1.5.5.7.48.2': 'Certificate authority issuers',
+  '1.3.6.1.5.5.7.48.2': 'certificate authority issuers',
 };
+
+export const certPolOIDMap: Record<string, string> = {
+  '2.23.140.1.2.1': 'domain validated',
+  '2.23.140.1.2.2': 'subject identity validated',
+  '1.3.6.1.4.1.44947.1.1.1': 'ISRG domain validated',
+}
+
+export const certPolQualOIDMap: Record<string, string> = {
+  '1.3.6.1.5.5.7.2.1': 'Certificate Practice Statement',
+}
 
 export function intFromBitString(bs: Uint8Array) {
   const { length } = bs;
