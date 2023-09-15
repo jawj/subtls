@@ -300,14 +300,14 @@ export class Cert {
 
       } else if (extOID === '1.3.6.1.5.5.7.1.1') {  // authorityInfoAccess
         cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-        const [endAuthInfoAccessDER, endAuthInfoAccessDERRemaining] = cb.expectASN1Length(chatty && 'DER document');
+        const [endAuthInfoAccessDER] = cb.expectASN1Length(chatty && 'DER document');
 
         cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
         const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
 
         while (authInfoAccessSeqRemaining() > 0) {
           cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-          const [endAuthInfoAccessSeq2, authInfoAccessSeq2Remaining] = cb.expectASN1Length(chatty && 'sequence');
+          const [endAuthInfoAccessInnerSeq] = cb.expectASN1Length(chatty && 'sequence');
 
           cb.expectUint8(universalTypeOID, chatty && 'OID');
           const accessMethodOID = cb.readASN1OID();
@@ -318,7 +318,7 @@ export class Cert {
           cb.readUTF8String(methodURIRemaining());
           endMethodURI();
 
-          endAuthInfoAccessSeq2()
+          endAuthInfoAccessInnerSeq()
         }
 
         endAuthInfoAccessSeq();

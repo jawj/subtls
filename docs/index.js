@@ -1554,12 +1554,12 @@ var Cert = class _Cert {
         };
       } else if (extOID === "1.3.6.1.5.5.7.1.1") {
         cb.expectUint8(universalTypeOctetString, "octet string");
-        const [endAuthInfoAccessDER, endAuthInfoAccessDERRemaining] = cb.expectASN1Length("DER document");
+        const [endAuthInfoAccessDER] = cb.expectASN1Length("DER document");
         cb.expectUint8(constructedUniversalTypeSequence, "sequence");
         const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = cb.expectASN1Length("sequence");
         while (authInfoAccessSeqRemaining() > 0) {
           cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-          const [endAuthInfoAccessSeq2, authInfoAccessSeq2Remaining] = cb.expectASN1Length("sequence");
+          const [endAuthInfoAccessInnerSeq] = cb.expectASN1Length("sequence");
           cb.expectUint8(universalTypeOID, "OID");
           const accessMethodOID = cb.readASN1OID();
           cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? "unknown method"} `);
@@ -1567,7 +1567,7 @@ var Cert = class _Cert {
           const [endMethodURI, methodURIRemaining] = cb.expectASN1Length("access location");
           cb.readUTF8String(methodURIRemaining());
           endMethodURI();
-          endAuthInfoAccessSeq2();
+          endAuthInfoAccessInnerSeq();
         }
         endAuthInfoAccessSeq();
         endAuthInfoAccessDER();
