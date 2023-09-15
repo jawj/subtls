@@ -152,8 +152,8 @@ export class Cert {
     // extensions
     cb.expectUint8(constructedContextSpecificType, chatty && 'constructed context-specific type');
     const [endExtsData] = cb.expectASN1Length();
-    cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (extensions)');
-    const [endExts, extsRemaining] = cb.expectASN1Length(chatty && 'extensions sequence');
+    cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate extensions)');
+    const [endExts, extsRemaining] = cb.expectASN1Length(chatty && 'sequence');
 
     while (extsRemaining() > 0) {
       cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate extension)');

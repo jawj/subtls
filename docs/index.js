@@ -1435,8 +1435,8 @@ var Cert = class _Cert {
     endPublicKeySeq();
     cb.expectUint8(constructedContextSpecificType, "constructed context-specific type");
     const [endExtsData] = cb.expectASN1Length();
-    cb.expectUint8(constructedUniversalTypeSequence, "sequence (extensions)");
-    const [endExts, extsRemaining] = cb.expectASN1Length("extensions sequence");
+    cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate extensions)");
+    const [endExts, extsRemaining] = cb.expectASN1Length("sequence");
     while (extsRemaining() > 0) {
       cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate extension)");
       const [endExt, extRemaining] = cb.expectASN1Length();
