@@ -27,6 +27,27 @@ function equal(a, b) {
       return false;
   return true;
 }
+var GrowableData = class {
+  constructor() {
+    __publicField(this, "length");
+    __publicField(this, "data");
+    this.length = 0;
+    this.data = new Uint8Array();
+  }
+  append(newData) {
+    const newDataLength = newData.length;
+    if (this.length + newDataLength > this.data.length) {
+      const prevData = this.data;
+      this.data = new Uint8Array(this.length * 2 + newDataLength);
+      this.data.set(prevData);
+    }
+    this.data.set(newData, this.length);
+    this.length += newData.length;
+  }
+  getData() {
+    return this.data.subarray(0, this.length);
+  }
+};
 
 // src/presentation/appearance.ts
 var indentChars = "\xB7\xB7 ";
@@ -508,6 +529,9 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
 }
 
 // src/util/hex.ts
+function u8FromHex(hex) {
+  return new Uint8Array(Array.from(hex.matchAll(/[0-9a-f]/g)).map((hex2) => parseInt(hex2[0], 16)));
+}
 function hexFromU8(u8, spacer = "") {
   return [...u8].map((n) => n.toString(16).padStart(2, "0")).join(spacer);
 }
@@ -983,6 +1007,22 @@ var ASN1Bytes = class extends Bytes {
     endTime();
     return time;
   }
+  readASN1GeneralizedTime() {
+    const [endTime, timeRemaining] = this.expectASN1Length("generalized time");
+    const timeStr = this.readUTF8String(timeRemaining());
+    const parts = timeStr.match(/^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})?([0-9]{2})?([.][0-9]+)?(Z)?([-+][0-9]+)?$/);
+    if (!parts)
+      throw new Error("Unrecognised ASN.1 generalized time format");
+    const [, yr, mth, dy, hr, min, sec, fracsec, z, tz] = parts;
+    if (sec === void 0 && fracsec !== void 0)
+      throw new Error("Invalid ASN.1 generalized time format (fraction without seconds)");
+    if (z !== void 0 && tz !== void 0)
+      throw new Error("Invalid ASN.1 generalized time format (Z and timezone)");
+    const time = /* @__PURE__ */ new Date(`${yr}-${mth}-${dy}T${hr}:${min ?? "00"}:${sec ?? "00"}${fracsec ?? ""}${tz ?? "Z"}`);
+    this.comment("= " + time.toISOString());
+    endTime();
+    return time;
+  }
   readASN1BitString() {
     const [endBitString, bitStringRemaining] = this.expectASN1Length("bit string");
     const rightPadBits = this.readUint8("right-padding bits");
@@ -1002,15 +1042,6 @@ var ASN1Bytes = class extends Bytes {
   }
 };
 
-// src/util/stableStringify.ts
-function stableStringify(x, replacer = (_, v) => v, indent) {
-  const deterministicReplacer = (k, v) => replacer(
-    k,
-    typeof v !== "object" || v === null || Array.isArray(v) ? v : Object.fromEntries(Object.entries(v).sort(([ka], [kb]) => ka < kb ? -1 : ka > kb ? 1 : 0))
-  );
-  return JSON.stringify(x, deterministicReplacer, indent);
-}
-
 // src/tls/certUtils.ts
 var universalTypeBoolean = 1;
 var universalTypeInteger = 2;
@@ -1018,9 +1049,11 @@ var constructedUniversalTypeSequence = 48;
 var constructedUniversalTypeSet = 49;
 var universalTypeOID = 6;
 var universalTypePrintableString = 19;
+var universalTypeTeletexString = 20;
 var universalTypeUTF8String = 12;
 var universalTypeIA5String = 22;
 var universalTypeUTCTime = 23;
+var universalTypeGeneralizedTime = 24;
 var universalTypeNull = 5;
 var universalTypeOctetString = 4;
 var universalTypeBitString = 3;
@@ -1028,16 +1061,27 @@ var constructedContextSpecificType = 163;
 var contextSpecificType = 128;
 var DNOIDMap = {
   "2.5.4.6": "C",
+  // country
   "2.5.4.10": "O",
+  // organisation
   "2.5.4.11": "OU",
+  // organisational unit
   "2.5.4.3": "CN",
+  // common name
   "2.5.4.7": "L",
+  // locality
   "2.5.4.8": "ST",
+  // state/province
   "2.5.4.12": "T",
+  // title
   "2.5.4.42": "GN",
+  // given name
   "2.5.4.43": "I",
+  // initials
   "2.5.4.4": "SN",
-  "1.2.840.113549.1.9.1": "E-mail"
+  // surname
+  "1.2.840.113549.1.9.1": "MAIL",
+  "2.5.4.5": "SERIALNUMBER"
 };
 var keyOIDMap = {
   "1.2.840.10045.2.1": "ECPublicKey",
@@ -1049,13 +1093,14 @@ var extOIDMap = {
   "2.5.29.15": "KeyUsage",
   "2.5.29.37": "ExtKeyUsage",
   "2.5.29.19": "BasicConstraints",
+  "2.5.29.30": "NameConstraints",
   "2.5.29.14": "SubjectKeyIdentifier",
   "2.5.29.35": "AuthorityKeyIdentifier",
   "1.3.6.1.5.5.7.1.1": "AuthorityInfoAccess",
   "2.5.29.17": "SubjectAltName",
   "2.5.29.32": "CertificatePolicies",
   "1.3.6.1.4.1.11129.2.4.2": "SignedCertificateTimestampList",
-  "2.5.29.31": "CRLDistributionPoints"
+  "2.5.29.31": "CRLDistributionPoints (Certificate Revocation List)"
 };
 var extKeyUsageOIDMap = {
   "1.3.6.1.5.5.7.3.2": "TLSClientAuth",
@@ -1103,6 +1148,10 @@ function readSeqOfSetOfSeq(cb, seqType) {
       cb.comment("printable string");
     } else if (valueType === universalTypeUTF8String) {
       cb.comment("UTF8 string");
+    } else if (valueType === universalTypeIA5String) {
+      cb.comment("IA5 string");
+    } else if (valueType === universalTypeTeletexString) {
+      cb.comment("Teletex string");
     } else {
       throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
     }
@@ -1111,9 +1160,13 @@ function readSeqOfSetOfSeq(cb, seqType) {
     endItemString();
     endItemSeq();
     endItemSet();
-    if (result[itemName] !== void 0)
-      throw new Error(`Duplicate OID ${itemName} in certificate ${seqType}`);
-    result[itemName] = itemValue;
+    const existingValue = result[itemName];
+    if (existingValue === void 0)
+      result[itemName] = itemValue;
+    else if (typeof existingValue === "string")
+      result[itemName] = [existingValue, itemValue];
+    else
+      existingValue.push(itemValue);
   }
   endSeq();
   return result;
@@ -1376,292 +1429,334 @@ var Cert = class _Cert {
     __publicField(this, "authorityKeyIdentifier");
     __publicField(this, "subjectKeyIdentifier");
     __publicField(this, "basicConstraints");
+    // nameConstraints?: { critical?: boolean; permitted?: string[]; excluded?: string[] };
     __publicField(this, "signedData");
-    const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
-    cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate)");
-    const [endCertSeq] = cb.expectASN1Length("certificate sequence");
-    const tbsCertStartOffset = cb.offset;
-    cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate info)");
-    const [endCertInfoSeq] = cb.expectASN1Length("certificate info");
-    cb.expectBytes([160, 3, 2, 1, 2], "certificate version 3");
-    cb.expectUint8(universalTypeInteger, "integer");
-    const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length("serial number");
-    this.serialNumber = cb.subarray(serialNumberRemaining());
-    cb.comment("serial number");
-    endSerialNumber();
-    cb.expectUint8(constructedUniversalTypeSequence, "sequence (algorithm)");
-    const [endAlgo, algoRemaining] = cb.expectASN1Length("algorithm sequence");
-    cb.expectUint8(universalTypeOID, "OID");
-    this.algorithm = cb.readASN1OID();
-    cb.comment(`${this.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(this.algorithm))}`);
-    if (algoRemaining() > 0) {
-      cb.expectUint8(universalTypeNull, "null");
-      cb.expectUint8(0, "null length");
-    }
-    endAlgo();
-    this.issuer = readSeqOfSetOfSeq(cb, "issuer");
-    cb.expectUint8(constructedUniversalTypeSequence, "sequence (validity)");
-    const [endValiditySeq] = cb.expectASN1Length("validity sequence");
-    cb.expectUint8(universalTypeUTCTime, "UTC time (not before)");
-    const notBefore = cb.readASN1UTCTime();
-    cb.expectUint8(universalTypeUTCTime, "UTC time (not after)");
-    const notAfter = cb.readASN1UTCTime();
-    this.validityPeriod = { notBefore, notAfter };
-    endValiditySeq();
-    this.subject = readSeqOfSetOfSeq(cb, "subject");
-    const publicKeyStartOffset = cb.offset;
-    cb.expectUint8(constructedUniversalTypeSequence, "sequence (public key)");
-    const [endPublicKeySeq] = cb.expectASN1Length("public key sequence");
-    cb.expectUint8(constructedUniversalTypeSequence, "sequence (public key params)");
-    const [endKeyOID, keyOIDRemaining] = cb.expectASN1Length("public key params sequence");
-    const publicKeyOIDs = [];
-    while (keyOIDRemaining() > 0) {
-      const keyParamRecordType = cb.readUint8();
-      if (keyParamRecordType === universalTypeOID) {
-        cb.comment("OID");
-        const keyOID = cb.readASN1OID();
-        cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`);
-        publicKeyOIDs.push(keyOID);
-      } else if (keyParamRecordType === universalTypeNull) {
-        cb.comment("null");
+    if (certData instanceof ASN1Bytes || certData instanceof Uint8Array) {
+      const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate)");
+      const [endCertSeq] = cb.expectASN1Length("certificate sequence");
+      const tbsCertStartOffset = cb.offset;
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate info)");
+      const [endCertInfoSeq] = cb.expectASN1Length("certificate info");
+      cb.expectBytes([160, 3, 2, 1, 2], "certificate version 3");
+      cb.expectUint8(universalTypeInteger, "integer");
+      const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length("serial number");
+      this.serialNumber = cb.subarray(serialNumberRemaining());
+      cb.comment("serial number");
+      endSerialNumber();
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence (algorithm)");
+      const [endAlgo, algoRemaining] = cb.expectASN1Length("algorithm sequence");
+      cb.expectUint8(universalTypeOID, "OID");
+      this.algorithm = cb.readASN1OID();
+      cb.comment(`${this.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(this.algorithm))}`);
+      if (algoRemaining() > 0) {
+        cb.expectUint8(universalTypeNull, "null");
         cb.expectUint8(0, "null length");
       }
-    }
-    endKeyOID();
-    cb.expectUint8(universalTypeBitString, "bit string");
-    const publicKeyData = cb.readASN1BitString();
-    cb.comment("public key");
-    this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.data.subarray(publicKeyStartOffset, cb.offset) };
-    endPublicKeySeq();
-    cb.expectUint8(constructedContextSpecificType, "constructed context-specific type");
-    const [endExtsData] = cb.expectASN1Length();
-    cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate extensions)");
-    const [endExts, extsRemaining] = cb.expectASN1Length("sequence");
-    while (extsRemaining() > 0) {
-      cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate extension)");
-      const [endExt, extRemaining] = cb.expectASN1Length();
-      cb.expectUint8(universalTypeOID, "OID (extension type)");
-      const extOID = cb.readASN1OID();
-      cb.comment(`${extOID} = ${extOIDMap[extOID]}`);
-      if (extOID === "2.5.29.17") {
-        cb.expectUint8(universalTypeOctetString, "octet string");
-        const [endSanDerDoc] = cb.expectASN1Length("DER document");
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence (names)");
-        const allSubjectAltNames = readNamesSeq(cb, contextSpecificType);
-        this.subjectAltNames = allSubjectAltNames.filter((san) => san.type === (2 /* dNSName */ | contextSpecificType)).map((san) => san.name);
-        endSanDerDoc();
-      } else if (extOID === "2.5.29.15") {
-        cb.expectUint8(universalTypeBoolean, "boolean");
-        const keyUsageCritical = cb.readASN1Boolean("critical: %");
-        cb.expectUint8(universalTypeOctetString, "octet string");
-        const [endKeyUsageDer] = cb.expectASN1Length("DER document");
-        cb.expectUint8(universalTypeBitString, "bit string");
-        const keyUsageBitStr = cb.readASN1BitString();
-        const keyUsageBitmask = intFromBitString(keyUsageBitStr);
-        const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & 1 << i));
-        cb.comment(`key usage: ${keyUsageBitmask} = ${[...keyUsageNames]}`);
-        endKeyUsageDer();
-        this.keyUsage = {
-          critical: keyUsageCritical,
-          usages: keyUsageNames
-        };
-      } else if (extOID === "2.5.29.37") {
-        this.extKeyUsage = {};
-        cb.expectUint8(universalTypeOctetString, "octet string");
-        const [endExtKeyUsageDer] = cb.expectASN1Length("DER document");
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-        const [endExtKeyUsage, extKeyUsageRemaining] = cb.expectASN1Length("key usage OIDs");
-        while (extKeyUsageRemaining() > 0) {
-          cb.expectUint8(universalTypeOID, "OID");
-          const extKeyUsageOID = cb.readASN1OID();
-          cb.comment(`${extKeyUsageOID} = ${extKeyUsageOIDMap[extKeyUsageOID]}`);
-          if (extKeyUsageOID === "1.3.6.1.5.5.7.3.1")
-            this.extKeyUsage.serverTls = true;
-          if (extKeyUsageOID === "1.3.6.1.5.5.7.3.2")
-            this.extKeyUsage.clientTls = true;
-        }
-        endExtKeyUsage();
-        endExtKeyUsageDer();
-      } else if (extOID === "2.5.29.35") {
-        cb.expectUint8(universalTypeOctetString, "octet string");
-        const [endAuthKeyIdDer] = cb.expectASN1Length("DER document");
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-        const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = cb.expectASN1Length("sequence");
-        while (authKeyIdSeqRemaining() > 0) {
-          const authKeyIdDatumType = cb.readUint8();
-          if (authKeyIdDatumType === (contextSpecificType | 0)) {
-            cb.comment("context-specific type: key identifier");
-            const [endAuthKeyId, authKeyIdRemaining] = cb.expectASN1Length("authority key identifier");
-            this.authorityKeyIdentifier = cb.readBytes(authKeyIdRemaining());
-            cb.comment("authority key identifier");
-            endAuthKeyId();
-          } else if (authKeyIdDatumType === (contextSpecificType | 1)) {
-            cb.comment("context-specific type: authority cert issuer");
-            const [endAuthKeyIdCertIssuer, authKeyIdCertIssuerRemaining] = cb.expectASN1Length("authority cert issuer");
-            cb.skip(authKeyIdCertIssuerRemaining(), "ignored");
-            endAuthKeyIdCertIssuer();
-          } else if (authKeyIdDatumType === (contextSpecificType | 2)) {
-            cb.comment("context-specific type: authority cert serial number");
-            const [endAuthKeyIdCertSerialNo, authKeyIdCertSerialNoRemaining] = cb.expectASN1Length("authority cert issuer or authority cert serial number");
-            cb.skip(authKeyIdCertSerialNoRemaining(), "ignored");
-            endAuthKeyIdCertSerialNo();
-          } else if (authKeyIdDatumType === (contextSpecificType | 33)) {
-            cb.comment("context-specific type: DirName");
-            const [endDirName, dirNameRemaining] = cb.expectASN1Length("DirName");
-            cb.skip(dirNameRemaining(), "ignored");
-            console.log(cb.commentedString());
-            endDirName();
-          } else {
-            throw new Error(`Unexpected data type ${authKeyIdDatumType} in authorityKeyIdentifier certificate extension`);
-          }
-        }
-        endAuthKeyIdSeq();
-        endAuthKeyIdDer();
-      } else if (extOID === "2.5.29.14") {
-        cb.expectUint8(universalTypeOctetString, "octet string");
-        const [endSubjectKeyIdDer] = cb.expectASN1Length("DER document");
-        cb.expectUint8(universalTypeOctetString, "octet string");
-        const [endSubjectKeyId, subjectKeyIdRemaining] = cb.expectASN1Length("subject key identifier");
-        this.subjectKeyIdentifier = cb.readBytes(subjectKeyIdRemaining());
-        cb.comment("subject key identifier");
-        endSubjectKeyId();
-        endSubjectKeyIdDer();
-      } else if (extOID === "2.5.29.19") {
-        let basicConstraintsCritical;
-        let bcNextType = cb.readUint8();
-        if (bcNextType === universalTypeBoolean) {
-          cb.comment("boolean");
-          basicConstraintsCritical = cb.readASN1Boolean("critical: %");
-          bcNextType = cb.readUint8();
-        }
-        if (bcNextType !== universalTypeOctetString)
-          throw new Error("Unexpected type in certificate basic constraints");
-        cb.comment("octet string");
-        const [endBasicConstraintsDer] = cb.expectASN1Length("DER document");
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-        const [endConstraintsSeq, constraintsSeqRemaining] = cb.expectASN1Length();
-        let basicConstraintsCa = void 0;
-        if (constraintsSeqRemaining() > 0) {
-          cb.expectUint8(universalTypeBoolean, "boolean");
-          basicConstraintsCa = cb.readASN1Boolean("certificate authority: %");
-        }
-        let basicConstraintsPathLength;
-        if (constraintsSeqRemaining() > 0) {
-          cb.expectUint8(universalTypeInteger, "integer");
-          const maxPathLengthLength = cb.readASN1Length("max path length");
-          basicConstraintsPathLength = maxPathLengthLength === 1 ? cb.readUint8() : maxPathLengthLength === 2 ? cb.readUint16() : maxPathLengthLength === 3 ? cb.readUint24() : void 0;
-          if (basicConstraintsPathLength === void 0)
-            throw new Error("Too many bytes in max path length in certificate basicConstraints");
-          cb.comment("max path length");
-        }
-        endConstraintsSeq();
-        endBasicConstraintsDer();
-        this.basicConstraints = {
-          critical: basicConstraintsCritical,
-          ca: basicConstraintsCa,
-          pathLength: basicConstraintsPathLength
-        };
-      } else if (extOID === "1.3.6.1.5.5.7.1.1") {
-        cb.expectUint8(universalTypeOctetString, "octet string");
-        const [endAuthInfoAccessDER] = cb.expectASN1Length("DER document");
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-        const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = cb.expectASN1Length("sequence");
-        while (authInfoAccessSeqRemaining() > 0) {
-          cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-          const [endAuthInfoAccessInnerSeq] = cb.expectASN1Length("sequence");
-          cb.expectUint8(universalTypeOID, "OID");
-          const accessMethodOID = cb.readASN1OID();
-          cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? "unknown method"} `);
-          cb.expectUint8(contextSpecificType | 6 /* uniformResourceIdentifier */, "context-specific type: URI");
-          const [endMethodURI, methodURIRemaining] = cb.expectASN1Length("access location");
-          cb.readUTF8String(methodURIRemaining());
-          endMethodURI();
-          endAuthInfoAccessInnerSeq();
-        }
-        endAuthInfoAccessSeq();
-        endAuthInfoAccessDER();
-      } else if (extOID === "2.5.29.32") {
-        cb.expectUint8(universalTypeOctetString, "octet string");
-        const [endCertPolDER] = cb.expectASN1Length("DER document");
-        cb.expectUint8(constructedUniversalTypeSequence, "sequence (CertificatePolicies)");
-        const [endCertPolSeq, certPolSeqRemaining] = cb.expectASN1Length("sequence");
-        while (certPolSeqRemaining() > 0) {
-          cb.expectUint8(constructedUniversalTypeSequence, "sequence (PolicyInformation)");
-          const [endCertPolInnerSeq, certPolInnerSeqRemaining] = cb.expectASN1Length("sequence");
-          cb.expectUint8(universalTypeOID, "OID (CertPolicyID)");
-          const certPolOID = cb.readASN1OID();
-          cb.comment(`${certPolOID} = policy: ${certPolOIDMap[certPolOID] ?? "unknown policy"} `);
-          while (certPolInnerSeqRemaining() > 0) {
-            cb.expectUint8(constructedUniversalTypeSequence, "sequence");
-            const [endCertPolInner2Seq, certPolInner2SeqRemaining] = cb.expectASN1Length("sequence");
-            while (certPolInner2SeqRemaining() > 0) {
-              cb.expectUint8(constructedUniversalTypeSequence, "sequence (PolicyQualifierInformation)");
-              const [endCertPolInner3Seq, certPolInner3SeqRemaining] = cb.expectASN1Length("sequence");
-              cb.expectUint8(universalTypeOID, "OID (policyQualifierId)");
-              const certPolQualOID = cb.readASN1OID();
-              cb.comment(`${certPolQualOID} = qualifier: ${certPolQualOIDMap[certPolQualOID] ?? "unknown qualifier"} `);
-              const qualType = cb.readUint8();
-              if (qualType === universalTypeIA5String) {
-                cb.comment("IA5String");
-                const [endQualStr, qualStrRemaining] = cb.expectASN1Length("string");
-                cb.readUTF8String(qualStrRemaining());
-                endQualStr();
-              } else {
-                if (certPolInner3SeqRemaining())
-                  cb.skip(certPolInner3SeqRemaining(), "skipped policy qualifier data");
-              }
-              endCertPolInner3Seq();
-            }
-            endCertPolInner2Seq();
-          }
-          endCertPolInnerSeq();
-        }
-        endCertPolSeq();
-        endCertPolDER();
+      endAlgo();
+      this.issuer = readSeqOfSetOfSeq(cb, "issuer");
+      let notBefore, notAfter;
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence (validity)");
+      const [endValiditySeq] = cb.expectASN1Length("validity sequence");
+      const startTimeType = cb.readUint8();
+      if (startTimeType === universalTypeUTCTime) {
+        cb.comment("UTC time (not before)");
+        notBefore = cb.readASN1UTCTime();
+      } else if (startTimeType === universalTypeGeneralizedTime) {
+        cb.comment("generalized time (not before)");
+        notBefore = cb.readASN1GeneralizedTime();
       } else {
-        cb.skip(extRemaining(), "ignored extension data");
+        throw new Error(`Unexpected validity start type 0x${hexFromU8([startTimeType])}`);
       }
-      endExt();
+      const endTimeType = cb.readUint8();
+      if (endTimeType === universalTypeUTCTime) {
+        cb.comment("UTC time (not after)");
+        notAfter = cb.readASN1UTCTime();
+      } else if (endTimeType === universalTypeGeneralizedTime) {
+        cb.comment("generalized time (not after)");
+        notAfter = cb.readASN1GeneralizedTime();
+      } else {
+        throw new Error(`Unexpected validity end type 0x${hexFromU8([endTimeType])}`);
+      }
+      this.validityPeriod = { notBefore, notAfter };
+      endValiditySeq();
+      this.subject = readSeqOfSetOfSeq(cb, "subject");
+      const publicKeyStartOffset = cb.offset;
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence (public key)");
+      const [endPublicKeySeq] = cb.expectASN1Length("public key sequence");
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence (public key params)");
+      const [endKeyOID, keyOIDRemaining] = cb.expectASN1Length("public key params sequence");
+      const publicKeyOIDs = [];
+      while (keyOIDRemaining() > 0) {
+        const keyParamRecordType = cb.readUint8();
+        if (keyParamRecordType === universalTypeOID) {
+          cb.comment("OID");
+          const keyOID = cb.readASN1OID();
+          cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`);
+          publicKeyOIDs.push(keyOID);
+        } else if (keyParamRecordType === universalTypeNull) {
+          cb.comment("null");
+          cb.expectUint8(0, "null length");
+        }
+      }
+      endKeyOID();
+      cb.expectUint8(universalTypeBitString, "bit string");
+      const publicKeyData = cb.readASN1BitString();
+      cb.comment("public key");
+      this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.data.subarray(publicKeyStartOffset, cb.offset) };
+      endPublicKeySeq();
+      cb.expectUint8(constructedContextSpecificType, "constructed context-specific type: extensions");
+      const [endExtsData] = cb.expectASN1Length();
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate extensions)");
+      const [endExts, extsRemaining] = cb.expectASN1Length("sequence");
+      while (extsRemaining() > 0) {
+        cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate extension)");
+        const [endExt, extRemaining] = cb.expectASN1Length();
+        cb.expectUint8(universalTypeOID, "OID (extension type)");
+        const extOID = cb.readASN1OID();
+        cb.comment(`${extOID} = ${extOIDMap[extOID]}`);
+        if (extOID === "2.5.29.17") {
+          cb.expectUint8(universalTypeOctetString, "octet string");
+          const [endSanDerDoc] = cb.expectASN1Length("DER document");
+          cb.expectUint8(constructedUniversalTypeSequence, "sequence (names)");
+          const allSubjectAltNames = readNamesSeq(cb, contextSpecificType);
+          this.subjectAltNames = allSubjectAltNames.filter((san) => san.type === (2 /* dNSName */ | contextSpecificType)).map((san) => san.name);
+          endSanDerDoc();
+        } else if (extOID === "2.5.29.15") {
+          let keyUsageCritical;
+          let nextType = cb.readUint8();
+          if (nextType === universalTypeBoolean) {
+            cb.comment("boolean");
+            keyUsageCritical = cb.readASN1Boolean("critical: %");
+            nextType = cb.readUint8();
+          }
+          if (nextType !== universalTypeOctetString)
+            throw new Error(`Expected 0x${hexFromU8([universalTypeOctetString])}, got 0x${hexFromU8([nextType])}`);
+          cb.comment("octet string");
+          const [endKeyUsageDer] = cb.expectASN1Length("DER document");
+          cb.expectUint8(universalTypeBitString, "bit string");
+          const keyUsageBitStr = cb.readASN1BitString();
+          const keyUsageBitmask = intFromBitString(keyUsageBitStr);
+          const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & 1 << i));
+          cb.comment(`key usage: ${keyUsageBitmask} = ${[...keyUsageNames]}`);
+          endKeyUsageDer();
+          this.keyUsage = {
+            critical: keyUsageCritical,
+            usages: keyUsageNames
+          };
+        } else if (extOID === "2.5.29.37") {
+          this.extKeyUsage = {};
+          cb.expectUint8(universalTypeOctetString, "octet string");
+          const [endExtKeyUsageDer] = cb.expectASN1Length("DER document");
+          cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+          const [endExtKeyUsage, extKeyUsageRemaining] = cb.expectASN1Length("key usage OIDs");
+          while (extKeyUsageRemaining() > 0) {
+            cb.expectUint8(universalTypeOID, "OID");
+            const extKeyUsageOID = cb.readASN1OID();
+            cb.comment(`${extKeyUsageOID} = ${extKeyUsageOIDMap[extKeyUsageOID]}`);
+            if (extKeyUsageOID === "1.3.6.1.5.5.7.3.1")
+              this.extKeyUsage.serverTls = true;
+            if (extKeyUsageOID === "1.3.6.1.5.5.7.3.2")
+              this.extKeyUsage.clientTls = true;
+          }
+          endExtKeyUsage();
+          endExtKeyUsageDer();
+        } else if (extOID === "2.5.29.35") {
+          cb.expectUint8(universalTypeOctetString, "octet string");
+          const [endAuthKeyIdDer] = cb.expectASN1Length("DER document");
+          cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+          const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = cb.expectASN1Length("sequence");
+          while (authKeyIdSeqRemaining() > 0) {
+            const authKeyIdDatumType = cb.readUint8();
+            if (authKeyIdDatumType === (contextSpecificType | 0)) {
+              cb.comment("context-specific type: key identifier");
+              const [endAuthKeyId, authKeyIdRemaining] = cb.expectASN1Length("authority key identifier");
+              this.authorityKeyIdentifier = cb.readBytes(authKeyIdRemaining());
+              cb.comment("authority key identifier");
+              endAuthKeyId();
+            } else if (authKeyIdDatumType === (contextSpecificType | 1)) {
+              cb.comment("context-specific type: authority cert issuer");
+              const [endAuthKeyIdCertIssuer, authKeyIdCertIssuerRemaining] = cb.expectASN1Length("authority cert issuer");
+              cb.skip(authKeyIdCertIssuerRemaining(), "ignored");
+              endAuthKeyIdCertIssuer();
+            } else if (authKeyIdDatumType === (contextSpecificType | 2)) {
+              cb.comment("context-specific type: authority cert serial number");
+              const [endAuthKeyIdCertSerialNo, authKeyIdCertSerialNoRemaining] = cb.expectASN1Length("authority cert issuer or authority cert serial number");
+              cb.skip(authKeyIdCertSerialNoRemaining(), "ignored");
+              endAuthKeyIdCertSerialNo();
+            } else if (authKeyIdDatumType === (contextSpecificType | 33)) {
+              cb.comment("context-specific type: DirName");
+              const [endDirName, dirNameRemaining] = cb.expectASN1Length("DirName");
+              cb.skip(dirNameRemaining(), "ignored");
+              console.log(cb.commentedString());
+              endDirName();
+            } else {
+              throw new Error(`Unexpected data type ${authKeyIdDatumType} in authorityKeyIdentifier certificate extension`);
+            }
+          }
+          endAuthKeyIdSeq();
+          endAuthKeyIdDer();
+        } else if (extOID === "2.5.29.14") {
+          cb.expectUint8(universalTypeOctetString, "octet string");
+          const [endSubjectKeyIdDer] = cb.expectASN1Length("DER document");
+          cb.expectUint8(universalTypeOctetString, "octet string");
+          const [endSubjectKeyId, subjectKeyIdRemaining] = cb.expectASN1Length("subject key identifier");
+          this.subjectKeyIdentifier = cb.readBytes(subjectKeyIdRemaining());
+          cb.comment("subject key identifier");
+          endSubjectKeyId();
+          endSubjectKeyIdDer();
+        } else if (extOID === "2.5.29.19") {
+          let basicConstraintsCritical;
+          let bcNextType = cb.readUint8();
+          if (bcNextType === universalTypeBoolean) {
+            cb.comment("boolean");
+            basicConstraintsCritical = cb.readASN1Boolean("critical: %");
+            bcNextType = cb.readUint8();
+          }
+          if (bcNextType !== universalTypeOctetString)
+            throw new Error("Unexpected type in certificate basic constraints");
+          cb.comment("octet string");
+          const [endBasicConstraintsDer] = cb.expectASN1Length("DER document");
+          cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+          const [endConstraintsSeq, constraintsSeqRemaining] = cb.expectASN1Length();
+          let basicConstraintsCa = void 0;
+          if (constraintsSeqRemaining() > 0) {
+            cb.expectUint8(universalTypeBoolean, "boolean");
+            basicConstraintsCa = cb.readASN1Boolean("certificate authority: %");
+          }
+          let basicConstraintsPathLength;
+          if (constraintsSeqRemaining() > 0) {
+            cb.expectUint8(universalTypeInteger, "integer");
+            const maxPathLengthLength = cb.readASN1Length("max path length");
+            basicConstraintsPathLength = maxPathLengthLength === 1 ? cb.readUint8() : maxPathLengthLength === 2 ? cb.readUint16() : maxPathLengthLength === 3 ? cb.readUint24() : void 0;
+            if (basicConstraintsPathLength === void 0)
+              throw new Error("Too many bytes in max path length in certificate basicConstraints");
+            cb.comment("max path length");
+          }
+          endConstraintsSeq();
+          endBasicConstraintsDer();
+          this.basicConstraints = {
+            critical: basicConstraintsCritical,
+            ca: basicConstraintsCa,
+            pathLength: basicConstraintsPathLength
+          };
+        } else if (extOID === "1.3.6.1.5.5.7.1.1") {
+          cb.expectUint8(universalTypeOctetString, "octet string");
+          const [endAuthInfoAccessDER] = cb.expectASN1Length("DER document");
+          cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+          const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = cb.expectASN1Length("sequence");
+          while (authInfoAccessSeqRemaining() > 0) {
+            cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+            const [endAuthInfoAccessInnerSeq] = cb.expectASN1Length("sequence");
+            cb.expectUint8(universalTypeOID, "OID");
+            const accessMethodOID = cb.readASN1OID();
+            cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? "unknown method"} `);
+            cb.expectUint8(contextSpecificType | 6 /* uniformResourceIdentifier */, "context-specific type: URI");
+            const [endMethodURI, methodURIRemaining] = cb.expectASN1Length("access location");
+            cb.readUTF8String(methodURIRemaining());
+            endMethodURI();
+            endAuthInfoAccessInnerSeq();
+          }
+          endAuthInfoAccessSeq();
+          endAuthInfoAccessDER();
+        } else if (extOID === "2.5.29.32") {
+          cb.expectUint8(universalTypeOctetString, "octet string");
+          const [endCertPolDER] = cb.expectASN1Length("DER document");
+          cb.expectUint8(constructedUniversalTypeSequence, "sequence (CertificatePolicies)");
+          const [endCertPolSeq, certPolSeqRemaining] = cb.expectASN1Length("sequence");
+          while (certPolSeqRemaining() > 0) {
+            cb.expectUint8(constructedUniversalTypeSequence, "sequence (PolicyInformation)");
+            const [endCertPolInnerSeq, certPolInnerSeqRemaining] = cb.expectASN1Length("sequence");
+            cb.expectUint8(universalTypeOID, "OID (CertPolicyID)");
+            const certPolOID = cb.readASN1OID();
+            cb.comment(`${certPolOID} = policy: ${certPolOIDMap[certPolOID] ?? "unknown policy"} `);
+            while (certPolInnerSeqRemaining() > 0) {
+              cb.expectUint8(constructedUniversalTypeSequence, "sequence");
+              const [endCertPolInner2Seq, certPolInner2SeqRemaining] = cb.expectASN1Length("sequence");
+              while (certPolInner2SeqRemaining() > 0) {
+                cb.expectUint8(constructedUniversalTypeSequence, "sequence (PolicyQualifierInformation)");
+                const [endCertPolInner3Seq, certPolInner3SeqRemaining] = cb.expectASN1Length("sequence");
+                cb.expectUint8(universalTypeOID, "OID (policyQualifierId)");
+                const certPolQualOID = cb.readASN1OID();
+                cb.comment(`${certPolQualOID} = qualifier: ${certPolQualOIDMap[certPolQualOID] ?? "unknown qualifier"} `);
+                const qualType = cb.readUint8();
+                if (qualType === universalTypeIA5String) {
+                  cb.comment("IA5String");
+                  const [endQualStr, qualStrRemaining] = cb.expectASN1Length("string");
+                  cb.readUTF8String(qualStrRemaining());
+                  endQualStr();
+                } else {
+                  if (certPolInner3SeqRemaining())
+                    cb.skip(certPolInner3SeqRemaining(), "skipped policy qualifier data");
+                }
+                endCertPolInner3Seq();
+              }
+              endCertPolInner2Seq();
+            }
+            endCertPolInnerSeq();
+          }
+          endCertPolSeq();
+          endCertPolDER();
+        } else {
+          cb.skip(extRemaining(), "ignored extension data");
+        }
+        endExt();
+      }
+      endExts();
+      endExtsData();
+      endCertInfoSeq();
+      this.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
+      cb.expectUint8(constructedUniversalTypeSequence, "sequence (signature algorithm)");
+      const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length("signature algorithm sequence");
+      cb.expectUint8(universalTypeOID, "OID");
+      const sigAlgoOID = cb.readASN1OID("% (must be same as above)");
+      if (sigAlgoRemaining() > 0) {
+        cb.expectUint8(universalTypeNull, "null");
+        cb.expectUint8(0, "null length");
+      }
+      endSigAlgo();
+      if (sigAlgoOID !== this.algorithm)
+        throw new Error(`Certificate specifies different signature algorithms inside(${this.algorithm}) and out(${sigAlgoOID})`);
+      cb.expectUint8(universalTypeBitString, "bitstring (signature)");
+      this.signature = cb.readASN1BitString();
+      cb.comment("signature");
+      endCertSeq();
+    } else {
+      this.serialNumber = u8FromHex(certData.serialNumber);
+      this.algorithm = certData.algorithm;
+      this.issuer = certData.issuer;
+      this.validityPeriod = {
+        notBefore: new Date(certData.validityPeriod.notBefore),
+        notAfter: new Date(certData.validityPeriod.notAfter)
+      };
+      this.subject = certData.subject;
+      this.publicKey = {
+        identifiers: certData.publicKey.identifiers,
+        data: u8FromHex(certData.publicKey.data),
+        all: u8FromHex(certData.publicKey.all)
+      };
+      this.signature = u8FromHex(certData.signature);
+      this.keyUsage = {
+        critical: certData.keyUsage.critical,
+        usages: new Set(certData.keyUsage.usages)
+      };
+      this.subjectAltNames = certData.subjectAltNames;
+      this.extKeyUsage = certData.extKeyUsage;
+      if (certData.authorityKeyIdentifier)
+        this.authorityKeyIdentifier = u8FromHex(certData.authorityKeyIdentifier);
+      if (certData.subjectKeyIdentifier)
+        this.subjectKeyIdentifier = u8FromHex(certData.subjectKeyIdentifier);
+      this.basicConstraints = certData.basicConstraints;
+      this.signedData = u8FromHex(certData.signedData);
     }
-    endExts();
-    endExtsData();
-    endCertInfoSeq();
-    this.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
-    cb.expectUint8(constructedUniversalTypeSequence, "sequence (signature algorithm)");
-    const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length("signature algorithm sequence");
-    cb.expectUint8(universalTypeOID, "OID");
-    const sigAlgoOID = cb.readASN1OID("% (must be same as above)");
-    if (sigAlgoRemaining() > 0) {
-      cb.expectUint8(universalTypeNull, "null");
-      cb.expectUint8(0, "null length");
-    }
-    endSigAlgo();
-    if (sigAlgoOID !== this.algorithm)
-      throw new Error(`Certificate specifies different signature algorithms inside(${this.algorithm}) and out(${sigAlgoOID})`);
-    cb.expectUint8(universalTypeBitString, "bitstring (signature)");
-    this.signature = cb.readASN1BitString();
-    cb.comment("signature");
-    endCertSeq();
   }
   static distinguishedNamesAreEqual(dn1, dn2) {
-    return stableStringify(dn1) === stableStringify(dn2);
+    return this.stringFromDistinguishedName(dn1) === this.stringFromDistinguishedName(dn2);
   }
-  static readableDN(dn) {
-    return Object.entries(dn).map((x) => x.join("=")).join(", ");
-  }
-  static fromPEM(pem) {
-    const tag = "[A-Z0-9 ]+";
-    const pattern = new RegExp(`-----BEGIN ${tag}-----([a-zA-Z0-9=+\\/\\n\\r]+)-----END ${tag}-----`, "g");
-    const res = [];
-    let matches = null;
-    while (matches = pattern.exec(pem)) {
-      const base64 = matches[1].replace(/[\r\n]/g, "");
-      const binary = base64Decode(base64);
-      const asn1 = new ASN1Bytes(binary);
-      const cert = new this(asn1);
-      res.push(cert);
-    }
-    return res;
+  static stringFromDistinguishedName(dn) {
+    return Object.entries(dn).map(
+      ([k, vs]) => typeof vs === "string" ? `${k}=${vs.trim().replace(/[\\,]/g, "\\$&")}` : vs.map((v) => `${k}=${v.trim().replace(/[\\,]/g, "\\$&")}`).join(", ")
+    ).join(", ");
   }
   subjectAltNameMatchingHost(host) {
     const twoDotRegex = /[.][^.]+[.][^.]+$/;
@@ -1680,8 +1775,8 @@ var Cert = class _Cert {
     return moment >= this.validityPeriod.notBefore && moment <= this.validityPeriod.notAfter;
   }
   description() {
-    return "subject: " + _Cert.readableDN(this.subject) + (this.subjectAltNames ? "\nsubject alt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
-subject key id: ${hexFromU8(this.subjectKeyIdentifier, " ")}` : "") + "\nissuer: " + _Cert.readableDN(this.issuer) + (this.authorityKeyIdentifier ? `
+    return "subject: " + _Cert.stringFromDistinguishedName(this.subject) + (this.subjectAltNames ? "\nsubject alt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
+subject key id: ${hexFromU8(this.subjectKeyIdentifier, " ")}` : "") + "\nissuer: " + _Cert.stringFromDistinguishedName(this.issuer) + (this.authorityKeyIdentifier ? `
 authority key id: ${hexFromU8(this.authorityKeyIdentifier, " ")}` : "") + "\nvalidity: " + this.validityPeriod.notBefore.toISOString() + " \u2013 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? "currently valid" : "not valid"})` + (this.keyUsage ? `
 key usage (${this.keyUsage.critical ? "critical" : "non-critical"}): ` + [...this.keyUsage.usages].join(", ") : "") + (this.extKeyUsage ? `
 extended key usage: TLS server \u2014\xA0${this.extKeyUsage.serverTls}, TLS client \u2014\xA0${this.extKeyUsage.clientTls}` : "") + (this.basicConstraints ? `
@@ -1689,7 +1784,7 @@ basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical
   }
   toJSON() {
     return {
-      serialNumber: [...this.serialNumber],
+      serialNumber: hexFromU8(this.serialNumber),
       algorithm: this.algorithm,
       issuer: this.issuer,
       validityPeriod: {
@@ -1699,24 +1794,68 @@ basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical
       subject: this.subject,
       publicKey: {
         identifiers: this.publicKey.identifiers,
-        data: [...this.publicKey.data],
-        all: [...this.publicKey.all]
+        data: hexFromU8(this.publicKey.data),
+        all: hexFromU8(this.publicKey.all)
       },
-      signature: [...this.signature],
+      signature: hexFromU8(this.signature),
       keyUsage: {
         critical: this.keyUsage?.critical,
         usages: [...this.keyUsage?.usages ?? []]
       },
       subjectAltNames: this.subjectAltNames,
       extKeyUsage: this.extKeyUsage,
-      authorityKeyIdentifier: this.authorityKeyIdentifier && [...this.authorityKeyIdentifier],
-      subjectKeyIdentifier: this.subjectKeyIdentifier && [...this.subjectKeyIdentifier],
+      authorityKeyIdentifier: this.authorityKeyIdentifier && hexFromU8(this.authorityKeyIdentifier),
+      subjectKeyIdentifier: this.subjectKeyIdentifier && hexFromU8(this.subjectKeyIdentifier),
       basicConstraints: this.basicConstraints,
-      signedData: [...this.signedData]
+      signedData: hexFromU8(this.signedData)
     };
+  }
+  static uint8ArraysFromPEM(pem) {
+    const tag = "[A-Z0-9 ]+";
+    const pattern = new RegExp(`-----BEGIN ${tag}-----([a-zA-Z0-9=+\\/\\n\\r]+)-----END ${tag}-----`, "g");
+    const res = [];
+    let matches = null;
+    while (matches = pattern.exec(pem)) {
+      const base64 = matches[1].replace(/[\r\n]/g, "");
+      const binary = base64Decode(base64);
+      res.push(binary);
+    }
+    return res;
+  }
+  static fromPEM(pem) {
+    return this.uint8ArraysFromPEM(pem).map((arr) => new this(arr));
   }
 };
 var TrustedCert = class extends Cert {
+  static databaseFromPEM(pem) {
+    const certsData = this.uint8ArraysFromPEM(pem);
+    const offsets = [0];
+    const subjects = {};
+    const growable = new GrowableData();
+    for (const certData of certsData) {
+      const cert = new this(certData);
+      const offsetIndex = offsets.length - 1;
+      if (cert.subjectKeyIdentifier)
+        subjects[hexFromU8(cert.subjectKeyIdentifier)] = offsetIndex;
+      subjects[this.stringFromDistinguishedName(cert.subject)] = offsetIndex;
+      growable.append(certData);
+      offsets[offsets.length] = offsets[offsetIndex] + certData.length;
+    }
+    const data = growable.getData();
+    return { index: { offsets, subjects }, data };
+  }
+  static findInDatabase(subjectOrSubjectKeyId, db) {
+    const { index: { subjects, offsets }, data } = db;
+    const key = typeof subjectOrSubjectKeyId === "string" ? subjectOrSubjectKeyId : Cert.stringFromDistinguishedName(subjectOrSubjectKeyId);
+    const offsetIndex = subjects[key];
+    if (offsetIndex === void 0)
+      return;
+    const start = offsets[offsetIndex];
+    const end = offsets[offsetIndex + 1];
+    const certData = data.subarray(start, end);
+    const cert = new this(certData);
+    return cert;
+  }
 };
 
 // src/tls/ecdsa.ts
@@ -1751,7 +1890,7 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
 }
 
 // src/tls/verifyCerts.ts
-async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
+async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates received from host");
   for (const cert of certs)
     log(...highlightColonList(cert.description()));
@@ -1772,19 +1911,21 @@ async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage =
   }
   log("Next, we verify the signature of each certificate using the public key of the next certificate in the chain. This carries on until we find a certificate we can verify using one of our own trusted root certificates (or until we reach the end of the chain and therefore fail):");
   let verifiedToTrustedRoot = false;
-  log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificates");
-  for (const cert of rootCerts)
-    log(...highlightColonList(cert.description()));
+  log("%c%s", `color: ${"#c88" /* header */}`, `trusted root certificates in store: ${rootCertsDatabase.index.offsets.length - 1}`);
   for (let i = 0, len = certs.length; i < len; i++) {
     const subjectCert = certs[i];
     const subjectAuthKeyId = subjectCert.authorityKeyIdentifier;
     let signingCert;
     if (subjectAuthKeyId === void 0) {
-      signingCert = rootCerts.find((cert) => Cert.distinguishedNamesAreEqual(cert.subject, subjectCert.issuer));
-      signingCert && 1 && log("matched certificates on subject/issuer distinguished name: %s", Cert.readableDN(signingCert.subject));
+      signingCert = TrustedCert.findInDatabase(subjectCert.issuer, rootCertsDatabase);
+      signingCert && log("matched a trusted root cert on subject/issuer distinguished name: %s", Cert.stringFromDistinguishedName(signingCert.subject));
     } else {
-      signingCert = rootCerts.find((cert) => cert.subjectKeyIdentifier !== void 0 && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
-      signingCert && 1 && log("matched certificates on key id: %s", hexFromU8(subjectAuthKeyId, " "));
+      signingCert = TrustedCert.findInDatabase(hexFromU8(subjectAuthKeyId), rootCertsDatabase);
+      signingCert && log("matched a trusted root cert on key id: %s", hexFromU8(subjectAuthKeyId, " "));
+    }
+    if (signingCert !== void 0) {
+      log("%c%s", `color: ${"#c88" /* header */}`, `trusted root certificate`);
+      signingCert && log(...highlightColonList(signingCert.description()));
     }
     if (signingCert === void 0)
       signingCert = certs[i + 1];
@@ -1845,7 +1986,7 @@ async function verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage =
 
 // src/tls/readEncryptedHandshake.ts
 var txtEnc3 = new TextEncoder();
-async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos, rootCerts, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
+async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
   const hs = new ASN1Bytes(await readHandshakeRecord());
   hs.expectUint8(8, "handshake record type: encrypted extensions ([RFC 8446 \xA74.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))");
   const [eeMessageEnd] = hs.expectLengthUint24();
@@ -1980,17 +2121,19 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     throw new Error("Invalid server verify hash");
   log("Decrypted using the server handshake key, the server\u2019s handshake messages are parsed as follows ([source](https://github.com/jawj/subtls/blob/main/src/tls/readEncryptedHandshake.ts)). This is a long section, since X.509 certificates are quite complex and there will be several of them:");
   log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
-  const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
+  const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot)
     throw new Error("Validated certificate chain did not end in a trusted root");
   return [hs.data, clientCertRequested];
 }
 
 // src/tls/startTls.ts
-async function startTls(host, rootCerts, networkRead, networkWrite, { useSNI, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData } = {}) {
+async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { useSNI, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData } = {}) {
   useSNI ?? (useSNI = true);
   requireServerTlsExtKeyUsage ?? (requireServerTlsExtKeyUsage = true);
   requireDigitalSigKeyUsage ?? (requireDigitalSigKeyUsage = true);
+  if (typeof rootCertsDatabase === "string")
+    rootCertsDatabase = TrustedCert.databaseFromPEM(rootCertsDatabase);
   const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKeyBuffer = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
   const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
@@ -2054,7 +2197,7 @@ async function startTls(host, rootCerts, networkRead, networkWrite, { useSNI, re
     readHandshakeRecord,
     handshakeKeys.serverSecret,
     hellos,
-    rootCerts,
+    rootCertsDatabase,
     requireServerTlsExtKeyUsage,
     requireDigitalSigKeyUsage
   );
@@ -2133,21 +2276,6 @@ async function startTls(host, rootCerts, networkRead, networkWrite, { useSNI, re
 // src/roots/isrg-root-x1.pem
 var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\nTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\ncmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\nWhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\nZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\nMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\nh77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\nA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\nT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\nB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\nB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\nKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\nOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\njh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\nqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\nrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\nHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\nhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\nubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\nNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\nORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\nTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\njNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\noyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\nmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\nemyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n";
 
-// src/roots/isrg-root-x2.pem
-var isrg_root_x2_default = "-----BEGIN CERTIFICATE-----\nMIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\nCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\nR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\nMDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\nZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\nEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\nItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\nAQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\nzj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\ntL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n/q4AaOeMSQ+2b1tbFfLn\n-----END CERTIFICATE-----\n";
-
-// src/roots/baltimore.pem
-var baltimore_default = "-----BEGIN CERTIFICATE-----\r\nMIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ\r\nRTESMBAGA1UEChMJQmFsdGltb3JlMRMwEQYDVQQLEwpDeWJlclRydXN0MSIwIAYD\r\nVQQDExlCYWx0aW1vcmUgQ3liZXJUcnVzdCBSb290MB4XDTAwMDUxMjE4NDYwMFoX\r\nDTI1MDUxMjIzNTkwMFowWjELMAkGA1UEBhMCSUUxEjAQBgNVBAoTCUJhbHRpbW9y\r\nZTETMBEGA1UECxMKQ3liZXJUcnVzdDEiMCAGA1UEAxMZQmFsdGltb3JlIEN5YmVy\r\nVHJ1c3QgUm9vdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKMEuyKr\r\nmD1X6CZymrV51Cni4eiVgLGw41uOKymaZN+hXe2wCQVt2yguzmKiYv60iNoS6zjr\r\nIZ3AQSsBUnuId9Mcj8e6uYi1agnnc+gRQKfRzMpijS3ljwumUNKoUMMo6vWrJYeK\r\nmpYcqWe4PwzV9/lSEy/CG9VwcPCPwBLKBsua4dnKM3p31vjsufFoREJIE9LAwqSu\r\nXmD+tqYF/LTdB1kC1FkYmGP1pWPgkAx9XbIGevOF6uvUA65ehD5f/xXtabz5OTZy\r\ndc93Uk3zyZAsuT3lySNTPx8kmCFcB5kpvcY67Oduhjprl3RjM71oGDHweI12v/ye\r\njl0qhqdNkNwnGjkCAwEAAaNFMEMwHQYDVR0OBBYEFOWdWTCCR1jMrPoIVDaGezq1\r\nBE3wMBIGA1UdEwEB/wQIMAYBAf8CAQMwDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3\r\nDQEBBQUAA4IBAQCFDF2O5G9RaEIFoN27TyclhAO992T9Ldcw46QQF+vaKSm2eT92\r\n9hkTI7gQCvlYpNRhcL0EYWoSihfVCr3FvDB81ukMJY2GQE/szKN+OMY3EU/t3Wgx\r\njkzSswF07r51XgdIGn9w/xZchMB5hbgF/X++ZRGjD8ACtPhSNzkE1akxehi/oCr0\r\nEpn3o0WC4zxe9Z2etciefC7IpJ5OCBRLbf1wbWsaY71k5h+3zvDyny67G7fyUIhz\r\nksLi4xaNmjICq44Y3ekQEe5+NauQrz4wlHrQMz2nZQ/1/I6eYs9HRCwBXbsdtTLS\r\nR9I4LtD+gdwyah617jzV/OeBHRnDJELqYzmp\r\n-----END CERTIFICATE-----\r\n";
-
-// src/roots/digicert-global-root.pem
-var digicert_global_root_default = "-----BEGIN CERTIFICATE-----\r\nMIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh\r\nMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\r\nd3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBD\r\nQTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVT\r\nMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j\r\nb20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG\r\n9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsB\r\nCSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97\r\nnh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt\r\n43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7P\r\nT19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4\r\ngdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAO\r\nBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbR\r\nTLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUw\r\nDQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/Esr\r\nhMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg\r\n06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJF\r\nPnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0ls\r\nYSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQk\r\nCAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=\r\n-----END CERTIFICATE-----\r\n";
-
-// src/tls/rootCerts.ts
-function getRootCerts() {
-  const rootCerts = TrustedCert.fromPEM(isrg_root_x1_default + isrg_root_x2_default + baltimore_default + digicert_global_root_default);
-  return rootCerts;
-}
-
 // src/postgres.ts
 async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true) {
   const t0 = Date.now();
@@ -2176,8 +2304,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   const byte = new Bytes(SorN);
   byte.expectUint8(83, '"S" = SSL connection supported');
   log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
-  const rootCert = getRootCerts();
-  const [read, write] = await startTls(host, rootCert, transport.read, transport.write, {
+  const [read, write] = await startTls(host, isrg_root_x1_default, transport.read, transport.write, {
     useSNI: !neonPasswordPipelining,
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false
@@ -2336,6 +2463,21 @@ function parse(url, parseQueryString = false) {
 
 // src/https.ts
 var txtDec2 = new TextDecoder();
+async function getRootCertsIndex() {
+  const rootCertsResponse = await fetch("certs.index.json");
+  const rootCertsIndex = await rootCertsResponse.json();
+  return rootCertsIndex;
+}
+async function getRootCertsData() {
+  const rootCertsResponse = await fetch("certs.bin");
+  const rootCertsArrBuf = await rootCertsResponse.arrayBuffer();
+  const rootCertsData = new Uint8Array(rootCertsArrBuf);
+  return rootCertsData;
+}
+async function getRootCertsDatabase() {
+  const [index, data] = await Promise.all([getRootCertsIndex(), getRootCertsData()]);
+  return { index, data };
+}
 async function https(urlStr2, method, transportFactory) {
   const t0 = Date.now();
   const url = new URL(urlStr2);
@@ -2344,11 +2486,11 @@ async function https(urlStr2, method, transportFactory) {
   const host = url.hostname;
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
-  const rootCert = getRootCerts();
   const transport = await transportFactory(host, port, () => {
     log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");
   });
-  const [read, write] = await startTls(host, rootCert, transport.read, transport.write);
+  const rootCertsDatabase = await getRootCertsDatabase();
+  const [read, write] = await startTls(host, rootCertsDatabase, transport.read, transport.write);
   log("Here\u2019s a GET request:");
   const request = new Bytes(1024);
   request.writeUTF8String(`${method} ${reqPath} HTTP/1.1\r

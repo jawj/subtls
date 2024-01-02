@@ -1,23 +1,36 @@
 import type { Socket } from 'net';
 
-export declare class TrustedCert {
+interface RootCertsIndex {
+  offsets: number[];
+  subjects: Record<string, number>;
+}
+
+type RootCertsData = Uint8Array;
+
+export interface RootCertsDatabase {
+  index: RootCertsIndex;
+  data: RootCertsData;
+}
+
+export class TrustedCert {
   static fromPEM(pem: string): TrustedCert[];
+  static databaseFromPEM(pem: string): RootCertsDatabase;
   description(): string;
 }
 
-export declare class WebSocketReadQueue {
+export class WebSocketReadQueue {
   constructor(ws: WebSocket);
   async read(bytes: number): Promise<Uint8Array | undefined>;
   bytesInQueue(): number;
 }
 
-export declare class SocketReadQueue {
+export class SocketReadQueue {
   constructor(socket: Socket);
   async read(bytes: number): Promise<Uint8Array | undefined>;
   bytesInQueue(): number;
 }
 
-export declare function startTls(
+export function startTls(
   host: string,
   rootCerts: TrustedCert[],
   networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
@@ -31,3 +44,12 @@ export declare function startTls(
     commentPreData?: string,
   } = {},
 ): Promise<readonly [() => Promise<Uint8Array | undefined>, (data: Uint8Array) => Promise<void>]>;
+
+export function base64Decode(input: string): Uint8Array;
+export function u8FromHex(hex: string): Uint8Array;
+export function hexFromU8(u8: Uint8Array | number[], spacer = ''): string;
+export function stableStringify(
+  x: any,
+  replacer: (key: string, value: any) => any = (_, v) => v,
+  indent?: string | number
+): string;

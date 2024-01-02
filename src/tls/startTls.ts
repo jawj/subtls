@@ -11,13 +11,13 @@ import { hexFromU8 } from '../util/hex';
 import { LogColours } from '../presentation/appearance';
 import { highlightBytes, highlightColonList } from '../presentation/highlights';
 import { log } from '../presentation/log';
-import { TrustedCert } from './cert';
+import { TrustedCert, type RootCertsDatabase } from './cert';
 import { base64Decode, urlCharCodes } from '../util/base64';
 import cs from '../util/cryptoProxy';
 
 export async function startTls(
   host: string,
-  rootCerts: TrustedCert[],
+  rootCertsDatabase: RootCertsDatabase | string,
   networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
   networkWrite: (data: Uint8Array) => void,
   { useSNI, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData }: {
@@ -32,6 +32,8 @@ export async function startTls(
   useSNI ??= true;
   requireServerTlsExtKeyUsage ??= true;
   requireDigitalSigKeyUsage ??= true;
+
+  if (typeof rootCertsDatabase === 'string') rootCertsDatabase = TrustedCert.databaseFromPEM(rootCertsDatabase);
 
   const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
   const rawPublicKeyBuffer = await cs.exportKey('raw', ecdhKeys.publicKey);
@@ -107,7 +109,7 @@ export async function startTls(
     readHandshakeRecord,
     handshakeKeys.serverSecret,
     hellos,
-    rootCerts,
+    rootCertsDatabase,
     requireServerTlsExtKeyUsage,
     requireDigitalSigKeyUsage,
   );

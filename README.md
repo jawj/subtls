@@ -189,7 +189,8 @@ Testing
 
 ## TODO
 
-Compare client state machine: https://www.rfc-editor.org/rfc/rfc8446#appendix-A.1
+* Compare client state machine: https://www.rfc-editor.org/rfc/rfc8446#appendix-A.1
+* Check out https://bettertls.com/ and https://medium.com/@sleevi_/path-building-vs-path-verifying-the-chain-of-pain-9fbab861d7d6
 
 ## Licence
 

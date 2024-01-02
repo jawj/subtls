@@ -1,6 +1,6 @@
 import { Cert, TrustedCert } from './cert';
+import type { RootCertsDatabase } from './cert';
 import { hexFromU8 } from '../util/hex';
-import { equal } from '../util/array';
 import { LogColours } from '../presentation/appearance';
 import { highlightColonList } from '../presentation/highlights';
 import { log } from '../presentation/log';
@@ -8,10 +8,11 @@ import { ASN1Bytes } from '../util/asn1bytes';
 import { ecdsaVerify } from './ecdsa';
 import cs from '../util/cryptoProxy';
 
+
 export async function verifyCerts(
   host: string,
   certs: Cert[],
-  rootCerts: TrustedCert[],
+  rootCertsDatabase: RootCertsDatabase,
   requireServerTlsExtKeyUsage = true,
   requireDigitalSigKeyUsage = true,
 ) {
@@ -41,8 +42,7 @@ export async function verifyCerts(
 
   let verifiedToTrustedRoot = false;
 
-  chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificates');
-  for (const cert of rootCerts) chatty && log(...highlightColonList(cert.description()));
+  chatty && log('%c%s', `color: ${LogColours.header}`, `trusted root certificates in store: ${rootCertsDatabase.index.offsets.length - 1}`);
 
   for (let i = 0, len = certs.length; i < len; i++) {
     const subjectCert = certs[i];
@@ -53,16 +53,17 @@ export async function verifyCerts(
 
     // first, see if any trusted root cert has a subjKeyId matching the authKeyId, or if there's no subjKeyId, an issuer matching the subject
     if (subjectAuthKeyId === undefined) {
-      signingCert = rootCerts.find(cert =>
-        Cert.distinguishedNamesAreEqual(cert.subject, subjectCert.issuer));
-
-      signingCert && chatty && log('matched certificates on subject/issuer distinguished name: %s', Cert.readableDN(signingCert.subject));
+      signingCert = TrustedCert.findInDatabase(subjectCert.issuer, rootCertsDatabase);
+      chatty && signingCert && log('matched a trusted root cert on subject/issuer distinguished name: %s', Cert.stringFromDistinguishedName(signingCert.subject));
 
     } else {
-      signingCert = rootCerts.find(cert =>
-        cert.subjectKeyIdentifier !== undefined && equal(cert.subjectKeyIdentifier, subjectAuthKeyId));
+      signingCert = TrustedCert.findInDatabase(hexFromU8(subjectAuthKeyId), rootCertsDatabase);
+      chatty && signingCert && log('matched a trusted root cert on key id: %s', hexFromU8(subjectAuthKeyId, ' '));
+    }
 
-      signingCert && chatty && log('matched certificates on key id: %s', hexFromU8(subjectAuthKeyId, ' '));
+    if (signingCert !== undefined) {
+      chatty && log('%c%s', `color: ${LogColours.header}`, `trusted root certificate`);
+      chatty && signingCert && log(...highlightColonList(signingCert.description()));
     }
 
     // if not, try the next supplied certificate

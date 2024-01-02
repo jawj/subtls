@@ -2,7 +2,8 @@ import { LogColours } from '../presentation/appearance';
 import { hkdfExpandLabel } from "./hkdf";
 import { concat, equal } from '../util/array';
 import cs from '../util/cryptoProxy';
-import { Cert, TrustedCert } from './cert';
+import { Cert } from './cert';
+import type { RootCertsDatabase } from './cert';
 import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { ASN1Bytes } from '../util/asn1bytes';
@@ -17,7 +18,7 @@ export async function readEncryptedHandshake(
   readHandshakeRecord: () => Promise<Uint8Array>,
   serverSecret: Uint8Array,
   hellos: Uint8Array,
-  rootCerts: TrustedCert[],
+  rootCertsDatabase: RootCertsDatabase,
   requireServerTlsExtKeyUsage = true,
   requireDigitalSigKeyUsage = true,
 ) {
@@ -214,7 +215,7 @@ export async function readEncryptedHandshake(
   chatty && log('Decrypted using the server handshake key, the server’s handshake messages are parsed as follows ([source](https://github.com/jawj/subtls/blob/main/src/tls/readEncryptedHandshake.ts)). This is a long section, since X.509 certificates are quite complex and there will be several of them:');
   chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
 
-  const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCerts, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
+  const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in a trusted root');
 
   return [hs.data, clientCertRequested] as const;

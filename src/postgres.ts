@@ -3,8 +3,10 @@ import { LogColours } from './presentation/appearance';
 import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
-import { getRootCerts } from './tls/rootCerts';
 import type wsTransport from './util/wsTransport';
+
+// @ts-ignore
+import isrgrootx1 from './roots/isrg-root-x1.pem';
 
 export async function postgres(urlStr: string, transportFactory: typeof wsTransport, neonPasswordPipelining = true) {
   const t0 = Date.now();
@@ -42,8 +44,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   byte.expectUint8(0x53, '"S" = SSL connection supported');
   chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
 
-  const rootCert = getRootCerts();
-  const [read, write] = await startTls(host, rootCert, transport.read, transport.write, {
+  const [read, write] = await startTls(host, isrgrootx1, transport.read, transport.write, {
     useSNI: !neonPasswordPipelining,
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false,

@@ -70,6 +70,20 @@ export class ASN1Bytes extends Bytes {
     return time;
   }
 
+  readASN1GeneralizedTime() {
+    const [endTime, timeRemaining] = this.expectASN1Length(chatty && 'generalized time');
+    const timeStr = this.readUTF8String(timeRemaining());
+    const parts = timeStr.match(/^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})?([0-9]{2})?([.][0-9]+)?(Z)?([-+][0-9]+)?$/);
+    if (!parts) throw new Error('Unrecognised ASN.1 generalized time format');
+    const [, yr, mth, dy, hr, min, sec, fracsec, z, tz] = parts;
+    if (sec === undefined && fracsec !== undefined) throw new Error('Invalid ASN.1 generalized time format (fraction without seconds)');
+    if (z !== undefined && tz !== undefined) throw new Error('Invalid ASN.1 generalized time format (Z and timezone)');
+    const time = new Date(`${yr}-${mth}-${dy}T${hr}:${min ?? '00'}:${sec ?? '00'}${fracsec ?? ''}${tz ?? 'Z'}`);  // ISO8601 should be safe to parse
+    chatty && this.comment('= ' + time.toISOString());
+    endTime();
+    return time;
+  }
+
   readASN1BitString() {
     const [endBitString, bitStringRemaining] = this.expectASN1Length(chatty && 'bit string');
     const rightPadBits = this.readUint8(chatty && 'right-padding bits');

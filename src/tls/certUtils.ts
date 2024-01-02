@@ -7,13 +7,15 @@ export const constructedUniversalTypeSequence = 0x30;
 export const constructedUniversalTypeSet = 0x31;
 export const universalTypeOID = 0x06;
 export const universalTypePrintableString = 0x13;
+export const universalTypeTeletexString = 0x14;
 export const universalTypeUTF8String = 0x0c;
 export const universalTypeIA5String = 0x16;
 export const universalTypeUTCTime = 0x17;
+export const universalTypeGeneralizedTime = 0x18;
 export const universalTypeNull = 0x05;
 export const universalTypeOctetString = 0x04;
 export const universalTypeBitString = 0x03;
-export const constructedContextSpecificType = 0xa3;
+export const constructedContextSpecificType = 0xa3;  // context-specific is 0x80 (1 in bit 8, 0 in bit 7); constructed is 0x20 (1 in bit 6)
 export const contextSpecificType = 0x80;
 
 export enum GeneralName {
@@ -29,17 +31,18 @@ export enum GeneralName {
 }
 
 export const DNOIDMap: Record<string, string> = {
-  "2.5.4.6": "C",
-  "2.5.4.10": "O",
-  "2.5.4.11": "OU",
-  "2.5.4.3": "CN",
-  "2.5.4.7": "L",
-  "2.5.4.8": "ST",
-  "2.5.4.12": "T",
-  "2.5.4.42": "GN",
-  "2.5.4.43": "I",
-  "2.5.4.4": "SN",
-  "1.2.840.113549.1.9.1": "E-mail",
+  "2.5.4.6": "C",   // country
+  "2.5.4.10": "O",  // organisation
+  "2.5.4.11": "OU", // organisational unit
+  "2.5.4.3": "CN",  // common name
+  "2.5.4.7": "L",   // locality
+  "2.5.4.8": "ST",  // state/province
+  "2.5.4.12": "T",  // title
+  "2.5.4.42": "GN", // given name
+  "2.5.4.43": "I",  // initials
+  "2.5.4.4": "SN",  // surname
+  "1.2.840.113549.1.9.1": "MAIL",
+  "2.5.4.5": "SERIALNUMBER",
 };
 
 export const keyOIDMap: Record<string, string> = {
@@ -53,13 +56,14 @@ export const extOIDMap: Record<string, string> = {
   "2.5.29.15": "KeyUsage",
   "2.5.29.37": "ExtKeyUsage",
   "2.5.29.19": "BasicConstraints",
+  "2.5.29.30": "NameConstraints",
   "2.5.29.14": "SubjectKeyIdentifier",
   "2.5.29.35": "AuthorityKeyIdentifier",
   "1.3.6.1.5.5.7.1.1": "AuthorityInfoAccess",
   "2.5.29.17": "SubjectAltName",
   "2.5.29.32": "CertificatePolicies",
   "1.3.6.1.4.1.11129.2.4.2": "SignedCertificateTimestampList",
-  "2.5.29.31": "CRLDistributionPoints",
+  "2.5.29.31": "CRLDistributionPoints (Certificate Revocation List)",
 };
 
 export const extKeyUsageOIDMap: Record<string, string> = {
@@ -96,7 +100,7 @@ export function intFromBitString(bs: Uint8Array) {
 }
 
 export function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for issuer and subject
-  const result: Record<string, string> = {};
+  const result: Record<string, string | string[]> = {};
 
   cb.expectUint8(constructedUniversalTypeSequence, chatty && `sequence (${seqType})`);
   const [endSeq, seqRemaining] = cb.expectASN1Length(chatty && 'sequence');
@@ -118,6 +122,10 @@ export function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for
       chatty && cb.comment('printable string');
     } else if (valueType === universalTypeUTF8String) {
       chatty && cb.comment('UTF8 string');
+    } else if (valueType === universalTypeIA5String) {
+      chatty && cb.comment('IA5 string');
+    } else if (valueType === universalTypeTeletexString) {
+      chatty && cb.comment('Teletex string');
     } else {
       throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
     }
@@ -128,8 +136,10 @@ export function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for
     endItemSeq();
     endItemSet();
 
-    if (result[itemName] !== undefined) throw new Error(`Duplicate OID ${itemName} in certificate ${seqType}`);
-    result[itemName] = itemValue;
+    const existingValue = result[itemName];
+    if (existingValue === undefined) result[itemName] = itemValue;
+    else if (typeof existingValue === 'string') result[itemName] = [existingValue, itemValue];
+    else existingValue.push(itemValue);
   }
 
   endSeq();
