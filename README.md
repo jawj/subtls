@@ -171,6 +171,11 @@ TLS 1.3
 * https://jvns.ca/blog/2022/03/23/a-toy-version-of-tls/ + https://github.com/jvns/tiny-tls
 * https://en.wikipedia.org/wiki/Transport_Layer_Security#Protocol_details
 
+x509
+
+* https://www.cs.auckland.ac.nz/~pgut001/pubs/pkitutorial.pdf
+* https://www.cs.auckland.ac.nz/~pgut001/pubs/x509guide.txt
+
 HKDF
 
 * https://www.ietf.org/rfc/rfc5869.txt
@@ -194,7 +199,7 @@ Testing
 
 ## Licence
 
-Copyright &copy; 2022 – 2023 George MacKerron.
+Copyright &copy; 2022 – 2024 George MacKerron.
 
 Licenced under the [MIT licence](https://opensource.org/licenses/MIT).
 
