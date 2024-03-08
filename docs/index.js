@@ -470,7 +470,7 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   endCompressionMethods();
   const endExtensions = h.writeLengthUint16("extensions ([RFC 8446 \xA74.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2))");
   if (useSNI) {
-    h.writeUint16(0, "extension type: SNI ([RFC 6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
+    h.writeUint16(0, "extension type: Server Name Indication, or SNI ([RFC 6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
     const endSNIExt = h.writeLengthUint16("SNI data");
     const endSNI = h.writeLengthUint16("SNI records");
     h.writeUint8(0, "list entry type: DNS hostname");
@@ -480,29 +480,29 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
     endSNI();
     endSNIExt();
   }
-  h.writeUint16(11, "extension type: EC point formats (for middlebox compatibility, from TLS 1.2: [RFC 8422 \xA75.1.2](https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2))");
-  const endFormatTypesExt = h.writeLengthUint16("formats data");
-  const endFormatTypes = h.writeLengthUint8("formats");
-  h.writeUint8(0, "format: uncompressed");
+  h.writeUint16(11, "extension type: supported Elliptic Curve point formats (for middlebox compatibility, from TLS 1.2: [RFC 8422 \xA75.1.2](https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2))");
+  const endFormatTypesExt = h.writeLengthUint16("point formats data");
+  const endFormatTypes = h.writeLengthUint8("point formats");
+  h.writeUint8(0, "point format: uncompressed");
   endFormatTypes();
   endFormatTypesExt();
-  h.writeUint16(10, "extension type: supported groups ([RFC 8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
+  h.writeUint16(10, "extension type: supported groups for key exchange ([RFC 8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
   const endGroupsExt = h.writeLengthUint16("groups data");
   const endGroups = h.writeLengthUint16("groups");
-  h.writeUint16(23, "curve secp256r1");
+  h.writeUint16(23, "group: elliptic curve secp256r1");
   endGroups();
   endGroupsExt();
   h.writeUint16(13, "extension type: signature algorithms ([RFC 8446 \xA74.2.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3))");
   const endSigsExt = h.writeLengthUint16("signature algorithms data");
   const endSigs = h.writeLengthUint16("signature algorithms");
-  h.writeUint16(1027, "ecdsa_secp256r1_sha256");
-  h.writeUint16(2052, "rsa_pss_rsae_sha256");
+  h.writeUint16(1027, "algorithm: ecdsa_secp256r1_sha256");
+  h.writeUint16(2052, "algorithm: rsa_pss_rsae_sha256");
   endSigs();
   endSigsExt();
   h.writeUint16(43, "extension type: supported TLS versions ([RFC 8446 \xA74.2.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.1))");
   const endVersionsExt = h.writeLengthUint16("TLS versions data");
   const endVersions = h.writeLengthUint8("TLS versions");
-  h.writeUint16(772, "TLS version 1.3");
+  h.writeUint16(772, "TLS version: 1.3");
   endVersions();
   endVersionsExt();
   h.writeUint16(51, "extension type: key share ([RFC 8446 \xA74.2.8](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8))");
@@ -595,7 +595,7 @@ function parseServerHello(h, sessionId) {
     );
     const [endExtension] = h.expectLengthUint16("extension");
     if (extensionType === 43) {
-      h.expectUint16(772, "TLS version 1.3");
+      h.expectUint16(772, "TLS version: 1.3");
       tlsVersionSpecified = true;
     } else if (extensionType === 51) {
       h.expectUint16(23, "key share type: secp256r1 (NIST P-256)");
@@ -2139,13 +2139,13 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
   if (1) {
     const privateKeyJWK = await cryptoProxy_default.exportKey("jwk", ecdhKeys.privateKey);
-    log("We begin the TLS connection by generating an [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, is a random 256-bit integer.");
+    log("We begin the TLS connection by generating an [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, is simply a 256-bit integer picked at random:");
     log(...highlightColonList("d: " + hexFromU8(base64Decode(privateKeyJWK.d, urlCharCodes))));
-    log("The public key is a point on the curve. The point is [derived from d and a base point](https://curves.xargs.org), and identified by coordinates x and y.");
+    log("The public key is a point on the curve. The point is [derived from d and a base point](https://curves.xargs.org). It\u2019s identified by coordinates x and y.");
     log(...highlightColonList("x: " + hexFromU8(base64Decode(privateKeyJWK.x, urlCharCodes))));
     log(...highlightColonList("y: " + hexFromU8(base64Decode(privateKeyJWK.y, urlCharCodes))));
   }
-  log("Now we can start the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)), which includes the public key:");
+  log("Now we have a public/private key pair, we can start the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)). This includes the public key:");
   const sessionId = new Uint8Array(32);
   crypto.getRandomValues(sessionId);
   const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);

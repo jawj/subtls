@@ -40,7 +40,7 @@ export default function parseServerHello(h: Bytes, sessionId: Uint8Array) {
     const [endExtension] = h.expectLengthUint16(chatty && 'extension');
 
     if (extensionType === 0x002b) {
-      h.expectUint16(0x0304, chatty && 'TLS version 1.3');
+      h.expectUint16(0x0304, chatty && 'TLS version: 1.3');
       tlsVersionSpecified = true;
 
     } else if (extensionType === 0x0033) {
