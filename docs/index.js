@@ -490,6 +490,7 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const endGroupsExt = h.writeLengthUint16("groups data");
   const endGroups = h.writeLengthUint16("groups");
   h.writeUint16(23, "group: elliptic curve secp256r1");
+  h.writeUint16(29, "group: elliptic curve x25519");
   endGroups();
   endGroupsExt();
   h.writeUint16(13, "extension type: signature algorithms ([RFC 8446 \xA74.2.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3))");
@@ -508,7 +509,7 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   h.writeUint16(51, "extension type: key share ([RFC 8446 \xA74.2.8](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8))");
   const endKeyShareExt = h.writeLengthUint16("key share data");
   const endKeyShares = h.writeLengthUint16("key shares");
-  h.writeUint16(23, "secp256r1 (NIST P-256) key share ([RFC 8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
+  h.writeUint16(29, "X25519 key share ([RFC 8446 \xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
   const endKeyShare = h.writeLengthUint16("key share");
   if (1) {
     h.writeUint8(publicKey[0], "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
@@ -2134,11 +2135,12 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   requireDigitalSigKeyUsage ?? (requireDigitalSigKeyUsage = true);
   if (typeof rootCertsDatabase === "string")
     rootCertsDatabase = TrustedCert.databaseFromPEM(rootCertsDatabase);
-  const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
+  const ecdhKeys = await cryptoProxy_default.generateKey({ name: "X25519" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKeyBuffer = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
   const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
   if (1) {
     const privateKeyJWK = await cryptoProxy_default.exportKey("jwk", ecdhKeys.privateKey);
+    console.log(privateKeyJWK);
     log("We begin the TLS connection by generating an [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, is simply a 256-bit integer picked at random:");
     log(...highlightColonList("d: " + hexFromU8(base64Decode(privateKeyJWK.d, urlCharCodes))));
     log("The public key is a point on the curve. The point is [derived from d and a base point](https://curves.xargs.org). It\u2019s identified by coordinates x and y.");

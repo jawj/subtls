@@ -53,6 +53,7 @@ export default function makeClientHello(host: string, publicKey: Uint8Array, ses
   const endGroupsExt = h.writeLengthUint16(chatty && 'groups data');
   const endGroups = h.writeLengthUint16(chatty && 'groups');
   h.writeUint16(0x0017, chatty && 'group: elliptic curve secp256r1');
+  h.writeUint16(0x001D, chatty && 'group: elliptic curve x25519');
   endGroups();
   endGroupsExt();
 
@@ -74,7 +75,9 @@ export default function makeClientHello(host: string, publicKey: Uint8Array, ses
   h.writeUint16(0x0033, chatty && 'extension type: key share ([RFC 8446 §4.2.8](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8))');
   const endKeyShareExt = h.writeLengthUint16(chatty && 'key share data');
   const endKeyShares = h.writeLengthUint16(chatty && 'key shares');
-  h.writeUint16(0x0017, chatty && 'secp256r1 (NIST P-256) key share ([RFC 8446 §4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
+  //h.writeUint16(0x0017, chatty && 'secp256r1 (NIST P-256) key share ([RFC 8446 §4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
+  h.writeUint16(0x001D, chatty && 'X25519 key share ([RFC 8446 §4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
+
   const endKeyShare = h.writeLengthUint16(chatty && 'key share');
   if (chatty) {
     h.writeUint8(publicKey[0], 'legacy point format: always 4, which means uncompressed ([RFC 8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 §5.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))');

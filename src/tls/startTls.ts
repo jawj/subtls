@@ -35,12 +35,14 @@ export async function startTls(
 
   if (typeof rootCertsDatabase === 'string') rootCertsDatabase = TrustedCert.databaseFromPEM(rootCertsDatabase);
 
-  const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
+  //const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
+  const ecdhKeys = await cs.generateKey({ name: 'X25519' }, true, ['deriveKey', 'deriveBits']) as CryptoKeyPair;
   const rawPublicKeyBuffer = await cs.exportKey('raw', ecdhKeys.publicKey);
   const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
 
   if (chatty) {
     const privateKeyJWK = await cs.exportKey('jwk', ecdhKeys.privateKey);
+    console.log(privateKeyJWK);
     log('We begin the TLS connection by generating an [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, is simply a 256-bit integer picked at random:');
     log(...highlightColonList('d: ' + hexFromU8(base64Decode(privateKeyJWK.d!, urlCharCodes))));
     log('The public key is a point on the curve. The point is [derived from d and a base point](https://curves.xargs.org). It’s identified by coordinates x and y.');
