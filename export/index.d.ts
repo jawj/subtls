@@ -47,9 +47,9 @@ export function startTls(
 
 export function base64Decode(input: string): Uint8Array;
 export function u8FromHex(hex: string): Uint8Array;
-export function hexFromU8(u8: Uint8Array | number[], spacer = ''): string;
+export function hexFromU8(u8: Uint8Array | number[], spacer?: string): string;
 export function stableStringify(
   x: any,
-  replacer: (key: string, value: any) => any = (_, v) => v,
+  replacer: (key: string, value: any) => any,
   indent?: string | number
 ): string;
