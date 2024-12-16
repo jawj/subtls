@@ -20,13 +20,13 @@ export class TrustedCert {
 
 export class WebSocketReadQueue {
   constructor(ws: WebSocket);
-  async read(bytes: number): Promise<Uint8Array | undefined>;
+  read(bytes: number): Promise<Uint8Array | undefined>;
   bytesInQueue(): number;
 }
 
 export class SocketReadQueue {
   constructor(socket: Socket);
-  async read(bytes: number): Promise<Uint8Array | undefined>;
+  read(bytes: number): Promise<Uint8Array | undefined>;
   bytesInQueue(): number;
 }
 
@@ -42,7 +42,7 @@ export function startTls(
     writePreData?: Uint8Array,
     expectPreData?: Uint8Array,
     commentPreData?: string,
-  } = {},
+  },
 ): Promise<readonly [() => Promise<Uint8Array | undefined>, (data: Uint8Array) => Promise<void>]>;
 
 export function base64Decode(input: string): Uint8Array;

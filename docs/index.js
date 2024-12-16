@@ -1,14 +1,10 @@
 var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __publicField = (obj, key, value) => {
-  __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
-  return value;
-};
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
 // src/util/array.ts
 function concat(...arrs) {
-  if (arrs.length === 1 && arrs[0] instanceof Uint8Array)
-    return arrs[0];
+  if (arrs.length === 1 && arrs[0] instanceof Uint8Array) return arrs[0];
   const length = arrs.reduce((memo, arr) => memo + arr.length, 0);
   const result = new Uint8Array(length);
   let offset = 0;
@@ -20,11 +16,8 @@ function concat(...arrs) {
 }
 function equal(a, b) {
   const aLength = a.length;
-  if (aLength !== b.length)
-    return false;
-  for (let i = 0; i < aLength; i++)
-    if (a[i] !== b[i])
-      return false;
+  if (aLength !== b.length) return false;
+  for (let i = 0; i < aLength; i++) if (a[i] !== b[i]) return false;
   return true;
 }
 var GrowableData = class {
@@ -83,13 +76,11 @@ var Bytes = class {
   }
   skip(length, comment) {
     this.offset += length;
-    if (comment)
-      this.comment(comment);
+    if (comment) this.comment(comment);
     return this;
   }
   comment(s, offset = this.offset) {
-    if (false)
-      throw new Error("No comments should be emitted outside of chatty mode");
+    if (false) throw new Error("No comments should be emitted outside of chatty mode");
     const existing = this.comments[offset];
     const result = (existing === void 0 ? "" : existing + " ") + s;
     this.comments[offset] = result;
@@ -110,8 +101,7 @@ var Bytes = class {
   }
   readUTF8StringNullTerminated() {
     let endOffset = this.offset;
-    while (this.data[endOffset] !== 0)
-      endOffset++;
+    while (this.data[endOffset] !== 0) endOffset++;
     const str = this.readUTF8String(endOffset - this.offset);
     this.expectUint8(0, "end of string");
     return str;
@@ -119,80 +109,64 @@ var Bytes = class {
   readUint8(comment) {
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
-    if (comment)
-      this.comment(comment.replace(/%/g, String(result)));
+    if (comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
   readUint16(comment) {
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
-    if (comment)
-      this.comment(comment.replace(/%/g, String(result)));
+    if (comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
   readUint24(comment) {
     const msb = this.readUint8();
     const lsbs = this.readUint16();
     const result = (msb << 16) + lsbs;
-    if (comment)
-      this.comment(comment.replace(/%/g, String(result)));
+    if (comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
   readUint32(comment) {
     const result = this.dataView.getUint32(this.offset);
     this.offset += 4;
-    if (comment)
-      this.comment(comment.replace(/%/g, String(result)));
+    if (comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
   expectBytes(expected, comment) {
     const actual = this.readBytes(expected.length);
-    if (comment)
-      this.comment(comment);
-    if (!equal(actual, expected))
-      throw new Error(`Unexpected bytes`);
+    if (comment) this.comment(comment);
+    if (!equal(actual, expected)) throw new Error(`Unexpected bytes`);
   }
   expectUint8(expectedValue, comment) {
     const actualValue = this.readUint8();
-    if (comment)
-      this.comment(comment);
-    if (actualValue !== expectedValue)
-      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (comment) this.comment(comment);
+    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
   expectUint16(expectedValue, comment) {
     const actualValue = this.readUint16();
-    if (comment)
-      this.comment(comment);
-    if (actualValue !== expectedValue)
-      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (comment) this.comment(comment);
+    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
   expectUint24(expectedValue, comment) {
     const actualValue = this.readUint24();
-    if (comment)
-      this.comment(comment);
-    if (actualValue !== expectedValue)
-      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (comment) this.comment(comment);
+    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
   expectUint32(expectedValue, comment) {
     const actualValue = this.readUint32();
-    if (comment)
-      this.comment(comment);
-    if (actualValue !== expectedValue)
-      throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (comment) this.comment(comment);
+    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
   expectLength(length, indentDelta = 1) {
     const startOffset = this.offset;
     const endOffset = startOffset + length;
-    if (endOffset > this.data.length)
-      throw new Error("Expected length exceeds remaining data length");
+    if (endOffset > this.data.length) throw new Error("Expected length exceeds remaining data length");
     this.indent += indentDelta;
     this.indents[startOffset] = this.indent;
     return [
       () => {
         this.indent -= indentDelta;
         this.indents[this.offset] = this.indent;
-        if (this.offset !== endOffset)
-          throw new Error(`${length} bytes expected but ${this.offset - startOffset} read`);
+        if (this.offset !== endOffset) throw new Error(`${length} bytes expected but ${this.offset - startOffset} read`);
       },
       () => endOffset - this.offset
     ];
@@ -260,15 +234,13 @@ var Bytes = class {
   writeUint8(value, comment) {
     this.dataView.setUint8(this.offset, value);
     this.offset += 1;
-    if (comment)
-      this.comment(comment);
+    if (comment) this.comment(comment);
     return this;
   }
   writeUint16(value, comment) {
     this.dataView.setUint16(this.offset, value);
     this.offset += 2;
-    if (comment)
-      this.comment(comment);
+    if (comment) this.comment(comment);
     return this;
   }
   writeUint24(value, comment) {
@@ -279,8 +251,7 @@ var Bytes = class {
   writeUint32(value, comment) {
     this.dataView.setUint32(this.offset, value);
     this.offset += 4;
-    if (comment)
-      this.comment(comment);
+    if (comment) this.comment(comment);
     return this;
   }
   // forward-looking lengths
@@ -292,17 +263,13 @@ var Bytes = class {
     this.indents[endOffset] = this.indent;
     return () => {
       const length = this.offset - (inclusive ? startOffset : endOffset);
-      if (lengthBytes === 1)
-        this.dataView.setUint8(startOffset, length);
-      else if (lengthBytes === 2)
-        this.dataView.setUint16(startOffset, length);
+      if (lengthBytes === 1) this.dataView.setUint8(startOffset, length);
+      else if (lengthBytes === 2) this.dataView.setUint16(startOffset, length);
       else if (lengthBytes === 3) {
         this.dataView.setUint8(startOffset, (length & 16711680) >> 16);
         this.dataView.setUint16(startOffset + 1, length & 65535);
-      } else if (lengthBytes === 4)
-        this.dataView.setUint32(startOffset, length);
-      else
-        throw new Error(`Invalid length for length field: ${lengthBytes}`);
+      } else if (lengthBytes === 4) this.dataView.setUint32(startOffset, length);
+      else throw new Error(`Invalid length for length field: ${lengthBytes}`);
       this.comment(this.lengthComment(length, comment, inclusive), endOffset);
       this.indent -= 1;
       this.indents[this.offset] = this.indent;
@@ -343,10 +310,8 @@ var Bytes = class {
     for (let i = 0; i < len; i++) {
       s += this.data[i].toString(16).padStart(2, "0") + " ";
       const comment = this.comments[i + 1];
-      if (this.indents[i + 1] !== void 0)
-        indent = this.indents[i + 1];
-      if (comment)
-        s += ` ${comment}
+      if (this.indents[i + 1] !== void 0) indent = this.indents[i + 1];
+      if (comment) s += ` ${comment}
 ${indentChars.repeat(indent)}`;
     }
     return s;
@@ -392,8 +357,7 @@ function htmlEscape(s, linkUrls = true) {
     "gi"
   );
   const replaced = s.replace(regexp, (match) => {
-    if (match.length === 1)
-      return escapes[match];
+    if (match.length === 1) return escapes[match];
     let linkText, url;
     if (match.charAt(0) === "[") {
       const closeBracketPos = match.indexOf("]");
@@ -436,15 +400,13 @@ function htmlFromLogArgs(...args) {
 var c = 0;
 function log(...args) {
   console.log(...args, "\n");
-  if (typeof document === "undefined")
-    return;
+  if (typeof document === "undefined") return;
   const docEl = document.documentElement;
   const fullyScrolled = docEl.scrollTop >= docEl.scrollHeight - docEl.clientHeight - 1 || // the -1 makes this work in Edge
   docEl.clientHeight >= docEl.scrollHeight;
   const element = document.querySelector("#logs");
   element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
-  if (fullyScrolled)
-    window.scrollTo({ top: 99999, behavior: "auto" });
+  if (fullyScrolled) window.scrollTo({ top: 99999, behavior: "auto" });
 }
 
 // src/tls/makeClientHello.ts
@@ -580,8 +542,7 @@ function parseServerHello(h, sessionId) {
     168,
     51,
     156
-  ]))
-    throw new Error("Unexpected HelloRetryRequest");
+  ])) throw new Error("Unexpected HelloRetryRequest");
   h.comment('server random \u2014 [not SHA256("HelloRetryRequest")](https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.3)');
   h.expectUint8(sessionId.length, "session ID length (matches client session ID)");
   h.expectBytes(sessionId, "session ID (matches client session ID)");
@@ -601,8 +562,7 @@ function parseServerHello(h, sessionId) {
       h.expectUint16(23, "key share type: secp256r1 (NIST P-256)");
       const [endKeyShare, keyShareRemaining] = h.expectLengthUint16("key share");
       const keyShareLength = keyShareRemaining();
-      if (keyShareLength !== 65)
-        throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
+      if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
       if (1) {
         h.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
         const x = h.readBytes(32);
@@ -622,10 +582,8 @@ function parseServerHello(h, sessionId) {
   endExtensions();
   endServerHello();
   endServerHelloMessage();
-  if (tlsVersionSpecified !== true)
-    throw new Error("No TLS version provided");
-  if (serverPublicKey === void 0)
-    throw new Error("No key provided");
+  if (tlsVersionSpecified !== true) throw new Error("No TLS version provided");
+  if (serverPublicKey === void 0) throw new Error("No key provided");
   return serverPublicKey;
 }
 
@@ -670,31 +628,24 @@ var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
 async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordLength) {
   const headerLength = 5;
   const headerData = await read(headerLength);
-  if (headerData === void 0)
-    return;
-  if (headerData.length < headerLength)
-    throw new Error("TLS record header truncated");
+  if (headerData === void 0) return;
+  if (headerData.length < headerLength) throw new Error("TLS record header truncated");
   const header = new Bytes(headerData);
   const type = header.readUint8();
-  if (type < 20 || type > 24)
-    throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
-  if (expectedType !== void 0 && type !== expectedType)
-    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
+  if (type < 20 || type > 24) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
+  if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   header.comment(`record type: ${RecordTypeName[type]}`);
   header.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
   const length = header.readUint16();
   header.comment(`${length === 0 ? "no" : length} byte${length === 1 ? "" : "s"} of TLS record follow${length === 1 ? "s" : ""}`);
-  if (length > maxLength)
-    throw new Error(`Record too long: ${length} bytes`);
+  if (length > maxLength) throw new Error(`Record too long: ${length} bytes`);
   const content = await read(length);
-  if (content === void 0 || content.length < length)
-    throw new Error("TLS record content truncated");
+  if (content === void 0 || content.length < length) throw new Error("TLS record content truncated");
   return { headerData, header, type, length, content };
 }
 async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   const encryptedRecord = await readTlsRecord(read, 23 /* Application */, maxCiphertextRecordLength);
-  if (encryptedRecord === void 0)
-    return;
+  if (encryptedRecord === void 0) return;
   const encryptedBytes = new Bytes(encryptedRecord.content);
   const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remaining());
   encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
@@ -703,10 +654,8 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   log(...highlightBytes(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
   let recordTypeIndex = decryptedRecord.length - 1;
-  while (decryptedRecord[recordTypeIndex] === 0)
-    recordTypeIndex -= 1;
-  if (recordTypeIndex < 0)
-    throw new Error("Decrypted message has no record type indicator (all zeroes)");
+  while (decryptedRecord[recordTypeIndex] === 0) recordTypeIndex -= 1;
+  if (recordTypeIndex < 0) throw new Error("Decrypted message has no record type indicator (all zeroes)");
   const type = decryptedRecord[recordTypeIndex];
   const record = decryptedRecord.subarray(
     0,
@@ -716,16 +665,14 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   if (type === 21 /* Alert */) {
     const closeNotify = record.length === 2 && record[0] === 1 && record[1] === 0;
     log(`%cTLS 0x15 alert record: ${hexFromU8(record, " ")}` + (closeNotify ? " (close notify)" : ""), `color: ${"#c88" /* header */}`);
-    if (closeNotify)
-      return void 0;
+    if (closeNotify) return void 0;
   }
   log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
   if (type === 22 /* Handshake */ && record[0] === 4) {
     parseSessionTicket(record);
     return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
-  if (expectedType !== void 0 && type !== expectedType)
-    throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
+  if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   return record;
 }
 async function makeEncryptedTlsRecord(plaintext, encrypter, type) {
@@ -886,8 +833,7 @@ var Crypter = class {
     const lastIndex = ivLength - 1n;
     for (let i = 0n; i < ivLength; i++) {
       const shifted = recordIndex >> (i << 3n);
-      if (shifted === 0n)
-        break;
+      if (shifted === 0n) break;
       iv[Number(lastIndex - i)] ^= Number(shifted & 0xffn);
     }
     const authTagBitLength = authTagByteLength << 3;
@@ -910,8 +856,7 @@ function urlCharCodes(charCode) {
 }
 function base64Decode(input, charCodes = stdCharCodes, autoPad = true) {
   const len = input.length;
-  if (autoPad)
-    input += "=".repeat(len % 4);
+  if (autoPad) input += "=".repeat(len % 4);
   let inputIdx = 0, outputIdx = 0;
   let enc1 = 64, enc2 = 64, enc3 = 64, enc4 = 64;
   const output = new Uint8Array(len * 0.75);
@@ -941,14 +886,10 @@ var ASN1Bytes = class extends Bytes {
     }
     const lengthBytes = byte1 & 127;
     const fullComment = `% bytes${comment ? ` of ${comment}` : ""} follow (ASN.1)`;
-    if (lengthBytes === 1)
-      return this.readUint8(fullComment);
-    if (lengthBytes === 2)
-      return this.readUint16(fullComment);
-    if (lengthBytes === 3)
-      return this.readUint24(fullComment);
-    if (lengthBytes === 4)
-      return this.readUint32(fullComment);
+    if (lengthBytes === 1) return this.readUint8(fullComment);
+    if (lengthBytes === 2) return this.readUint16(fullComment);
+    if (lengthBytes === 3) return this.readUint24(fullComment);
+    if (lengthBytes === 4) return this.readUint32(fullComment);
     throw new Error(`ASN.1 length fields are only supported up to 4 bytes (this one is ${lengthBytes} bytes)`);
   }
   expectASN1Length(comment) {
@@ -965,31 +906,24 @@ var ASN1Bytes = class extends Bytes {
         const nextByte = this.readUint8();
         value <<= 7;
         value += nextByte & 127;
-        if (nextByte < 128)
-          break;
+        if (nextByte < 128) break;
       }
       oid += `.${value}`;
     }
-    if (comment)
-      this.comment(comment.replace(/%/g, oid));
+    if (comment) this.comment(comment.replace(/%/g, oid));
     endOID();
     return oid;
   }
   readASN1Boolean(comment) {
     const [endBoolean, booleanRemaining] = this.expectASN1Length("boolean");
     const length = booleanRemaining();
-    if (length !== 1)
-      throw new Error(`Boolean has weird length: ${length}`);
+    if (length !== 1) throw new Error(`Boolean has weird length: ${length}`);
     const byte = this.readUint8();
     let result;
-    if (byte === 255)
-      result = true;
-    else if (byte === 0)
-      result = false;
-    else
-      throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
-    if (comment)
-      this.comment(comment.replace(/%/g, String(result)));
+    if (byte === 255) result = true;
+    else if (byte === 0) result = false;
+    else throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
+    if (comment) this.comment(comment.replace(/%/g, String(result)));
     endBoolean();
     return result;
   }
@@ -997,8 +931,7 @@ var ASN1Bytes = class extends Bytes {
     const [endTime, timeRemaining] = this.expectASN1Length("UTC time");
     const timeStr = this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
-    if (!parts)
-      throw new Error("Unrecognised ASN.1 UTC time format");
+    if (!parts) throw new Error("Unrecognised ASN.1 UTC time format");
     const [, yr2dstr, mth, dy, hr, min, sec] = parts;
     const yr2d = parseInt(yr2dstr, 10);
     const yr = yr2d + (yr2d >= 50 ? 1900 : 2e3);
@@ -1011,13 +944,10 @@ var ASN1Bytes = class extends Bytes {
     const [endTime, timeRemaining] = this.expectASN1Length("generalized time");
     const timeStr = this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})?([0-9]{2})?([.][0-9]+)?(Z)?([-+][0-9]+)?$/);
-    if (!parts)
-      throw new Error("Unrecognised ASN.1 generalized time format");
+    if (!parts) throw new Error("Unrecognised ASN.1 generalized time format");
     const [, yr, mth, dy, hr, min, sec, fracsec, z, tz] = parts;
-    if (sec === void 0 && fracsec !== void 0)
-      throw new Error("Invalid ASN.1 generalized time format (fraction without seconds)");
-    if (z !== void 0 && tz !== void 0)
-      throw new Error("Invalid ASN.1 generalized time format (Z and timezone)");
+    if (sec === void 0 && fracsec !== void 0) throw new Error("Invalid ASN.1 generalized time format (fraction without seconds)");
+    if (z !== void 0 && tz !== void 0) throw new Error("Invalid ASN.1 generalized time format (Z and timezone)");
     const time = /* @__PURE__ */ new Date(`${yr}-${mth}-${dy}T${hr}:${min ?? "00"}:${sec ?? "00"}${fracsec ?? ""}${tz ?? "Z"}`);
     this.comment("= " + time.toISOString());
     endTime();
@@ -1028,8 +958,7 @@ var ASN1Bytes = class extends Bytes {
     const rightPadBits = this.readUint8("right-padding bits");
     const bytesLength = bitStringRemaining();
     const bitString = this.readBytes(bytesLength);
-    if (rightPadBits > 7)
-      throw new Error(`Invalid right pad value: ${rightPadBits}`);
+    if (rightPadBits > 7) throw new Error(`Invalid right pad value: ${rightPadBits}`);
     if (rightPadBits > 0) {
       const leftPadNext = 8 - rightPadBits;
       for (let i = bytesLength - 1; i > 0; i--) {
@@ -1120,8 +1049,7 @@ var certPolQualOIDMap = {
 };
 function intFromBitString(bs) {
   const { length } = bs;
-  if (length > 4)
-    throw new Error(`Bit string length ${length} would overflow JS bit operators`);
+  if (length > 4) throw new Error(`Bit string length ${length} would overflow JS bit operators`);
   let result = 0;
   let leftShift = 0;
   for (let i = bs.length - 1; i >= 0; i--) {
@@ -1161,12 +1089,9 @@ function readSeqOfSetOfSeq(cb, seqType) {
     endItemSeq();
     endItemSet();
     const existingValue = result[itemName];
-    if (existingValue === void 0)
-      result[itemName] = itemValue;
-    else if (typeof existingValue === "string")
-      result[itemName] = [existingValue, itemValue];
-    else
-      existingValue.push(itemValue);
+    if (existingValue === void 0) result[itemName] = itemValue;
+    else if (typeof existingValue === "string") result[itemName] = [existingValue, itemValue];
+    else existingValue.push(itemValue);
   }
   endSeq();
   return result;
@@ -1375,16 +1300,13 @@ function algorithmWithOID(oid) {
       name: "P-521"
     }
   }[oid];
-  if (algo === void 0)
-    throw new Error(`Unsupported algorithm identifier: ${oid}`);
+  if (algo === void 0) throw new Error(`Unsupported algorithm identifier: ${oid}`);
   return algo;
 }
 function _descriptionForAlgorithm(algo, desc = []) {
   Object.values(algo).forEach((value) => {
-    if (typeof value === "string")
-      desc = [...desc, value];
-    else
-      desc = _descriptionForAlgorithm(value, desc);
+    if (typeof value === "string") desc = [...desc, value];
+    else desc = _descriptionForAlgorithm(value, desc);
   });
   return desc;
 }
@@ -1530,8 +1452,7 @@ var Cert = class _Cert {
             keyUsageCritical = cb.readASN1Boolean("critical: %");
             nextType = cb.readUint8();
           }
-          if (nextType !== universalTypeOctetString)
-            throw new Error(`Expected 0x${hexFromU8([universalTypeOctetString])}, got 0x${hexFromU8([nextType])}`);
+          if (nextType !== universalTypeOctetString) throw new Error(`Expected 0x${hexFromU8([universalTypeOctetString])}, got 0x${hexFromU8([nextType])}`);
           cb.comment("octet string");
           const [endKeyUsageDer] = cb.expectASN1Length("DER document");
           cb.expectUint8(universalTypeBitString, "bit string");
@@ -1554,10 +1475,8 @@ var Cert = class _Cert {
             cb.expectUint8(universalTypeOID, "OID");
             const extKeyUsageOID = cb.readASN1OID();
             cb.comment(`${extKeyUsageOID} = ${extKeyUsageOIDMap[extKeyUsageOID]}`);
-            if (extKeyUsageOID === "1.3.6.1.5.5.7.3.1")
-              this.extKeyUsage.serverTls = true;
-            if (extKeyUsageOID === "1.3.6.1.5.5.7.3.2")
-              this.extKeyUsage.clientTls = true;
+            if (extKeyUsageOID === "1.3.6.1.5.5.7.3.1") this.extKeyUsage.serverTls = true;
+            if (extKeyUsageOID === "1.3.6.1.5.5.7.3.2") this.extKeyUsage.clientTls = true;
           }
           endExtKeyUsage();
           endExtKeyUsageDer();
@@ -1613,8 +1532,7 @@ var Cert = class _Cert {
             basicConstraintsCritical = cb.readASN1Boolean("critical: %");
             bcNextType = cb.readUint8();
           }
-          if (bcNextType !== universalTypeOctetString)
-            throw new Error("Unexpected type in certificate basic constraints");
+          if (bcNextType !== universalTypeOctetString) throw new Error("Unexpected type in certificate basic constraints");
           cb.comment("octet string");
           const [endBasicConstraintsDer] = cb.expectASN1Length("DER document");
           cb.expectUint8(constructedUniversalTypeSequence, "sequence");
@@ -1629,8 +1547,7 @@ var Cert = class _Cert {
             cb.expectUint8(universalTypeInteger, "integer");
             const maxPathLengthLength = cb.readASN1Length("max path length");
             basicConstraintsPathLength = maxPathLengthLength === 1 ? cb.readUint8() : maxPathLengthLength === 2 ? cb.readUint16() : maxPathLengthLength === 3 ? cb.readUint24() : void 0;
-            if (basicConstraintsPathLength === void 0)
-              throw new Error("Too many bytes in max path length in certificate basicConstraints");
+            if (basicConstraintsPathLength === void 0) throw new Error("Too many bytes in max path length in certificate basicConstraints");
             cb.comment("max path length");
           }
           endConstraintsSeq();
@@ -1686,8 +1603,7 @@ var Cert = class _Cert {
                   cb.readUTF8String(qualStrRemaining());
                   endQualStr();
                 } else {
-                  if (certPolInner3SeqRemaining())
-                    cb.skip(certPolInner3SeqRemaining(), "skipped policy qualifier data");
+                  if (certPolInner3SeqRemaining()) cb.skip(certPolInner3SeqRemaining(), "skipped policy qualifier data");
                 }
                 endCertPolInner3Seq();
               }
@@ -1715,8 +1631,7 @@ var Cert = class _Cert {
         cb.expectUint8(0, "null length");
       }
       endSigAlgo();
-      if (sigAlgoOID !== this.algorithm)
-        throw new Error(`Certificate specifies different signature algorithms inside(${this.algorithm}) and out(${sigAlgoOID})`);
+      if (sigAlgoOID !== this.algorithm) throw new Error(`Certificate specifies different signature algorithms inside(${this.algorithm}) and out(${sigAlgoOID})`);
       cb.expectUint8(universalTypeBitString, "bitstring (signature)");
       this.signature = cb.readASN1BitString();
       cb.comment("signature");
@@ -1742,10 +1657,8 @@ var Cert = class _Cert {
       };
       this.subjectAltNames = certData.subjectAltNames;
       this.extKeyUsage = certData.extKeyUsage;
-      if (certData.authorityKeyIdentifier)
-        this.authorityKeyIdentifier = u8FromHex(certData.authorityKeyIdentifier);
-      if (certData.subjectKeyIdentifier)
-        this.subjectKeyIdentifier = u8FromHex(certData.subjectKeyIdentifier);
+      if (certData.authorityKeyIdentifier) this.authorityKeyIdentifier = u8FromHex(certData.authorityKeyIdentifier);
+      if (certData.subjectKeyIdentifier) this.subjectKeyIdentifier = u8FromHex(certData.subjectKeyIdentifier);
       this.basicConstraints = certData.basicConstraints;
       this.signedData = u8FromHex(certData.signedData);
     }
@@ -1767,8 +1680,7 @@ var Cert = class _Cert {
         certName = certName.slice(1);
         hostName = hostName.slice(hostName.indexOf("."));
       }
-      if (certName === hostName)
-        return true;
+      if (certName === hostName) return true;
     });
   }
   isValidAtMoment(moment = /* @__PURE__ */ new Date()) {
@@ -1835,8 +1747,7 @@ var TrustedCert = class extends Cert {
     for (const certData of certsData) {
       const cert = new this(certData);
       const offsetIndex = offsets.length - 1;
-      if (cert.subjectKeyIdentifier)
-        subjects[hexFromU8(cert.subjectKeyIdentifier)] = offsetIndex;
+      if (cert.subjectKeyIdentifier) subjects[hexFromU8(cert.subjectKeyIdentifier)] = offsetIndex;
       subjects[this.stringFromDistinguishedName(cert.subject)] = offsetIndex;
       growable.append(certData);
       offsets[offsets.length] = offsets[offsetIndex] + certData.length;
@@ -1848,8 +1759,7 @@ var TrustedCert = class extends Cert {
     const { index: { subjects, offsets }, data } = db;
     const key = typeof subjectOrSubjectKeyId === "string" ? subjectOrSubjectKeyId : Cert.stringFromDistinguishedName(subjectOrSubjectKeyId);
     const offsetIndex = subjects[key];
-    if (offsetIndex === void 0)
-      return;
+    if (offsetIndex === void 0) return;
     const start = offsets[offsetIndex];
     const end = offsets[offsetIndex + 1];
     const certData = data.subarray(start, end);
@@ -1884,29 +1794,24 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
   const signature = concat(clampToLength(sigR, intLength), clampToLength(sigS, intLength));
   const signatureKey = await cryptoProxy_default.importKey("spki", publicKey, { name: "ECDSA", namedCurve }, false, ["verify"]);
   const certVerifyResult = await cryptoProxy_default.verify({ name: "ECDSA", hash }, signatureKey, signature, signedData);
-  if (certVerifyResult !== true)
-    throw new Error("ECDSA-SECP256R1-SHA256 certificate verify failed");
+  if (certVerifyResult !== true) throw new Error("ECDSA-SECP256R1-SHA256 certificate verify failed");
   log(`%c\u2713 ECDSA signature verified (curve ${namedCurve}, hash ${hash})`, "color: #8c8;");
 }
 
 // src/tls/verifyCerts.ts
 async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates received from host");
-  for (const cert of certs)
-    log(...highlightColonList(cert.description()));
+  for (const cert of certs) log(...highlightColonList(cert.description()));
   log("Now we have all the certificates, which are summarised above. First, we do some basic checks on the end-user certificate \u2014\xA0i.e. the one this server is presenting as its own ([source](https://github.com/jawj/subtls/blob/main/src/tls/verifyCerts.ts)):");
   const userCert = certs[0];
   const matchingSubjectAltName = userCert.subjectAltNameMatchingHost(host);
-  if (matchingSubjectAltName === void 0)
-    throw new Error(`No matching subjectAltName for ${host}`);
+  if (matchingSubjectAltName === void 0) throw new Error(`No matching subjectAltName for ${host}`);
   log(`%c\u2713 matched host to subjectAltName "${matchingSubjectAltName}"`, "color: #8c8;");
   const validNow = userCert.isValidAtMoment();
-  if (!validNow)
-    throw new Error("End-user certificate is not valid now");
+  if (!validNow) throw new Error("End-user certificate is not valid now");
   log(`%c\u2713 end-user certificate is valid now`, "color: #8c8;");
   if (requireServerTlsExtKeyUsage) {
-    if (!userCert.extKeyUsage?.serverTls)
-      throw new Error("End-user certificate has no TLS server extKeyUsage");
+    if (!userCert.extKeyUsage?.serverTls) throw new Error("End-user certificate has no TLS server extKeyUsage");
     log(`%c\u2713 end-user certificate has TLS server extKeyUsage`, "color: #8c8;");
   }
   log("Next, we verify the signature of each certificate using the public key of the next certificate in the chain. This carries on until we find a certificate we can verify using one of our own trusted root certificates (or until we reach the end of the chain and therefore fail):");
@@ -1927,29 +1832,23 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
       log("%c%s", `color: ${"#c88" /* header */}`, `trusted root certificate`);
       signingCert && log(...highlightColonList(signingCert.description()));
     }
-    if (signingCert === void 0)
-      signingCert = certs[i + 1];
-    if (signingCert === void 0)
-      throw new Error("Ran out of certificates before reaching trusted root");
+    if (signingCert === void 0) signingCert = certs[i + 1];
+    if (signingCert === void 0) throw new Error("Ran out of certificates before reaching trusted root");
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
     log(`checking ${signingCertIsTrustedRoot ? "trusted root" : "intermediate"} signing certificate CN "${signingCert.subject.CN}" ...`);
-    if (signingCert.isValidAtMoment() !== true)
-      throw new Error("Signing certificate is not valid now");
+    if (signingCert.isValidAtMoment() !== true) throw new Error("Signing certificate is not valid now");
     log(`%c\u2713 certificate is valid now`, "color: #8c8;");
     if (requireDigitalSigKeyUsage) {
-      if (signingCert.keyUsage?.usages.has("digitalSignature") !== true)
-        throw new Error("Signing certificate keyUsage does not include digital signatures");
+      if (signingCert.keyUsage?.usages.has("digitalSignature") !== true) throw new Error("Signing certificate keyUsage does not include digital signatures");
       log(`%c\u2713 certificate keyUsage includes digital signatures`, "color: #8c8;");
     }
-    if (signingCert.basicConstraints?.ca !== true)
-      throw new Error("Signing certificate basicConstraints do not indicate a CA certificate");
+    if (signingCert.basicConstraints?.ca !== true) throw new Error("Signing certificate basicConstraints do not indicate a CA certificate");
     log(`%c\u2713 certificate basicConstraints indicate a CA certificate`, "color: #8c8;");
     const { pathLength } = signingCert.basicConstraints;
     if (pathLength === void 0) {
       log(`%c\u2713 certificate pathLength is not constrained`, "color: #8c8;");
     } else {
-      if (pathLength < i)
-        throw new Error("Exceeded certificate pathLength");
+      if (pathLength < i) throw new Error("Exceeded certificate pathLength");
       log(`%c\u2713 certificate pathLength is not exceeded`, "color: #8c8;");
     }
     log(
@@ -1961,16 +1860,14 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
       const hash = subjectCert.algorithm === "1.2.840.10045.4.3.2" ? "SHA-256" : "SHA-384";
       const signingKeyOIDs = signingCert.publicKey.identifiers;
       const namedCurve = signingKeyOIDs.includes("1.2.840.10045.3.1.7") ? "P-256" : signingKeyOIDs.includes("1.3.132.0.34") ? "P-384" : void 0;
-      if (namedCurve === void 0)
-        throw new Error("Unsupported signing key curve");
+      if (namedCurve === void 0) throw new Error("Unsupported signing key curve");
       const sb = new ASN1Bytes(subjectCert.signature);
       await ecdsaVerify(sb, signingCert.publicKey.all, subjectCert.signedData, namedCurve, hash);
     } else if (subjectCert.algorithm === "1.2.840.113549.1.1.11" || subjectCert.algorithm === "1.2.840.113549.1.1.12") {
       const hash = subjectCert.algorithm === "1.2.840.113549.1.1.11" ? "SHA-256" : "SHA-384";
       const signatureKey = await cryptoProxy_default.importKey("spki", signingCert.publicKey.all, { name: "RSASSA-PKCS1-v1_5", hash }, false, ["verify"]);
       const certVerifyResult = await cryptoProxy_default.verify({ name: "RSASSA-PKCS1-v1_5" }, signatureKey, subjectCert.signature, subjectCert.signedData);
-      if (certVerifyResult !== true)
-        throw new Error("RSASSA_PKCS1-v1_5-SHA256 certificate verify failed");
+      if (certVerifyResult !== true) throw new Error("RSASSA_PKCS1-v1_5-SHA256 certificate verify failed");
       log(`%c\u2713 RSASAA-PKCS1-v1_5 signature verified`, "color: #8c8;");
     } else {
       throw new Error("Unsupported signing algorithm");
@@ -2027,8 +1924,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   }
   extEnd();
   eeMessageEnd();
-  if (hs.remaining() === 0)
-    hs.extend(await readHandshakeRecord());
+  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
   let clientCertRequested = false;
   let certMsgType = hs.readUint8();
   if (certMsgType === 13) {
@@ -2040,12 +1936,10 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     hs.skip(certReqExtsRemaining(), "certificate request extensions (ignored)");
     endCertReqExts();
     endCertReq();
-    if (hs.remaining() === 0)
-      hs.extend(await readHandshakeRecord());
+    if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
     certMsgType = hs.readUint8();
   }
-  if (certMsgType !== 11)
-    throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
+  if (certMsgType !== 11) throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
   hs.comment("handshake record type: certificate ([RFC 8446 \xA74.4.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2))");
   const [endCertPayload] = hs.expectLengthUint24("certificate payload");
   hs.expectUint8(0, "no bytes of request context follow");
@@ -2062,16 +1956,14 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   }
   endCerts();
   endCertPayload();
-  if (certs.length === 0)
-    throw new Error("No certificates supplied");
+  if (certs.length === 0) throw new Error("No certificates supplied");
   const userCert = certs[0];
   const certVerifyHandshakeData = hs.data.subarray(0, hs.offset);
   const certVerifyData = concat(hellos, certVerifyHandshakeData);
   const certVerifyHashBuffer = await cryptoProxy_default.digest("SHA-256", certVerifyData);
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
   const certVerifySignedData = concat(txtEnc3.encode(" ".repeat(64) + "TLS 1.3, server CertificateVerify"), [0], certVerifyHash);
-  if (hs.remaining() === 0)
-    hs.extend(await readHandshakeRecord());
+  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
   hs.expectUint8(15, "handshake message type: certificate verify ([RFC 8446 \xA74.4.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.3))");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   const sigType = hs.readUint16();
@@ -2093,8 +1985,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
       saltLength: 32
       /* SHA-256 length in bytes */
     }, signatureKey, signature, certVerifySignedData);
-    if (certVerifyResult !== true)
-      throw new Error("RSA-PSS-RSAE-SHA256 certificate verify failed");
+    if (certVerifyResult !== true) throw new Error("RSA-PSS-RSAE-SHA256 certificate verify failed");
   } else {
     throw new Error(`Unsupported certificate verify signature type 0x${hexFromU8([sigType]).padStart(4, "0")}`);
   }
@@ -2107,23 +1998,19 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const hmacKey = await cryptoProxy_default.importKey("raw", finishedKey, { name: "HMAC", hash: { name: `SHA-256` } }, false, ["sign"]);
   const correctVerifyHashBuffer = await cryptoProxy_default.sign("HMAC", hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
-  if (hs.remaining() === 0)
-    hs.extend(await readHandshakeRecord());
+  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
   hs.expectUint8(20, "handshake message type: finished ([RFC 8446 \xA74.4.4](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.4))");
   const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24("verify hash");
   const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
   hs.comment("verify hash");
   endHsFinishedPayload();
-  if (hs.remaining() !== 0)
-    throw new Error("Unexpected extra bytes in server handshake");
+  if (hs.remaining() !== 0) throw new Error("Unexpected extra bytes in server handshake");
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
-  if (verifyHashVerified !== true)
-    throw new Error("Invalid server verify hash");
+  if (verifyHashVerified !== true) throw new Error("Invalid server verify hash");
   log("Decrypted using the server handshake key, the server\u2019s handshake messages are parsed as follows ([source](https://github.com/jawj/subtls/blob/main/src/tls/readEncryptedHandshake.ts)). This is a long section, since X.509 certificates are quite complex and there will be several of them:");
   log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
-  if (!verifiedToTrustedRoot)
-    throw new Error("Validated certificate chain did not end in a trusted root");
+  if (!verifiedToTrustedRoot) throw new Error("Validated certificate chain did not end in a trusted root");
   return [hs.data, clientCertRequested];
 }
 
@@ -2132,8 +2019,7 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   useSNI ?? (useSNI = true);
   requireServerTlsExtKeyUsage ?? (requireServerTlsExtKeyUsage = true);
   requireDigitalSigKeyUsage ?? (requireDigitalSigKeyUsage = true);
-  if (typeof rootCertsDatabase === "string")
-    rootCertsDatabase = TrustedCert.databaseFromPEM(rootCertsDatabase);
+  if (typeof rootCertsDatabase === "string") rootCertsDatabase = TrustedCert.databaseFromPEM(rootCertsDatabase);
   const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKeyBuffer = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
   const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
@@ -2156,19 +2042,16 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   log("The server returns a response, which includes its own public key, and we parse it ([source](https://github.com/jawj/subtls/blob/main/src/tls/parseServerHello.ts)):");
   if (expectPreData) {
     const receivedPreData = await networkRead(expectPreData.length);
-    if (!receivedPreData || !equal(receivedPreData, expectPreData))
-      throw new Error("Pre data did not match expectation");
+    if (!receivedPreData || !equal(receivedPreData, expectPreData)) throw new Error("Pre data did not match expectation");
     log(...highlightBytes(hexFromU8(receivedPreData) + "  " + commentPreData, "#88c" /* server */));
   }
   const serverHelloRecord = await readTlsRecord(networkRead, 22 /* Handshake */);
-  if (serverHelloRecord === void 0)
-    throw new Error("Connection closed while awaiting server hello");
+  if (serverHelloRecord === void 0) throw new Error("Connection closed while awaiting server hello");
   const serverHello = new Bytes(serverHelloRecord.content);
   const serverPublicKey = parseServerHello(serverHello, sessionId);
   log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
   const changeCipherRecord = await readTlsRecord(networkRead, 20 /* ChangeCipherSpec */);
-  if (changeCipherRecord === void 0)
-    throw new Error("Connection closed awaiting server cipher change");
+  if (changeCipherRecord === void 0) throw new Error("Connection closed awaiting server cipher change");
   const ccipher = new Bytes(changeCipherRecord.content);
   const [endCipherPayload] = ccipher.expectLength(1);
   ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
@@ -2188,8 +2071,7 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   log("The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the \u2018certificate verify\u2019 message, which we check on the spot, and the full certificate chain, which we verify a bit later on:");
   const readHandshakeRecord = async () => {
     const tlsRecord = await readEncryptedTlsRecord(networkRead, handshakeDecrypter, 22 /* Handshake */);
-    if (tlsRecord === void 0)
-      throw new Error("Premature end of encrypted server handshake");
+    if (tlsRecord === void 0) throw new Error("Premature end of encrypted server handshake");
     return tlsRecord;
   };
   const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(
@@ -2287,8 +2169,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   const password = neonPasswordPipelining ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
   let done = false;
   const transport = await transportFactory(host, port, () => {
-    if (!done)
-      throw new Error("Unexpected connection close");
+    if (!done) throw new Error("Unexpected connection close");
     log("Connection closed");
   });
   const sslRequest = new Bytes(8);
@@ -2481,8 +2362,7 @@ async function getRootCertsDatabase() {
 async function https(urlStr2, method, transportFactory) {
   const t0 = Date.now();
   const url = new URL(urlStr2);
-  if (url.protocol !== "https:")
-    throw new Error("Wrong protocol");
+  if (url.protocol !== "https:") throw new Error("Wrong protocol");
   const host = url.hostname;
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
@@ -2527,15 +2407,12 @@ var ReadQueue = class {
     this.dequeue();
   }
   dequeue() {
-    if (this.outstandingRequest === void 0)
-      return;
+    if (this.outstandingRequest === void 0) return;
     let { resolve, bytes } = this.outstandingRequest;
     const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.socketIsNotClosed())
-      return;
+    if (bytesInQueue < bytes && this.socketIsNotClosed()) return;
     bytes = Math.min(bytes, bytesInQueue);
-    if (bytes === 0)
-      return resolve(void 0);
+    if (bytes === 0) return resolve(void 0);
     this.outstandingRequest = void 0;
     const firstItem = this.queue[0];
     const firstItemLength = firstItem.length;
@@ -2571,8 +2448,7 @@ var ReadQueue = class {
     return this.queue.reduce((memo, arr) => memo + arr.length, 0);
   }
   async read(bytes) {
-    if (this.outstandingRequest !== void 0)
-      throw new Error("Can\u2019t read while already awaiting read");
+    if (this.outstandingRequest !== void 0) throw new Error("Can\u2019t read while already awaiting read");
     return new Promise((resolve) => {
       this.outstandingRequest = { resolve, bytes };
       this.dequeue();
@@ -2621,8 +2497,6 @@ if (pg) {
   heading.textContent = "Postgres + TLS, byte-by-byte, LIVE!";
 }
 goBtn.addEventListener("click", () => {
-  if (pg)
-    postgres(urlStr, wsTransport);
-  else
-    https("https://bytebybyte.dev", "GET", wsTransport);
+  if (pg) postgres(urlStr, wsTransport);
+  else https("https://bytebybyte.dev", "GET", wsTransport);
 });
