@@ -6,7 +6,7 @@
   "author": "George MacKerron",
   "license": "MIT",
   "repository": {
-    "url": "https://github.com/jawj/subtls"
+    "url": "git+https://github.com/jawj/subtls.git"
   },
   "dependencies": {
     "@types/node": "^22.10.2"
