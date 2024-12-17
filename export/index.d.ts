@@ -32,7 +32,7 @@ export class SocketReadQueue {
 
 export function startTls(
   host: string,
-  rootCerts: TrustedCert[],
+  rootCerts: RootCertsDatabase | string,
   networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
   networkWrite: (data: Uint8Array) => void,
   options?: {
