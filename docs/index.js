@@ -2344,15 +2344,26 @@ function parse(url, parseQueryString = false) {
 
 // src/https.ts
 var txtDec2 = new TextDecoder();
+async function getFile(name) {
+  try {
+    const response = await fetch(name);
+    const buf = await response.arrayBuffer();
+    console.log(buf);
+    return buf;
+  } catch {
+    const fs = await import("fs/promises");
+    const buf = await fs.readFile(`docs/${name}`);
+    return buf.buffer;
+  }
+}
 async function getRootCertsIndex() {
-  const rootCertsResponse = await fetch("certs.index.json");
-  const rootCertsIndex = await rootCertsResponse.json();
+  const file = await getFile("certs.index.json");
+  const rootCertsIndex = JSON.parse(new TextDecoder().decode(file));
   return rootCertsIndex;
 }
 async function getRootCertsData() {
-  const rootCertsResponse = await fetch("certs.bin");
-  const rootCertsArrBuf = await rootCertsResponse.arrayBuffer();
-  const rootCertsData = new Uint8Array(rootCertsArrBuf);
+  const file = await getFile("certs.bin");
+  const rootCertsData = new Uint8Array(file);
   return rootCertsData;
 }
 async function getRootCertsDatabase() {

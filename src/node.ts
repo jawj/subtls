@@ -2,7 +2,7 @@ import { webcrypto } from 'crypto';
 globalThis.crypto ??= webcrypto as any;
 
 import ws from 'ws';
-globalThis.WebSocket = ws as any;
+if (typeof WebSocket === 'undefined') globalThis.WebSocket = ws as any;
 
 const iterations = process.argv[2] ? Number(process.argv[2]) : 1;
 const dbUrl = process.argv[3];
