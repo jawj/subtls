@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 import type { Socket } from 'net';
 
 declare const allKeyUsages: readonly ["digitalSignature", "nonRepudiation", "keyEncipherment", "dataEncipherment", "keyAgreement", "keyCertSign", "cRLSign", "encipherOnly", "decipherOnly"];

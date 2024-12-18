@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "exportTypes": "tsc && npx @microsoft/api-extractor run --local",
+    "exportTypes": "tsc && npx @microsoft/api-extractor run --local && (echo '/// <reference types=\"node\" />'; echo; cat declarations/_extracted.d.ts) > export/index.d.ts",
     "export": "npm run exportTypes && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2020 --outfile=export/index.js --line-limit=110",
     "build": "npm run exportTypes && esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --external:fs/promises --loader:.pem=text --outfile=docs/index.js",
     "watch": "esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --external:fs/promises --loader:.pem=text --outfile=docs/index.js --watch",
