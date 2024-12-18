@@ -214,4 +214,3 @@ export declare class WebSocketReadQueue extends ReadQueue {
     socketIsNotClosed(): boolean;
 }
 
-export { }
