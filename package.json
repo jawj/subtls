@@ -1,13 +1,18 @@
 {
   "name": "subtls-dev",
-  "version": "0.4.5",
-  "description": "Pure JS TLS 1.3 (development repo)",
-  "main": "index.js",
+  "version": "0.4.6",
+  "description": "Proof-of-concept TLS 1.3 in pure JS using SubtleCrypto",
   "type": "module",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "exportTypes": "tsc && npx @microsoft/api-extractor run --local && sed -i.orig -r -e '/^export [{] *[}]$/d' declarations/_extracted.d.ts && (echo '/// <reference types=\"node\" />'; echo; cat declarations/_extracted.d.ts) > export/index.d.ts",
-    "export": "npm run exportTypes && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2020 --external:crypto --outfile=export/index.js --line-limit=110",
-    "build": "npm run exportTypes && esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --external:fs/promises --external:crypto --loader:.pem=text --outfile=docs/index.js",
+    "exportTypes": "tsc && npx @microsoft/api-extractor run --local && sed -i.orig -r -e '/^export [{] *[}]$/d' declarations/_extracted.d.ts && (echo '/// <reference types=\"node\" />'; echo; cat declarations/_extracted.d.ts) > index.d.ts",
+    "export": "npm run exportTypes && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2020 --external:crypto --outfile=index.js --line-limit=110",
+    "build": "esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --external:fs/promises --external:crypto --loader:.pem=text --outfile=docs/index.js",
     "watch": "esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --external:fs/promises --external:crypto --loader:.pem=text --outfile=docs/index.js --watch",
     "serve": "servor docs index.html 6543",
     "start": "npm-run-all --parallel --race watch serve",
@@ -16,8 +21,13 @@
   },
   "author": "George MacKerron",
   "license": "MIT",
+  "repository": {
+    "url": "git+https://github.com/jawj/subtls.git"
+  },
   "dependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^22.10.2"
+  },
+  "devDependencies": {
     "@types/ws": "^8.5.4",
     "ws": "^8.13.0",
     "esbuild": "^0.24.0",
@@ -25,5 +35,13 @@
     "servor": "^4.0.2",
     "typescript": "^5.0.4",
     "@microsoft/api-extractor": "^7.48.1"
-  }
+  },
+  "keywords": [
+    "TLS",
+    "SSL",
+    "startTls",
+    "SubtleCrypto",
+    "TLS1.3",
+    "TypeScript"
+  ]
 }
