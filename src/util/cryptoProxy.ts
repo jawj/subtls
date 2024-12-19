@@ -1,10 +1,9 @@
-export default crypto.subtle;
-
-/*
-// this setup allows monitoring/proxying
+const cs = typeof crypto !== 'undefined' && crypto.subtle !== undefined ?
+  Promise.resolve(crypto.subtle) :  // browsers and Node 19+
+  import('crypto').then(c => c.webcrypto.subtle);  // Node 15 – 18
 
 function cryptoMethod(method: string, args: any[]) {
-  return (crypto.subtle as any)[method](...args);
+  return cs.then((cs: any) => cs[method](...args));
 }
 
 export default new Proxy({}, {
@@ -12,4 +11,3 @@ export default new Proxy({}, {
     return (...args: any[]) => cryptoMethod(property, args);
   }
 }) as SubtleCrypto;
-*/

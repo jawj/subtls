@@ -708,7 +708,18 @@ async function makeEncryptedTlsRecords(plaintext, encrypter, type) {
 }
 
 // src/util/cryptoProxy.ts
-var cryptoProxy_default = crypto.subtle;
+var cs = typeof crypto !== "undefined" && crypto.subtle !== void 0 ? Promise.resolve(crypto.subtle) : (
+  // browsers and Node 19+
+  import("crypto").then((c2) => c2.webcrypto.subtle)
+);
+function cryptoMethod(method, args) {
+  return cs.then((cs2) => cs2[method](...args));
+}
+var cryptoProxy_default = new Proxy({}, {
+  get(target, property, receiver) {
+    return (...args) => cryptoMethod(property, args);
+  }
+});
 
 // src/tls/hkdf.ts
 var txtEnc2 = new TextEncoder();
