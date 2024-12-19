@@ -1,6 +1,7 @@
 import { Bytes } from '../util/bytes';
+import { getRandomValues } from '../util/cryptoRandom';
 
-export default function makeClientHello(host: string, publicKey: Uint8Array, sessionId: Uint8Array, useSNI = true) {
+export default async function makeClientHello(host: string, publicKey: Uint8Array, sessionId: Uint8Array, useSNI = true) {
   const h = new Bytes(1024);
 
   h.writeUint8(0x16, chatty && 'record type: handshake');
@@ -12,7 +13,7 @@ export default function makeClientHello(host: string, publicKey: Uint8Array, ses
   const endHandshakeHeader = h.writeLengthUint24();
   h.writeUint16(0x0303, chatty && 'TLS version 1.2 (middlebox compatibility: see [blog.cloudflare.com](https://blog.cloudflare.com/why-tls-1-3-isnt-in-browsers-yet))');
 
-  crypto.getRandomValues(h.subarray(32));
+  await getRandomValues(h.subarray(32));
   chatty && h.comment('client random');
 
   const endSessionId = h.writeLengthUint8(chatty && 'session ID');

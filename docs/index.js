@@ -409,8 +409,18 @@ function log(...args) {
   if (fullyScrolled) window.scrollTo({ top: 99999, behavior: "auto" });
 }
 
+// src/util/cryptoRandom.ts
+var cryptoPromise = typeof crypto !== "undefined" ? Promise.resolve(crypto) : (
+  // browsers and Node 19+
+  import("crypto").then((c2) => c2.webcrypto)
+);
+async function getRandomValues(...args) {
+  const c2 = await cryptoPromise;
+  return c2.getRandomValues(...args);
+}
+
 // src/tls/makeClientHello.ts
-function makeClientHello(host, publicKey, sessionId, useSNI = true) {
+async function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   const h = new Bytes(1024);
   h.writeUint8(22, "record type: handshake");
   h.writeUint16(769, "TLS legacy record version 1.0 ([RFC 8446 \xA75.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))");
@@ -418,7 +428,7 @@ function makeClientHello(host, publicKey, sessionId, useSNI = true) {
   h.writeUint8(1, "handshake type: client hello");
   const endHandshakeHeader = h.writeLengthUint24();
   h.writeUint16(771, "TLS version 1.2 (middlebox compatibility: see [blog.cloudflare.com](https://blog.cloudflare.com/why-tls-1-3-isnt-in-browsers-yet))");
-  crypto.getRandomValues(h.subarray(32));
+  await getRandomValues(h.subarray(32));
   h.comment("client random");
   const endSessionId = h.writeLengthUint8("session ID");
   h.writeBytes(sessionId);
@@ -708,16 +718,16 @@ async function makeEncryptedTlsRecords(plaintext, encrypter, type) {
 }
 
 // src/util/cryptoProxy.ts
-var cs = typeof crypto !== "undefined" && crypto.subtle !== void 0 ? Promise.resolve(crypto.subtle) : (
+var subtleCrypto = typeof crypto !== "undefined" && crypto.subtle !== void 0 ? Promise.resolve(crypto.subtle) : (
   // browsers and Node 19+
   import("crypto").then((c2) => c2.webcrypto.subtle)
 );
-function cryptoMethod(method, args) {
-  return cs.then((cs2) => cs2[method](...args));
+function subtleCryptoMethod(method, args) {
+  return subtleCrypto.then((cs) => cs[method](...args));
 }
 var cryptoProxy_default = new Proxy({}, {
   get(target, property, receiver) {
-    return (...args) => cryptoMethod(property, args);
+    return (...args) => subtleCryptoMethod(property, args);
   }
 });
 
@@ -2044,8 +2054,8 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   }
   log("Now we have a public/private key pair, we can start the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)). This includes the public key:");
   const sessionId = new Uint8Array(32);
-  crypto.getRandomValues(sessionId);
-  const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
+  await getRandomValues(sessionId);
+  const clientHello = await makeClientHello(host, rawPublicKey, sessionId, useSNI);
   log(...highlightBytes(clientHello.commentedString(), "#8cc" /* client */));
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;

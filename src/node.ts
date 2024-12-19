@@ -1,6 +1,3 @@
-import { webcrypto } from 'crypto';
-globalThis.crypto ??= webcrypto as any;
-
 import ws from 'ws';
 if (typeof WebSocket === 'undefined') globalThis.WebSocket = ws as any;
 

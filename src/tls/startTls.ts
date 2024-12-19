@@ -14,6 +14,7 @@ import { log } from '../presentation/log';
 import { TrustedCert, type RootCertsDatabase } from './cert';
 import { base64Decode, urlCharCodes } from '../util/base64';
 import cs from '../util/cryptoProxy';
+import { getRandomValues } from '../util/cryptoRandom';
 
 export async function startTls(
   host: string,
@@ -52,9 +53,9 @@ export async function startTls(
 
   // client hello
   const sessionId = new Uint8Array(32);
-  crypto.getRandomValues(sessionId);
+  await getRandomValues(sessionId);
 
-  const clientHello = makeClientHello(host, rawPublicKey, sessionId, useSNI);
+  const clientHello = await makeClientHello(host, rawPublicKey, sessionId, useSNI);
   chatty && log(...highlightBytes(clientHello.commentedString(), LogColours.client));
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
