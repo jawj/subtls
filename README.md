@@ -2,9 +2,9 @@
 
 A TypeScript TLS 1.3 client with limited scope.
 
-* Built using the JS [SubtleCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto), with no external dependencies.
-* Non-compliant with [the spec](https://www.rfc-editor.org/rfc/rfc8446) in various ways.
-* **NOT READY FOR USE IN PRODUCTION.**
+* Built using the JS [SubtleCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto), with no external dependencies
+* Non-compliant with [the spec](https://www.rfc-editor.org/rfc/rfc8446) in various ways
+* **NOT READY FOR USE IN PRODUCTION**
 
 ## Current scope
 
@@ -191,6 +191,10 @@ Testing
 * https://help.mulesoft.com/s/article/How-to-set-up-a-minimal-SSL-TLS-server-from-the-command-line
 * https://github.com/tlsfuzzer/tlsfuzzer (but this checks various things we don't support)
 * https://badssl.com (but no TLS 1.3 support yet)
+
+## Note
+
+A deprecated `subtls-dev` package is available on npm. This was published in error and is non-functioning. The correct package is simply named `subtls`.
 
 ## TODO
 
