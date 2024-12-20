@@ -10,14 +10,18 @@
     "LICENSE"
   ],
   "scripts": {
-    "exportTypes": "tsc && npx @microsoft/api-extractor run --local && sed -i.orig -r -e '/^export [{] *[}]$/d' declarations/_extracted.d.ts && (echo '/// <reference types=\"node\" />'; echo; cat declarations/_extracted.d.ts) > index.d.ts",
-    "export": "npm run exportTypes && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2020 --external:crypto --outfile=index.js --line-limit=110",
+    "== these are for bytebybyte.dev development ==": "",
+    "updateCertsDB": "curl 'https://curl.se/ca/cacert.pem' | ./dumpCerts.mjs",
     "build": "esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --external:fs/promises --external:crypto --loader:.pem=text --outfile=docs/index.js",
-    "watch": "esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --external:fs/promises --external:crypto --loader:.pem=text --outfile=docs/index.js --watch",
-    "serve": "servor docs index.html 6543",
-    "start": "npm-run-all --parallel --race watch serve",
+    "_watch": "esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --external:fs/promises --external:crypto --loader:.pem=text --outfile=docs/index.js --watch",
+    "_serve": "serve docs -p 6543 --no-clipboard",
+    "start": "npm-run-all --parallel --race _watch _serve",
+    "== these run an https GET in Node.js ==": "",
     "nodeChatty": "esbuild --define:chatty=1 src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text | node --input-type=module",
-    "nodeQuiet": "esbuild --define:chatty=0 src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text | node --input-type=module"
+    "nodeQuiet": "esbuild --define:chatty=0 src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text | node --input-type=module",
+    "== these are for npm package export ==": "",
+    "_exportTypes": "tsc && npx @microsoft/api-extractor run --local && sed -i.orig -r -e '/^export [{] *[}]$/d' declarations/_extracted.d.ts && (echo '/// <reference types=\"node\" />'; echo; cat declarations/_extracted.d.ts) > index.d.ts",
+    "export": "npm run exportTypes && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2020 --external:crypto --outfile=index.js --line-limit=110"
   },
   "author": "George MacKerron",
   "license": "MIT",
@@ -28,13 +32,13 @@
     "@types/node": "^22.10.2"
   },
   "devDependencies": {
+    "@microsoft/api-extractor": "^7.48.1",
     "@types/ws": "^8.5.4",
-    "ws": "^8.13.0",
     "esbuild": "^0.24.0",
     "npm-run-all": "^4.1.5",
-    "servor": "^4.0.2",
+    "serve": "^14.2.4",
     "typescript": "^5.0.4",
-    "@microsoft/api-extractor": "^7.48.1"
+    "ws": "^8.13.0"
   },
   "keywords": [
     "TLS",
