@@ -1,7 +1,7 @@
 import { toBase64 } from 'hextreme';
 import { Bytes } from './util/bytes';
 import { LogColours } from './presentation/appearance';
-import { highlightBytes } from './presentation/highlights';
+import { highlightBytes, highlightColonList } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
 import { getRandomValues } from './util/cryptoRandom';
@@ -9,6 +9,7 @@ import type wsTransport from './util/wsTransport';
 
 // @ts-ignore
 import isrgrootx1 from './roots/isrg-root-x1.pem';
+import { hexFromU8 } from './util/hex';
 
 export async function postgres(urlStr: string, transportFactory: typeof wsTransport, neonPasswordPipelining = true) {
   const t0 = Date.now();
@@ -63,19 +64,22 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   msg.writeUint8(0x00, chatty && 'end of message');
   endStartupMessage();
 
-  msg.writeUTF8String('p');
-  chatty && msg.comment('= [PasswordMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)');
-  const endPasswordMessage = msg.writeLengthUint32Incl(chatty && 'password message');
-  msg.writeUTF8StringNullTerminated(password);
-  endPasswordMessage();
+  if (neonPasswordPipelining) {
+    msg.writeUTF8String('p');
+    chatty && msg.comment('= [PasswordMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)');
+    const endPasswordMessage = msg.writeLengthUint32Incl(chatty && 'password message');
+    msg.writeUTF8StringNullTerminated(password);
+    endPasswordMessage();
 
-  msg.writeUTF8String('Q');
-  chatty && msg.comment('= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)');
-  const endQuery = msg.writeLengthUint32Incl(chatty && 'query');
-  msg.writeUTF8StringNullTerminated('SELECT now()');
-  endQuery();
+    msg.writeUTF8String('Q');
+    chatty && msg.comment('= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)');
+    const endQuery = msg.writeLengthUint32Incl(chatty && 'query');
+    msg.writeUTF8StringNullTerminated('SELECT now()');
+    endQuery();
 
-  chatty && log('So: we now resume our Postgres communications. Because we know what authentication scheme the server will offer, we can save several network round-trips and bundle up a Postgres startup message, a cleartext password message, and a simple query. Here’s the pipelined plaintext:');
+    chatty && log('So: we now resume our Postgres communications. Because we know what authentication scheme the server will offer, we can save several network round-trips and bundle up a Postgres startup message, a cleartext password message, and a simple query. Here’s the pipelined plaintext:');
+  }
+
   chatty && log(...highlightBytes(msg.commentedString(), LogColours.client));
 
   chatty && log('And the ciphertext looks like this:');
@@ -100,9 +104,6 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     while (authReqRemaining() > 1) saslMechanisms.push(preAuthBytes.readUTF8StringNullTerminated());
     preAuthBytes.expectUint8(0, 'null terminated list');
 
-    chatty && log('We can see that the supported SASL mechanisms are: ' + saslMechanisms.join(', '));
-    // chatty && log('We don’t currently support anything except cleartext auth, so we come to an abrupt end here.');
-
   } else {
     throw new Error(`Unsupported auth mechanism (${authMechanism})`);
   }
@@ -112,30 +113,56 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   chatty && log(...highlightBytes(preAuthBytes.commentedString(true), LogColours.server));
 
   if (authMechanism === 10 && saslMechanisms.includes('SCRAM-SHA-256')) {  // continue SASL auth
-    chatty && log('We continue by selecting SCRAM-SHA-256 authentication.');
+    chatty && log('The supported SASL mechanisms are: ' + saslMechanisms.join(', '));
+    chatty && log('We continue by selecting SCRAM-SHA-256.');
 
     const saslInitResponse = new Bytes(1024);
     saslInitResponse.writeUTF8String('p');
     saslInitResponse.comment('= initial SASL response');
     const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl('message');
+
     saslInitResponse.writeUTF8StringNullTerminated('SCRAM-SHA-256');
 
     const nonce = new Uint8Array(18);
     await getRandomValues(nonce);
     const nonceB64 = toBase64(nonce);
 
-    const endInitalClientResponse = saslInitResponse.writeLengthUint32Incl('initial client response (which mainly consists of 18 base64-encoded random bytes)');
-    saslInitResponse.writeUTF8String('n,,n=*,r=' + nonceB64);  // not null terminated
-    endInitalClientResponse();
+    const endInitialClientResponse = saslInitResponse.writeLengthUint32('initial client response (which mainly consists of 18 base64-encoded random bytes)');
+    saslInitResponse.writeUTF8String('n,,n=*,r=' + nonceB64);  // n => no channel binding support; n=* => username (which is not used by pg)
+    endInitialClientResponse();
 
     endSaslInitResponse();
 
-    chatty && log(saslInitResponse.commentedString());
+    chatty && log(...highlightBytes(saslInitResponse.commentedString(), LogColours.client));
+    chatty && log('And as ciphertext:');
     await write(saslInitResponse.array());
 
-    const sr = await read();
+    chatty && log('The server responds with a SASL challenge:');
+    const serverSaslContinueResponse = await read();
+    const serverSaslContinueBytes = new Bytes(serverSaslContinueResponse!);
+    serverSaslContinueBytes.expectUint8('R'.charCodeAt(0), 'authentication request');
+    const [endServerSaslContinue, serverSaslContinueRemaining] = serverSaslContinueBytes.expectLengthUint32Incl();
+    serverSaslContinueBytes.expectUint32(11, 'SASL challenge');
+    const saslChallenge = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
+    endServerSaslContinue();
 
-    chatty && log(sr);
+    chatty && log(...highlightBytes(serverSaslContinueBytes.commentedString(), LogColours.server));
+
+    const attrs = Object.fromEntries(
+      saslChallenge.split(',').map(attrValue => attrValue.split('=')),
+    );
+
+    const serverNonce = attrs.r;
+    const salt = attrs.s;
+    const iterations = parseInt(attrs.i, 10);
+
+    chatty && log('%c%s', `color: ${LogColours.header}`, `server-supplied SASL values`);
+    chatty && log(...highlightColonList(`nonce (appended to ours): ${serverNonce}`));
+    chatty && log(...highlightColonList(`salt: ${salt}`));
+    chatty && log(...highlightColonList(`number of iterations: ${iterations}`));
+
+
+    throw new Error('x');
   }
 
   chatty && log('Next, it responds to the password we sent, and provides some other useful data. Encrypted, that’s:');
@@ -226,7 +253,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
       endReady();
 
     } else {
-      throw new Error(`Unexpected message type: ${msgType}`);
+      throw new Error(`Unexpected message type: ${msgType} `);
     }
   }
 
@@ -234,7 +261,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   chatty && log(...highlightBytes(queryResultBytes.commentedString(true), LogColours.server));
   chatty && log('We pick out our result — the current time on our server:');
   log('%c%s', 'font-size: 2em; color: #000;', lastColumnData);
-  chatty || log(`time taken: ${Date.now() - t0}ms`);
+  chatty || log(`time taken: ${Date.now() - t0} ms`);
 
   const endBytes = new Bytes(5);
   endBytes.writeUTF8String('X');

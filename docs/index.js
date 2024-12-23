@@ -2492,17 +2492,19 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   msg.writeUTF8StringNullTerminated(db);
   msg.writeUint8(0, "end of message");
   endStartupMessage();
-  msg.writeUTF8String("p");
-  msg.comment("= [PasswordMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)");
-  const endPasswordMessage = msg.writeLengthUint32Incl("password message");
-  msg.writeUTF8StringNullTerminated(password);
-  endPasswordMessage();
-  msg.writeUTF8String("Q");
-  msg.comment("= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)");
-  const endQuery = msg.writeLengthUint32Incl("query");
-  msg.writeUTF8StringNullTerminated("SELECT now()");
-  endQuery();
-  log("So: we now resume our Postgres communications. Because we know what authentication scheme the server will offer, we can save several network round-trips and bundle up a Postgres startup message, a cleartext password message, and a simple query. Here\u2019s the pipelined plaintext:");
+  if (neonPasswordPipelining) {
+    msg.writeUTF8String("p");
+    msg.comment("= [PasswordMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)");
+    const endPasswordMessage = msg.writeLengthUint32Incl("password message");
+    msg.writeUTF8StringNullTerminated(password);
+    endPasswordMessage();
+    msg.writeUTF8String("Q");
+    msg.comment("= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)");
+    const endQuery = msg.writeLengthUint32Incl("query");
+    msg.writeUTF8StringNullTerminated("SELECT now()");
+    endQuery();
+    log("So: we now resume our Postgres communications. Because we know what authentication scheme the server will offer, we can save several network round-trips and bundle up a Postgres startup message, a cleartext password message, and a simple query. Here\u2019s the pipelined plaintext:");
+  }
   log(...highlightBytes(msg.commentedString(), "#8cc" /* client */));
   log("And the ciphertext looks like this:");
   await write(msg.array());
@@ -2519,7 +2521,6 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     preAuthBytes.comment("AuthenticationSASL message: request SASL auth");
     while (authReqRemaining() > 1) saslMechanisms.push(preAuthBytes.readUTF8StringNullTerminated());
     preAuthBytes.expectUint8(0, "null terminated list");
-    log("We can see that the supported SASL mechanisms are: " + saslMechanisms.join(", "));
   } else {
     throw new Error(`Unsupported auth mechanism (${authMechanism})`);
   }
@@ -2527,7 +2528,8 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   log("Decrypted and parsed:");
   log(...highlightBytes(preAuthBytes.commentedString(true), "#88c" /* server */));
   if (authMechanism === 10 && saslMechanisms.includes("SCRAM-SHA-256")) {
-    log("We continue by selecting SCRAM-SHA-256 authentication.");
+    log("The supported SASL mechanisms are: " + saslMechanisms.join(", "));
+    log("We continue by selecting SCRAM-SHA-256.");
     const saslInitResponse = new Bytes(1024);
     saslInitResponse.writeUTF8String("p");
     saslInitResponse.comment("= initial SASL response");
@@ -2536,14 +2538,33 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     const nonce = new Uint8Array(18);
     await getRandomValues(nonce);
     const nonceB64 = toBase64(nonce);
-    const endInitalClientResponse = saslInitResponse.writeLengthUint32Incl("initial client response (which mainly consists of 18 base64-encoded random bytes)");
+    const endInitialClientResponse = saslInitResponse.writeLengthUint32("initial client response (which mainly consists of 18 base64-encoded random bytes)");
     saslInitResponse.writeUTF8String("n,,n=*,r=" + nonceB64);
-    endInitalClientResponse();
+    endInitialClientResponse();
     endSaslInitResponse();
-    log(saslInitResponse.commentedString());
+    log(...highlightBytes(saslInitResponse.commentedString(), "#8cc" /* client */));
+    log("And as ciphertext:");
     await write(saslInitResponse.array());
-    const sr = await read();
-    log(sr);
+    log("The server responds with a SASL challenge:");
+    const serverSaslContinueResponse = await read();
+    const serverSaslContinueBytes = new Bytes(serverSaslContinueResponse);
+    serverSaslContinueBytes.expectUint8("R".charCodeAt(0), "authentication request");
+    const [endServerSaslContinue, serverSaslContinueRemaining] = serverSaslContinueBytes.expectLengthUint32Incl();
+    serverSaslContinueBytes.expectUint32(11, "SASL challenge");
+    const saslChallenge = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
+    endServerSaslContinue();
+    log(...highlightBytes(serverSaslContinueBytes.commentedString(), "#88c" /* server */));
+    const attrs = Object.fromEntries(
+      saslChallenge.split(",").map((attrValue) => attrValue.split("="))
+    );
+    const serverNonce = attrs.r;
+    const salt = attrs.s;
+    const iterations = parseInt(attrs.i, 10);
+    log("%c%s", `color: ${"#c88" /* header */}`, `server-supplied SASL values`);
+    log(...highlightColonList(`nonce (appended to ours): ${serverNonce}`));
+    log(...highlightColonList(`salt: ${salt}`));
+    log(...highlightColonList(`number of iterations: ${iterations}`));
+    throw new Error("x");
   }
   log("Next, it responds to the password we sent, and provides some other useful data. Encrypted, that\u2019s:");
   const postAuthResponse = await read();
@@ -2622,7 +2643,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
       queryResultBytes.expectUint8("I".charCodeAt(0), '"I" = status: idle');
       endReady();
     } else {
-      throw new Error(`Unexpected message type: ${msgType}`);
+      throw new Error(`Unexpected message type: ${msgType} `);
     }
   }
   log("Decrypted and parsed:");
