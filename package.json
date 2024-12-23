@@ -29,7 +29,8 @@
     "url": "git+https://github.com/jawj/subtls.git"
   },
   "dependencies": {
-    "@types/node": "^22.10.2"
+    "@types/node": "^22.10.2",
+    "hextreme": "^1.0.6"
   },
   "devDependencies": {
     "@microsoft/api-extractor": "^7.48.1",

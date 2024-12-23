@@ -13,6 +13,6 @@ if (pg) {
 }
 
 goBtn.addEventListener('click', () => {
-  if (pg) postgres(urlStr, wsTransport);
+  if (pg) postgres(urlStr, wsTransport, false);
   else https('https://bytebybyte.dev', 'GET', wsTransport);
 });

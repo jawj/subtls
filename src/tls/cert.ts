@@ -1,5 +1,4 @@
 
-import { base64Decode } from '../util/base64';
 import { ASN1Bytes } from '../util/asn1bytes';
 
 import {
@@ -31,6 +30,7 @@ import {
 
 import { hexFromU8, u8FromHex } from '../util/hex';
 import { GrowableData } from '../util/array';
+import { fromBase64 } from 'hextreme';
 
 type OID = string;
 
@@ -571,7 +571,7 @@ export class Cert {
     let matches = null;
     while (matches = pattern.exec(pem)) {
       const base64 = matches[1].replace(/[\r\n]/g, '');
-      const binary = base64Decode(base64);
+      const binary = fromBase64(base64);
       res.push(binary);
     }
     return res;

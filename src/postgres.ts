@@ -1,8 +1,10 @@
+import { toBase64 } from 'hextreme';
 import { Bytes } from './util/bytes';
 import { LogColours } from './presentation/appearance';
 import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
+import { getRandomValues } from './util/cryptoRandom';
 import type wsTransport from './util/wsTransport';
 
 // @ts-ignore
@@ -88,15 +90,18 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   const [endAuthReq, authReqRemaining] = preAuthBytes.expectLengthUint32Incl('request');
 
   const authMechanism = preAuthBytes.readUint32();
-  if (authMechanism === 3) {
+
+  const saslMechanisms = [];
+  if (authMechanism === 3) {  // password auth
     chatty && preAuthBytes.comment('request password auth ([AuthenticationCleartextPassword](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONCLEARTEXTPASSWORD))');
 
-  } else if (authMechanism === 10) {
-    chatty && preAuthBytes.comment('request SASL auth');
-    while (authReqRemaining() > 1) {
-      const mechanism = preAuthBytes.readUTF8StringNullTerminated();
-    }
+  } else if (authMechanism === 10) {  // SASL auth
+    chatty && preAuthBytes.comment('AuthenticationSASL message: request SASL auth');
+    while (authReqRemaining() > 1) saslMechanisms.push(preAuthBytes.readUTF8StringNullTerminated());
     preAuthBytes.expectUint8(0, 'null terminated list');
+
+    chatty && log('We can see that the supported SASL mechanisms are: ' + saslMechanisms.join(', '));
+    // chatty && log('We don’t currently support anything except cleartext auth, so we come to an abrupt end here.');
 
   } else {
     throw new Error(`Unsupported auth mechanism (${authMechanism})`);
@@ -106,9 +111,31 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   chatty && log('Decrypted and parsed:');
   chatty && log(...highlightBytes(preAuthBytes.commentedString(true), LogColours.server));
 
-  if (authMechanism === 10) {
-    chatty && log('We don’t currently support anything except cleartext auth, so we come to an abrupt end here.');
-    throw new Error('Unsupported SCRAM-SHA-256 auth');
+  if (authMechanism === 10 && saslMechanisms.includes('SCRAM-SHA-256')) {  // continue SASL auth
+    chatty && log('We continue by selecting SCRAM-SHA-256 authentication.');
+
+    const saslInitResponse = new Bytes(1024);
+    saslInitResponse.writeUTF8String('p');
+    saslInitResponse.comment('= initial SASL response');
+    const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl('message');
+    saslInitResponse.writeUTF8StringNullTerminated('SCRAM-SHA-256');
+
+    const nonce = new Uint8Array(18);
+    await getRandomValues(nonce);
+    const nonceB64 = toBase64(nonce);
+
+    const endInitalClientResponse = saslInitResponse.writeLengthUint32Incl('initial client response (which mainly consists of 18 base64-encoded random bytes)');
+    saslInitResponse.writeUTF8String('n,,n=*,r=' + nonceB64);  // not null terminated
+    endInitalClientResponse();
+
+    endSaslInitResponse();
+
+    chatty && log(saslInitResponse.commentedString());
+    await write(saslInitResponse.array());
+
+    const sr = await read();
+
+    chatty && log(sr);
   }
 
   chatty && log('Next, it responds to the password we sent, and provides some other useful data. Encrypted, that’s:');
