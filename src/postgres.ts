@@ -1,15 +1,17 @@
-import { toBase64 } from 'hextreme';
+import { fromBase64, toBase64 } from 'hextreme';
 import { Bytes } from './util/bytes';
 import { LogColours } from './presentation/appearance';
 import { highlightBytes, highlightColonList } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
 import { getRandomValues } from './util/cryptoRandom';
+import cs from './util/cryptoProxy';
 import type wsTransport from './util/wsTransport';
 
 // @ts-ignore
 import isrgrootx1 from './roots/isrg-root-x1.pem';
 import { hexFromU8 } from './util/hex';
+import { concat } from './util/array';
 
 export async function postgres(urlStr: string, transportFactory: typeof wsTransport, neonPasswordPipelining = true) {
   const t0 = Date.now();
@@ -118,17 +120,18 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
     const saslInitResponse = new Bytes(1024);
     saslInitResponse.writeUTF8String('p');
-    saslInitResponse.comment('= initial SASL response');
+    saslInitResponse.comment('= SASLInitialResponse');
     const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl('message');
 
     saslInitResponse.writeUTF8StringNullTerminated('SCRAM-SHA-256');
 
-    const nonce = new Uint8Array(18);
-    await getRandomValues(nonce);
-    const nonceB64 = toBase64(nonce);
+    const clientNonce = new Uint8Array(18);
+    await getRandomValues(clientNonce);
+    const clientNonceB64 = toBase64(clientNonce);
 
     const endInitialClientResponse = saslInitResponse.writeLengthUint32('initial client response (which mainly consists of 18 base64-encoded random bytes)');
-    saslInitResponse.writeUTF8String('n,,n=*,r=' + nonceB64);  // n => no channel binding support; n=* => username (which is not used by pg)
+    const clientFirstMessageBare = `n=*,r=${clientNonceB64}`;
+    saslInitResponse.writeUTF8String(`n,,${clientFirstMessageBare}`);  // n => no channel binding support; n=* => username (which is not used by pg)
     endInitialClientResponse();
 
     endSaslInitResponse();
@@ -143,23 +146,115 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     serverSaslContinueBytes.expectUint8('R'.charCodeAt(0), 'authentication request');
     const [endServerSaslContinue, serverSaslContinueRemaining] = serverSaslContinueBytes.expectLengthUint32Incl();
     serverSaslContinueBytes.expectUint32(11, 'SASL challenge');
-    const saslChallenge = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
+    const serverFirstMessage = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
     endServerSaslContinue();
 
     chatty && log(...highlightBytes(serverSaslContinueBytes.commentedString(), LogColours.server));
 
-    const attrs = Object.fromEntries(
-      saslChallenge.split(',').map(attrValue => attrValue.split('=')),
-    );
-
-    const serverNonce = attrs.r;
-    const salt = attrs.s;
-    const iterations = parseInt(attrs.i, 10);
+    const attrs = Object.fromEntries(serverFirstMessage.split(',').map(v => [v[0], v.slice(2)]));
+    const { r: nonceB64, s: saltB64, i: iterationsStr } = attrs as Record<string, string>;
+    const iterations = parseInt(iterationsStr, 10);
 
     chatty && log('%c%s', `color: ${LogColours.header}`, `server-supplied SASL values`);
-    chatty && log(...highlightColonList(`nonce (appended to ours): ${serverNonce}`));
-    chatty && log(...highlightColonList(`salt: ${salt}`));
+    chatty && log(...highlightColonList(`nonce: ${nonceB64}`));
+    chatty && log(...highlightColonList(`salt: ${saltB64}`));
     chatty && log(...highlightColonList(`number of iterations: ${iterations}`));
+
+    if (!nonceB64.startsWith(clientNonceB64)) throw new Error('Server nonce does not extend client nonce we supplied');
+    chatty && log('%c✓ nonce extends the client nonce we supplied', 'color: #8c8;');
+
+    const salt = fromBase64(saltB64);
+
+    const te = new TextEncoder();
+    const passwordBytes = te.encode(password);
+
+    /*
+      from RFC5802:
+      Hi(str, salt, i):
+
+        U1   := HMAC(str, salt + INT(1))
+        U2   := HMAC(str, U1)
+        ...
+        Ui-1 := HMAC(str, Ui-2)
+        Ui   := HMAC(str, Ui-1)
+
+        Hi := U1 XOR U2 XOR ... XOR Ui
+    */
+
+    const HiHmacKey = await cs.importKey(
+      'raw',
+      passwordBytes,
+      { name: 'HMAC', hash: { name: 'SHA-256' } },
+      false,
+      ['sign'],
+    );
+    let Ui = new Uint8Array(await cs.sign('HMAC', HiHmacKey, concat(salt, [0, 0, 0, 1])));
+    let saltedPassword = Ui;
+
+    for (let i = 1; i < iterations; i++) {
+      Ui = new Uint8Array(await cs.sign('HMAC', HiHmacKey, Ui));
+      saltedPassword = saltedPassword.map((x, j) => x ^ Ui[j]);
+    }
+
+    const ckHmacKey = await cs.importKey(
+      'raw',
+      saltedPassword,
+      { name: 'HMAC', hash: { name: 'SHA-256' } },
+      false,
+      ['sign'],
+    );
+    const clientKey = new Uint8Array(await cs.sign('HMAC', ckHmacKey, te.encode('Client Key')));
+    const storedKey = await cs.digest('SHA-256', clientKey);
+
+    const clientFinalMessageWithoutProof = `c=biws,r=${nonceB64}`;
+    const authMessage = `${clientFirstMessageBare},${serverFirstMessage},${clientFinalMessageWithoutProof}`;
+
+    const csHmacKey = await cs.importKey(
+      'raw',
+      storedKey,
+      { name: 'HMAC', hash: { name: 'SHA-256' } },
+      false,
+      ['sign'],
+    );
+    const clientSignature = new Uint8Array(await cs.sign('HMAC', csHmacKey, te.encode(authMessage)));
+    const clientProof = clientKey.map((x, i) => x ^ clientSignature[i]);
+    const clientProofB64 = toBase64(clientProof);
+    const clientFinalMessage = `${clientFinalMessageWithoutProof},p=${clientProofB64}`;
+
+    const saslResponse = new Bytes(1024);
+    saslResponse.writeUTF8String('p');
+    saslResponse.comment('= SASLResponse');
+    const endSaslResponse = saslResponse.writeLengthUint32Incl('message');
+    saslResponse.writeUTF8String(clientFinalMessage);
+    endSaslResponse();
+
+    chatty && log(...highlightBytes(saslResponse.commentedString(), LogColours.client));
+    chatty && log('And as ciphertext:');
+    await write(saslResponse.array());
+
+    const authSaslFinal = await read();
+    chatty && log(new TextDecoder().decode(authSaslFinal));
+
+    throw ('x');
+
+    const skHmacKey = await cs.importKey(
+      'raw',
+      saltedPassword,
+      { name: 'HMAC', hash: { name: 'SHA-256' } },
+      false,
+      ['sign'],
+    );
+    const serverKey = await cs.sign('HMAC', skHmacKey, te.encode('Server Key'));
+
+    const ssbHmacKey = await cs.importKey(
+      'raw',
+      serverKey,
+      { name: 'HMAC', hash: { name: 'SHA-256' } },
+      false,
+      ['sign'],
+    );
+    const serverSignature = new Uint8Array(await cs.sign('HMAC', ssbHmacKey, te.encode(authMessage)));
+    const serverSignatureB64 = toBase64(serverSignature);
 
 
     throw new Error('x');

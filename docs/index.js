@@ -2532,14 +2532,15 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     log("We continue by selecting SCRAM-SHA-256.");
     const saslInitResponse = new Bytes(1024);
     saslInitResponse.writeUTF8String("p");
-    saslInitResponse.comment("= initial SASL response");
+    saslInitResponse.comment("= SASLInitialResponse");
     const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl("message");
     saslInitResponse.writeUTF8StringNullTerminated("SCRAM-SHA-256");
-    const nonce = new Uint8Array(18);
-    await getRandomValues(nonce);
-    const nonceB64 = toBase64(nonce);
+    const clientNonce = new Uint8Array(18);
+    await getRandomValues(clientNonce);
+    const clientNonceB64 = toBase64(clientNonce);
     const endInitialClientResponse = saslInitResponse.writeLengthUint32("initial client response (which mainly consists of 18 base64-encoded random bytes)");
-    saslInitResponse.writeUTF8String("n,,n=*,r=" + nonceB64);
+    const clientFirstMessageBare = `n=*,r=${clientNonceB64}`;
+    saslInitResponse.writeUTF8String(`n,,${clientFirstMessageBare}`);
     endInitialClientResponse();
     endSaslInitResponse();
     log(...highlightBytes(saslInitResponse.commentedString(), "#8cc" /* client */));
@@ -2551,19 +2552,85 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     serverSaslContinueBytes.expectUint8("R".charCodeAt(0), "authentication request");
     const [endServerSaslContinue, serverSaslContinueRemaining] = serverSaslContinueBytes.expectLengthUint32Incl();
     serverSaslContinueBytes.expectUint32(11, "SASL challenge");
-    const saslChallenge = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
+    const serverFirstMessage = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
     endServerSaslContinue();
     log(...highlightBytes(serverSaslContinueBytes.commentedString(), "#88c" /* server */));
-    const attrs = Object.fromEntries(
-      saslChallenge.split(",").map((attrValue) => attrValue.split("="))
-    );
-    const serverNonce = attrs.r;
-    const salt = attrs.s;
-    const iterations = parseInt(attrs.i, 10);
+    const attrs = Object.fromEntries(serverFirstMessage.split(",").map((v) => [v[0], v.slice(2)]));
+    const { r: nonceB64, s: saltB64, i: iterationsStr } = attrs;
+    const iterations = parseInt(iterationsStr, 10);
     log("%c%s", `color: ${"#c88" /* header */}`, `server-supplied SASL values`);
-    log(...highlightColonList(`nonce (appended to ours): ${serverNonce}`));
-    log(...highlightColonList(`salt: ${salt}`));
+    log(...highlightColonList(`nonce: ${nonceB64}`));
+    log(...highlightColonList(`salt: ${saltB64}`));
     log(...highlightColonList(`number of iterations: ${iterations}`));
+    if (!nonceB64.startsWith(clientNonceB64)) throw new Error("Server nonce does not extend client nonce we supplied");
+    log("%c\u2713 nonce extends the client nonce we supplied", "color: #8c8;");
+    const salt = fromBase64(saltB64);
+    const te2 = new TextEncoder();
+    const passwordBytes = te2.encode(password);
+    const HiHmacKey = await cryptoProxy_default.importKey(
+      "raw",
+      passwordBytes,
+      { name: "HMAC", hash: { name: "SHA-256" } },
+      false,
+      ["sign"]
+    );
+    let Ui = new Uint8Array(await cryptoProxy_default.sign("HMAC", HiHmacKey, concat(salt, [0, 0, 0, 1])));
+    let saltedPassword = Ui;
+    for (let i = 1; i < iterations; i++) {
+      Ui = new Uint8Array(await cryptoProxy_default.sign("HMAC", HiHmacKey, Ui));
+      saltedPassword = saltedPassword.map((x, j) => x ^ Ui[j]);
+    }
+    const ckHmacKey = await cryptoProxy_default.importKey(
+      "raw",
+      saltedPassword,
+      { name: "HMAC", hash: { name: "SHA-256" } },
+      false,
+      ["sign"]
+    );
+    const clientKey = new Uint8Array(await cryptoProxy_default.sign("HMAC", ckHmacKey, te2.encode("Client Key")));
+    const storedKey = await cryptoProxy_default.digest("SHA-256", clientKey);
+    const clientFinalMessageWithoutProof = `c=biws,r=${nonceB64}`;
+    const authMessage = `${clientFirstMessageBare},${serverFirstMessage},${clientFinalMessageWithoutProof}`;
+    const csHmacKey = await cryptoProxy_default.importKey(
+      "raw",
+      storedKey,
+      { name: "HMAC", hash: { name: "SHA-256" } },
+      false,
+      ["sign"]
+    );
+    const clientSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", csHmacKey, te2.encode(authMessage)));
+    const clientProof = clientKey.map((x, i) => x ^ clientSignature[i]);
+    const clientProofB64 = toBase64(clientProof);
+    const clientFinalMessage = `${clientFinalMessageWithoutProof},p=${clientProofB64}`;
+    const saslResponse = new Bytes(1024);
+    saslResponse.writeUTF8String("p");
+    saslResponse.comment("= SASLResponse");
+    const endSaslResponse = saslResponse.writeLengthUint32Incl("message");
+    saslResponse.writeUTF8String(clientFinalMessage);
+    endSaslResponse();
+    log(...highlightBytes(saslResponse.commentedString(), "#8cc" /* client */));
+    log("And as ciphertext:");
+    await write(saslResponse.array());
+    const authSaslFinal = await read();
+    log(new TextDecoder().decode(authSaslFinal));
+    throw "x";
+    const skHmacKey = await cryptoProxy_default.importKey(
+      "raw",
+      saltedPassword,
+      { name: "HMAC", hash: { name: "SHA-256" } },
+      false,
+      ["sign"]
+    );
+    const serverKey = await cryptoProxy_default.sign("HMAC", skHmacKey, te2.encode("Server Key"));
+    const ssbHmacKey = await cryptoProxy_default.importKey(
+      "raw",
+      serverKey,
+      { name: "HMAC", hash: { name: "SHA-256" } },
+      false,
+      ["sign"]
+    );
+    const serverSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", ssbHmacKey, te2.encode(authMessage)));
+    const serverSignatureB64 = toBase64(serverSignature);
     throw new Error("x");
   }
   log("Next, it responds to the password we sent, and provides some other useful data. Encrypted, that\u2019s:");
