@@ -93,7 +93,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   const preAuthBytes = new Bytes(preAuthResponse!);
 
   preAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
-  const [endAuthReq, authReqRemaining] = preAuthBytes.expectLengthUint32Incl('request');
+  const [endAuthReq, authReqRemaining] = preAuthBytes.expectLengthUint32Incl(chatty && 'request');
 
   const authMechanism = preAuthBytes.readUint32();
 
@@ -104,7 +104,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   } else if (authMechanism === 10) {  // SASL auth
     chatty && preAuthBytes.comment('AuthenticationSASL message: request SASL auth');
     while (authReqRemaining() > 1) saslMechanisms.push(preAuthBytes.readUTF8StringNullTerminated());
-    preAuthBytes.expectUint8(0, 'null terminated list');
+    preAuthBytes.expectUint8(0, chatty && 'null terminated list');
 
   } else {
     throw new Error(`Unsupported auth mechanism (${authMechanism})`);
@@ -120,14 +120,14 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
     const saslInitResponse = new Bytes(1024);
     saslInitResponse.writeUTF8String('p');
-    saslInitResponse.comment('= SASLInitialResponse');
-    const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl('message');
+    chatty && saslInitResponse.comment('= SASLInitialResponse');
+    const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl(chatty && 'message');
 
     saslInitResponse.writeUTF8StringNullTerminated('SCRAM-SHA-256');
 
-    const endInitialClientResponse = saslInitResponse.writeLengthUint32('message');
+    const endInitialClientResponse = saslInitResponse.writeLengthUint32(chatty && 'message');
     saslInitResponse.writeUTF8String(`n,,`);
-    saslInitResponse.comment('— the n means channel binding is unsupported, then there’s an (empty) authzid between the commas')
+    chatty && saslInitResponse.comment('— the n means channel binding is unsupported, then there’s an (empty) authzid between the commas')
 
     const clientNonce = new Uint8Array(18);
     await getRandomValues(clientNonce);
@@ -135,7 +135,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
     const clientFirstMessageBare = `n=*,r=${clientNonceB64}`;
     saslInitResponse.writeUTF8String(clientFirstMessageBare);
-    saslInitResponse.comment('— this is ‘client-first-message-bare’: n=* represents a dummy username (which Postgres ignores in favour of the user specified in the StartupMessage above), and r is a base64-encoded 18-byte random nonce we just generated')
+    chatty && saslInitResponse.comment('— this is ‘client-first-message-bare’: n=* represents a dummy username (which Postgres ignores in favour of the user specified in the StartupMessage above), and r is a base64-encoded 18-byte random nonce we just generated')
     endInitialClientResponse();
 
     endSaslInitResponse();
@@ -147,11 +147,11 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     chatty && log('The server responds with a SASL challenge:');
     const serverSaslContinueResponse = await read();
     const serverSaslContinueBytes = new Bytes(serverSaslContinueResponse!);
-    serverSaslContinueBytes.expectUint8('R'.charCodeAt(0), 'authentication request');
+    serverSaslContinueBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
     const [endServerSaslContinue, serverSaslContinueRemaining] = serverSaslContinueBytes.expectLengthUint32Incl();
-    serverSaslContinueBytes.expectUint32(11, 'AuthenticationSASLContinue');
+    serverSaslContinueBytes.expectUint32(11, chatty && 'AuthenticationSASLContinue');
     const serverFirstMessage = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
-    serverSaslContinueBytes.comment('— this is the SCRAM ‘server-first-message’');
+    chatty && serverSaslContinueBytes.comment('— this is the SCRAM ‘server-first-message’');
     endServerSaslContinue();
 
     chatty && log(...highlightBytes(serverSaslContinueBytes.commentedString(), LogColours.server));
@@ -250,25 +250,38 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     const clientProof = clientKey.map((x, i) => x ^ clientSignature[i]);
     chatty && log(...highlightColonList(`ClientProof: ${hexFromU8(clientProof, ' ')}`));
 
+    chatty && log('We’re now ready to send the ‘client-final-message’ as a Postgres SASLResponse:');
+
     const clientProofB64 = toBase64(clientProof);
     const clientFinalMessage = `${clientFinalMessageWithoutProof},p=${clientProofB64}`;
 
     const saslResponse = new Bytes(1024);
     saslResponse.writeUTF8String('p');
-    saslResponse.comment('= SASLResponse');
-    const endSaslResponse = saslResponse.writeLengthUint32Incl('message');
+    chatty && saslResponse.comment('= SASLResponse');
+    const endSaslResponse = saslResponse.writeLengthUint32Incl(chatty && 'message');
     saslResponse.writeUTF8String(clientFinalMessage);
-    saslResponse.comment('— the SCRAM ‘client-final-message’');
+    chatty && saslResponse.comment('— the SCRAM ‘client-final-message’');
     endSaslResponse();
 
     chatty && log(...highlightBytes(saslResponse.commentedString(), LogColours.client));
     chatty && log('And as ciphertext:');
     await write(saslResponse.array());
 
-    const authSaslFinal = await read();
-    chatty && log(new TextDecoder().decode(authSaslFinal));
+    chatty && log('The server responds:');
+    const authSaslFinalResponse = await read();
+    const authSaslFinalBytes = new Bytes(authSaslFinalResponse!);
 
-    throw ('x');
+    authSaslFinalBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
+    const [endAuthSaslFinal, authSaslFinalRemaining] = authSaslFinalBytes.expectLengthUint32Incl(chatty && 'message');
+    authSaslFinalBytes.expectUint32(12, chatty && '= AuthenticationSASLFinal');
+    const saslOutcome = authSaslFinalBytes.readUTF8String(authSaslFinalRemaining());
+    chatty && authSaslFinalBytes.comment('— the base64-encoded ServerSignature');
+    endAuthSaslFinal();
+
+    chatty && log(...highlightBytes(authSaslFinalBytes.commentedString(), LogColours.server));
+    //    chatty && log(new TextDecoder().decode(authSaslFinalResponse));
+
+    throw 'x';
 
     const skHmacKey = await cs.importKey(
       'raw',

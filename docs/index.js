@@ -2552,7 +2552,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     log("The server responds with a SASL challenge:");
     const serverSaslContinueResponse = await read();
     const serverSaslContinueBytes = new Bytes(serverSaslContinueResponse);
-    serverSaslContinueBytes.expectUint8("R".charCodeAt(0), "authentication request");
+    serverSaslContinueBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
     const [endServerSaslContinue, serverSaslContinueRemaining] = serverSaslContinueBytes.expectLengthUint32Incl();
     serverSaslContinueBytes.expectUint32(11, "AuthenticationSASLContinue");
     const serverFirstMessage = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
@@ -2619,6 +2619,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     log("Then we calculate the proof by XORing this ClientSignature with the ClientKey.");
     const clientProof = clientKey.map((x, i) => x ^ clientSignature[i]);
     log(...highlightColonList(`ClientProof: ${hexFromU8(clientProof, " ")}`));
+    log("We\u2019re now ready to send the \u2018client-final-message\u2019 as a Postgres SASLResponse:");
     const clientProofB64 = toBase64(clientProof);
     const clientFinalMessage = `${clientFinalMessageWithoutProof},p=${clientProofB64}`;
     const saslResponse = new Bytes(1024);
@@ -2631,8 +2632,16 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     log(...highlightBytes(saslResponse.commentedString(), "#8cc" /* client */));
     log("And as ciphertext:");
     await write(saslResponse.array());
-    const authSaslFinal = await read();
-    log(new TextDecoder().decode(authSaslFinal));
+    log("The server responds:");
+    const authSaslFinalResponse = await read();
+    const authSaslFinalBytes = new Bytes(authSaslFinalResponse);
+    authSaslFinalBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
+    const [endAuthSaslFinal, authSaslFinalRemaining] = authSaslFinalBytes.expectLengthUint32Incl("message");
+    authSaslFinalBytes.expectUint32(12, "= AuthenticationSASLFinal");
+    const saslOutcome = authSaslFinalBytes.readUTF8String(authSaslFinalRemaining());
+    authSaslFinalBytes.comment("\u2014 the base64-encoded ServerSignature");
+    endAuthSaslFinal();
+    log(...highlightBytes(authSaslFinalBytes.commentedString(), "#88c" /* server */));
     throw "x";
     const skHmacKey = await cryptoProxy_default.importKey(
       "raw",
