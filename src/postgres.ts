@@ -302,15 +302,16 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
       ['sign'],
     );
     const serverSignature = new Uint8Array(await cs.sign('HMAC', ssbHmacKey, te.encode(authMessage)));
-    chatty && log(...highlightColonList(`ServerSignature: ${hexFromU8(serverSignature, ' ')}`));
-
     const serverSignatureB64 = toBase64(serverSignature);
+    chatty && log(...highlightColonList(`base64-encoded ServerSignature: ${serverSignatureB64}`));
 
+    const remoteServerSignatureB64 = Object.fromEntries(saslOutcome.split(',').map(v => [v[0], v.slice(2)])).v;
+    if (remoteServerSignatureB64 !== serverSignatureB64) throw new Error('Server signature mismatch');
 
-    throw new Error('x');
+    chatty && log('%c✓ server signature matches locally-generated server signature', 'color: #8c8;');
   }
 
-  chatty && log('Next, it responds to the password we sent, and provides some other useful data. Encrypted, that’s:');
+  chatty && log('Now the server tells us we’re in, and provides some other useful data. Encrypted, that’s:');
 
   const postAuthResponse = await read();
   const postAuthBytes = new Bytes(postAuthResponse!);
@@ -349,7 +350,21 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   chatty && log('Decrypted and parsed:');
   chatty && log(...highlightBytes(postAuthBytes.commentedString(true), LogColours.server));
 
-  chatty && log('Lastly, it returns our query result. Encrypted:');
+  if (neonPasswordPipelining === false) {
+    const query = new Bytes(1024)
+    query.writeUTF8String('Q');
+    chatty && msg.comment('= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)');
+    const endQuery = query.writeLengthUint32Incl(chatty && 'query');
+    query.writeUTF8StringNullTerminated('SELECT now()');
+    endQuery();
+
+    chatty && log('At last we can send our query message.');
+    chatty && log(...highlightBytes(query.commentedString(), LogColours.client));
+    chatty && log('Encrypted, that’s:');
+    await write(query.array());
+  }
+
+  chatty && log('Postgres returns our query result. Encrypted:');
   const queryResult = await read();
   const queryResultBytes = new Bytes(queryResult!);
 

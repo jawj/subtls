@@ -2661,11 +2661,13 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
       ["sign"]
     );
     const serverSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", ssbHmacKey, te2.encode(authMessage)));
-    log(...highlightColonList(`ServerSignature: ${hexFromU8(serverSignature, " ")}`));
     const serverSignatureB64 = toBase64(serverSignature);
-    throw new Error("x");
+    log(...highlightColonList(`base64-encoded ServerSignature: ${serverSignatureB64}`));
+    const remoteServerSignatureB64 = Object.fromEntries(saslOutcome.split(",").map((v) => [v[0], v.slice(2)])).v;
+    if (remoteServerSignatureB64 !== serverSignatureB64) throw new Error("Server signature mismatch");
+    log("%c\u2713 server signature matches locally-generated server signature", "color: #8c8;");
   }
-  log("Next, it responds to the password we sent, and provides some other useful data. Encrypted, that\u2019s:");
+  log("Now the server tells us we\u2019re in, and provides some other useful data. Encrypted, that\u2019s:");
   const postAuthResponse = await read();
   const postAuthBytes = new Bytes(postAuthResponse);
   postAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
@@ -2698,7 +2700,19 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   }
   log("Decrypted and parsed:");
   log(...highlightBytes(postAuthBytes.commentedString(true), "#88c" /* server */));
-  log("Lastly, it returns our query result. Encrypted:");
+  if (neonPasswordPipelining === false) {
+    const query = new Bytes(1024);
+    query.writeUTF8String("Q");
+    msg.comment("= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)");
+    const endQuery = query.writeLengthUint32Incl("query");
+    query.writeUTF8StringNullTerminated("SELECT now()");
+    endQuery();
+    log("At last we can send our query message.");
+    log(...highlightBytes(query.commentedString(), "#8cc" /* client */));
+    log("Encrypted, that\u2019s:");
+    await write(query.array());
+  }
+  log("Postgres returns our query result. Encrypted:");
   const queryResult = await read();
   const queryResultBytes = new Bytes(queryResult);
   queryResultBytes.expectUint8("T".charCodeAt(0), '"T" = [RowDescription](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-ROWDESCRIPTION)');
