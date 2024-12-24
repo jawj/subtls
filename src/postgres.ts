@@ -116,7 +116,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
   if (authMechanism === 10 && saslMechanisms.includes('SCRAM-SHA-256')) {  // continue SASL auth
     chatty && log('The supported SASL mechanisms are: ' + saslMechanisms.join(', '));
-    chatty && log('We continue by selecting SCRAM-SHA-256.');
+    chatty && log('We continue by selecting SCRAM-SHA-256, as defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802).');
 
     const saslInitResponse = new Bytes(1024);
     saslInitResponse.writeUTF8String('p');
@@ -125,13 +125,17 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
     saslInitResponse.writeUTF8StringNullTerminated('SCRAM-SHA-256');
 
+    const endInitialClientResponse = saslInitResponse.writeLengthUint32('message');
+    saslInitResponse.writeUTF8String(`n,,`);
+    saslInitResponse.comment('— the n means channel binding is unsupported, then there’s an (empty) authzid between the commas')
+
     const clientNonce = new Uint8Array(18);
     await getRandomValues(clientNonce);
     const clientNonceB64 = toBase64(clientNonce);
 
-    const endInitialClientResponse = saslInitResponse.writeLengthUint32('initial client response (which mainly consists of 18 base64-encoded random bytes)');
     const clientFirstMessageBare = `n=*,r=${clientNonceB64}`;
-    saslInitResponse.writeUTF8String(`n,,${clientFirstMessageBare}`);  // n => no channel binding support; n=* => username (which is not used by pg)
+    saslInitResponse.writeUTF8String(clientFirstMessageBare);
+    saslInitResponse.comment('— this is ‘client-first-message-bare’: n=* represents a dummy username (which Postgres ignores in favour of the user specified in the StartupMessage above), and r is a base64-encoded 18-byte random nonce we just generated')
     endInitialClientResponse();
 
     endSaslInitResponse();
@@ -145,8 +149,9 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     const serverSaslContinueBytes = new Bytes(serverSaslContinueResponse!);
     serverSaslContinueBytes.expectUint8('R'.charCodeAt(0), 'authentication request');
     const [endServerSaslContinue, serverSaslContinueRemaining] = serverSaslContinueBytes.expectLengthUint32Incl();
-    serverSaslContinueBytes.expectUint32(11, 'SASL challenge');
+    serverSaslContinueBytes.expectUint32(11, 'AuthenticationSASLContinue');
     const serverFirstMessage = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
+    serverSaslContinueBytes.comment('— this is the SCRAM ‘server-first-message’');
     endServerSaslContinue();
 
     chatty && log(...highlightBytes(serverSaslContinueBytes.commentedString(), LogColours.server));
@@ -167,6 +172,8 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
     const te = new TextEncoder();
     const passwordBytes = te.encode(password);
+
+    chatty && log('Now we calculate a long chain of SHA-256 HMACs using the password and the salt, and XOR each result with the previous one. This is [operation Hi(str, salt, i) in RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802#section-2.2).');
 
     /*
       from RFC5802:
@@ -191,10 +198,15 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     let Ui = new Uint8Array(await cs.sign('HMAC', HiHmacKey, concat(salt, [0, 0, 0, 1])));
     let saltedPassword = Ui;
 
+    chatty && log(...highlightColonList(`first result: ${hexFromU8(saltedPassword, ' ')}`));
+    chatty && log(`... ${iterations - 2} intermediate results ...`);
+
     for (let i = 1; i < iterations; i++) {
       Ui = new Uint8Array(await cs.sign('HMAC', HiHmacKey, Ui));
       saltedPassword = saltedPassword.map((x, j) => x ^ Ui[j]);
     }
+
+    chatty && log(...highlightColonList(`final result — the SaltedPassword: ${hexFromU8(saltedPassword, ' ')}`));
 
     const ckHmacKey = await cs.importKey(
       'raw',
@@ -204,10 +216,24 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
       ['sign'],
     );
     const clientKey = new Uint8Array(await cs.sign('HMAC', ckHmacKey, te.encode('Client Key')));
-    const storedKey = await cs.digest('SHA-256', clientKey);
+
+    chatty && log('Now we generate the ClientKey as an HMAC of the string ‘Client Key’ using the SaltedPassword.');
+    chatty && log(...highlightColonList(`ClientKey: ${hexFromU8(clientKey, ' ')}`));
+
+    const storedKey = new Uint8Array(await cs.digest('SHA-256', clientKey));
+
+    chatty && log('The StoredKey is then just an SHA-256 hash of the ClientKey.');
+    chatty && log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey, ' ')}`));
 
     const clientFinalMessageWithoutProof = `c=biws,r=${nonceB64}`;
+
+    chatty && log('The ‘client-final-message-without-proof’ is the channel-binding message ‘n,,’ base64-encoded to ‘biws’, plus a reiteration of the full (client + server) nonce.');
+    chatty && log(...highlightColonList(`client-final-message-without-proof: ${clientFinalMessageWithoutProof}`));
+
+    chatty && log('The ‘client-final-message’ has a proof tacked on the end. First we calculate the ClientSignature as an HMAC of the AuthMessage: a concatenation of the three previous messages sent between client and server.');
+
     const authMessage = `${clientFirstMessageBare},${serverFirstMessage},${clientFinalMessageWithoutProof}`;
+    chatty && log(...highlightColonList(`AuthMessage: ${authMessage}`));
 
     const csHmacKey = await cs.importKey(
       'raw',
@@ -217,7 +243,13 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
       ['sign'],
     );
     const clientSignature = new Uint8Array(await cs.sign('HMAC', csHmacKey, te.encode(authMessage)));
+    chatty && log(...highlightColonList(`ClientSignature: ${hexFromU8(clientSignature, ' ')}`));
+
+    chatty && log('Then we calculate the proof by XORing this ClientSignature with the ClientKey.');
+
     const clientProof = clientKey.map((x, i) => x ^ clientSignature[i]);
+    chatty && log(...highlightColonList(`ClientProof: ${hexFromU8(clientProof, ' ')}`));
+
     const clientProofB64 = toBase64(clientProof);
     const clientFinalMessage = `${clientFinalMessageWithoutProof},p=${clientProofB64}`;
 
@@ -226,6 +258,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     saslResponse.comment('= SASLResponse');
     const endSaslResponse = saslResponse.writeLengthUint32Incl('message');
     saslResponse.writeUTF8String(clientFinalMessage);
+    saslResponse.comment('— the SCRAM ‘client-final-message’');
     endSaslResponse();
 
     chatty && log(...highlightBytes(saslResponse.commentedString(), LogColours.client));
