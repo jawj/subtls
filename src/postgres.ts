@@ -279,9 +279,8 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     endAuthSaslFinal();
 
     chatty && log(...highlightBytes(authSaslFinalBytes.commentedString(), LogColours.server));
-    //    chatty && log(new TextDecoder().decode(authSaslFinalResponse));
 
-    throw 'x';
+    chatty && log('Now we calculate a server signature for ourselves, to see that it matches up. First we produce the ServerKey: an HMAC of the string ‘Server Key’ using the SaltedPassword.');
 
     const skHmacKey = await cs.importKey(
       'raw',
@@ -290,7 +289,10 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
       false,
       ['sign'],
     );
-    const serverKey = await cs.sign('HMAC', skHmacKey, te.encode('Server Key'));
+    const serverKey = new Uint8Array(await cs.sign('HMAC', skHmacKey, te.encode('Server Key')));
+    chatty && log(...highlightColonList(`ServerKey: ${hexFromU8(serverKey, ' ')}`));
+
+    chatty && log('Then we make the ServerSignature, as an HMAC of the AuthMessage (as defined above) using the ServerKey.')
 
     const ssbHmacKey = await cs.importKey(
       'raw',
@@ -300,6 +302,8 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
       ['sign'],
     );
     const serverSignature = new Uint8Array(await cs.sign('HMAC', ssbHmacKey, te.encode(authMessage)));
+    chatty && log(...highlightColonList(`ServerSignature: ${hexFromU8(serverSignature, ' ')}`));
+
     const serverSignatureB64 = toBase64(serverSignature);
 
 

@@ -2642,7 +2642,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     authSaslFinalBytes.comment("\u2014 the base64-encoded ServerSignature");
     endAuthSaslFinal();
     log(...highlightBytes(authSaslFinalBytes.commentedString(), "#88c" /* server */));
-    throw "x";
+    log("Now we calculate a server signature for ourselves, to see that it matches up. First we produce the ServerKey: an HMAC of the string \u2018Server Key\u2019 using the SaltedPassword.");
     const skHmacKey = await cryptoProxy_default.importKey(
       "raw",
       saltedPassword,
@@ -2650,7 +2650,9 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
       false,
       ["sign"]
     );
-    const serverKey = await cryptoProxy_default.sign("HMAC", skHmacKey, te2.encode("Server Key"));
+    const serverKey = new Uint8Array(await cryptoProxy_default.sign("HMAC", skHmacKey, te2.encode("Server Key")));
+    log(...highlightColonList(`ServerKey: ${hexFromU8(serverKey, " ")}`));
+    log("Then we make the ServerSignature, as an HMAC of the AuthMessage (as defined above) using the ServerKey.");
     const ssbHmacKey = await cryptoProxy_default.importKey(
       "raw",
       serverKey,
@@ -2659,6 +2661,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
       ["sign"]
     );
     const serverSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", ssbHmacKey, te2.encode(authMessage)));
+    log(...highlightColonList(`ServerSignature: ${hexFromU8(serverSignature, " ")}`));
     const serverSignatureB64 = toBase64(serverSignature);
     throw new Error("x");
   }
