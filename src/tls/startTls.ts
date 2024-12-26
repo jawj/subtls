@@ -105,7 +105,7 @@ export async function startTls(
     if (tlsRecord === undefined) throw new Error('Premature end of encrypted server handshake');
     return tlsRecord;
   };
-  const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(
+  const { handshakeData: serverHandshake, clientCertRequested, userCert } = await readEncryptedHandshake(
     host,
     readHandshakeRecord,
     handshakeKeys.serverSecret,
@@ -210,5 +210,5 @@ export async function startTls(
     networkWrite(allRecords);
   };
 
-  return [read, write] as const;
+  return { read, write, userCert } as const;
 }

@@ -1631,6 +1631,7 @@ var allKeyUsages = [
 ];
 var Cert = class _Cert {
   constructor(certData) {
+    __publicField(this, "completeData");
     __publicField(this, "serialNumber");
     __publicField(this, "algorithm");
     __publicField(this, "issuer");
@@ -1648,6 +1649,7 @@ var Cert = class _Cert {
     __publicField(this, "signedData");
     if (certData instanceof ASN1Bytes || certData instanceof Uint8Array) {
       const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
+      const certSeqStartOffset = cb.offset;
       cb.expectUint8(constructedUniversalTypeSequence, "sequence (certificate)");
       const [endCertSeq] = cb.expectASN1Length("certificate sequence");
       const tbsCertStartOffset = cb.offset;
@@ -1924,11 +1926,12 @@ var Cert = class _Cert {
         cb.expectUint8(0, "null length");
       }
       endSigAlgo();
-      if (sigAlgoOID !== this.algorithm) throw new Error(`Certificate specifies different signature algorithms inside(${this.algorithm}) and out(${sigAlgoOID})`);
+      if (sigAlgoOID !== this.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${this.algorithm}) and out (${sigAlgoOID})`);
       cb.expectUint8(universalTypeBitString, "bitstring (signature)");
       this.signature = cb.readASN1BitString();
       cb.comment("signature");
       endCertSeq();
+      this.completeData = cb.data.subarray(certSeqStartOffset, cb.offset);
     } else {
       this.serialNumber = u8FromHex(certData.serialNumber);
       this.algorithm = certData.algorithm;
@@ -2304,7 +2307,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   log(...highlightBytes(hs.commentedString(true), "#88c" /* server */));
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot) throw new Error("Validated certificate chain did not end in a trusted root");
-  return [hs.data, clientCertRequested];
+  return { handshakeData: hs.data, clientCertRequested, userCert };
 }
 
 // src/tls/startTls.ts
@@ -2367,7 +2370,7 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
     if (tlsRecord === void 0) throw new Error("Premature end of encrypted server handshake");
     return tlsRecord;
   };
-  const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(
+  const { handshakeData: serverHandshake, clientCertRequested, userCert } = await readEncryptedHandshake(
     host,
     readHandshakeRecord,
     handshakeKeys.serverSecret,
@@ -2445,7 +2448,7 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
     const allRecords = localWroteFinishedRecords ? concat(...encryptedRecords) : concat(clientCipherChangeData, ...encryptedClientFinished, ...encryptedRecords);
     networkWrite(allRecords);
   };
-  return [read, write];
+  return { read, write, userCert };
 }
 
 // src/roots/isrg-root-x1.pem
@@ -2478,7 +2481,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   const byte = new Bytes(SorN);
   byte.expectUint8(83, '"S" = SSL connection supported');
   log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
-  const [read, write] = await startTls(host, isrg_root_x1_default, transport.read, transport.write, {
+  const { read, write, userCert } = await startTls(host, isrg_root_x1_default, transport.read, transport.write, {
     useSNI: !neonPasswordPipelining,
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false
@@ -2534,9 +2537,9 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     saslInitResponse.writeUTF8String("p");
     saslInitResponse.comment("= SASLInitialResponse");
     const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl("message");
-    saslInitResponse.writeUTF8StringNullTerminated("SCRAM-SHA-256");
+    saslInitResponse.writeUTF8StringNullTerminated("SCRAM-SHA-256-PLUS");
     const endInitialClientResponse = saslInitResponse.writeLengthUint32("message");
-    saslInitResponse.writeUTF8String(`n,,`);
+    saslInitResponse.writeUTF8String(`p=tls-server-end-point,,`);
     saslInitResponse.comment("\u2014 the n means channel binding is unsupported, then there\u2019s an (empty) authzid between the commas");
     const clientNonce = new Uint8Array(18);
     await getRandomValues(clientNonce);
@@ -2601,8 +2604,13 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     const storedKey = new Uint8Array(await cryptoProxy_default.digest("SHA-256", clientKey));
     log("The StoredKey is then just an SHA-256 hash of the ClientKey.");
     log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey, " ")}`));
-    const clientFinalMessageWithoutProof = `c=biws,r=${nonceB64}`;
-    log("The \u2018client-final-message-without-proof\u2019 is the channel-binding message \u2018n,,\u2019 base64-encoded to \u2018biws\u2019, plus a reiteration of the full (client + server) nonce.");
+    let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name;
+    if (hashAlgo === "SHA-1" || hashAlgo === "MD5" || hashAlgo === void 0) hashAlgo = "SHA-256";
+    log(...highlightColonList(`certificate hash algorithm: ${hashAlgo}`));
+    const hashedCert = new Uint8Array(await cryptoProxy_default.digest(hashAlgo, userCert.completeData));
+    const cbindMessageB64 = toBase64(concat(te2.encode(`p=tls-server-end-point,,`), hashedCert));
+    const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceB64}`;
+    log("The \u2018client-final-message-without-proof\u2019 is the channel-binding message plus a reiteration of the full (client + server) nonce.");
     log(...highlightColonList(`client-final-message-without-proof: ${clientFinalMessageWithoutProof}`));
     log("The \u2018client-final-message\u2019 has a proof tacked on the end. First we calculate the ClientSignature as an HMAC of the AuthMessage: a concatenation of the three previous messages sent between client and server.");
     const authMessage = `${clientFirstMessageBare},${serverFirstMessage},${clientFinalMessageWithoutProof}`;
@@ -2635,6 +2643,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     log("The server responds:");
     const authSaslFinalResponse = await read();
     const authSaslFinalBytes = new Bytes(authSaslFinalResponse);
+    console.log(new TextDecoder().decode(authSaslFinalResponse));
     authSaslFinalBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
     const [endAuthSaslFinal, authSaslFinalRemaining] = authSaslFinalBytes.expectLengthUint32Incl("message");
     authSaslFinalBytes.expectUint32(12, "= AuthenticationSASLFinal");
@@ -2823,7 +2832,7 @@ async function https(urlStr2, method, transportFactory) {
     log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");
   });
   const rootCertsDatabase = await getRootCertsDatabase();
-  const [read, write] = await startTls(host, rootCertsDatabase, transport.read, transport.write);
+  const { read, write } = await startTls(host, rootCertsDatabase, transport.read, transport.write);
   log("Here\u2019s a GET request:");
   const request = new Bytes(1024);
   request.writeUTF8String(`${method} ${reqPath} HTTP/1.1\r

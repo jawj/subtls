@@ -218,5 +218,5 @@ export async function readEncryptedHandshake(
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in a trusted root');
 
-  return [hs.data, clientCertRequested] as const;
+  return { handshakeData: hs.data, clientCertRequested, userCert } as const;
 }

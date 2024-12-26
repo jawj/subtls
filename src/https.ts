@@ -53,7 +53,7 @@ export async function https(urlStr: string, method: string, transportFactory: ty
   });
 
   const rootCertsDatabase = await getRootCertsDatabase();
-  const [read, write] = await startTls(host, rootCertsDatabase, transport.read, transport.write);
+  const { read, write } = await startTls(host, rootCertsDatabase, transport.read, transport.write);
 
   chatty && log('Here’s a GET request:');
   const request = new Bytes(1024);

@@ -12,6 +12,7 @@ import type wsTransport from './util/wsTransport';
 import isrgrootx1 from './roots/isrg-root-x1.pem';
 import { hexFromU8 } from './util/hex';
 import { concat } from './util/array';
+import { algorithmWithOID } from './tls/certUtils';
 
 export async function postgres(urlStr: string, transportFactory: typeof wsTransport, neonPasswordPipelining = true) {
   const t0 = Date.now();
@@ -49,7 +50,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   byte.expectUint8(0x53, '"S" = SSL connection supported');
   chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
 
-  const [read, write] = await startTls(host, isrgrootx1, transport.read, transport.write, {
+  const { read, write, userCert } = await startTls(host, isrgrootx1, transport.read, transport.write, {
     useSNI: !neonPasswordPipelining,
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false,
@@ -123,10 +124,10 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     chatty && saslInitResponse.comment('= SASLInitialResponse');
     const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl(chatty && 'message');
 
-    saslInitResponse.writeUTF8StringNullTerminated('SCRAM-SHA-256');
+    saslInitResponse.writeUTF8StringNullTerminated('SCRAM-SHA-256-PLUS');
 
     const endInitialClientResponse = saslInitResponse.writeLengthUint32(chatty && 'message');
-    saslInitResponse.writeUTF8String(`n,,`);
+    saslInitResponse.writeUTF8String(`p=tls-server-end-point,,`);
     chatty && saslInitResponse.comment('— the n means channel binding is unsupported, then there’s an (empty) authzid between the commas')
 
     const clientNonce = new Uint8Array(18);
@@ -225,9 +226,15 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     chatty && log('The StoredKey is then just an SHA-256 hash of the ClientKey.');
     chatty && log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey, ' ')}`));
 
-    const clientFinalMessageWithoutProof = `c=biws,r=${nonceB64}`;
+    let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name;
+    if (hashAlgo === 'SHA-1' || hashAlgo === 'MD5' || hashAlgo === undefined) hashAlgo = 'SHA-256';
+    chatty && log(...highlightColonList(`certificate hash algorithm: ${hashAlgo}`));
 
-    chatty && log('The ‘client-final-message-without-proof’ is the channel-binding message ‘n,,’ base64-encoded to ‘biws’, plus a reiteration of the full (client + server) nonce.');
+    const hashedCert = new Uint8Array(await cs.digest(hashAlgo, userCert.completeData!));
+    const cbindMessageB64 = toBase64(concat(te.encode(`p=tls-server-end-point,,`), hashedCert));
+    const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceB64}`;
+
+    chatty && log('The ‘client-final-message-without-proof’ is the channel-binding message plus a reiteration of the full (client + server) nonce.');
     chatty && log(...highlightColonList(`client-final-message-without-proof: ${clientFinalMessageWithoutProof}`));
 
     chatty && log('The ‘client-final-message’ has a proof tacked on the end. First we calculate the ClientSignature as an HMAC of the AuthMessage: a concatenation of the three previous messages sent between client and server.');
@@ -270,6 +277,8 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     chatty && log('The server responds:');
     const authSaslFinalResponse = await read();
     const authSaslFinalBytes = new Bytes(authSaslFinalResponse!);
+
+    console.log(new TextDecoder().decode(authSaslFinalResponse));
 
     authSaslFinalBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
     const [endAuthSaslFinal, authSaslFinalRemaining] = authSaslFinalBytes.expectLengthUint32Incl(chatty && 'message');

@@ -63,6 +63,7 @@ export interface RootCertsDatabase {
 }
 
 export class Cert {
+  completeData?: Uint8Array;
   serialNumber: Uint8Array;
   algorithm: OID;
   issuer: DistinguishedName;
@@ -94,6 +95,7 @@ export class Cert {
   constructor(certData: Uint8Array | ASN1Bytes | CertJSON) {
     if (certData instanceof ASN1Bytes || certData instanceof Uint8Array) {
       const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
+      const certSeqStartOffset = cb.offset;
 
       cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate)');
       const [endCertSeq] = cb.expectASN1Length(chatty && 'certificate sequence');
@@ -463,7 +465,7 @@ export class Cert {
         cb.expectUint8(0x00, chatty && 'null length');
       }
       endSigAlgo();
-      if (sigAlgoOID !== this.algorithm) throw new Error(`Certificate specifies different signature algorithms inside(${this.algorithm}) and out(${sigAlgoOID})`);
+      if (sigAlgoOID !== this.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${this.algorithm}) and out (${sigAlgoOID})`);
 
       // signature
       cb.expectUint8(universalTypeBitString, chatty && 'bitstring (signature)');
@@ -471,6 +473,8 @@ export class Cert {
       chatty && cb.comment('signature');
 
       endCertSeq();
+
+      this.completeData = cb.data.subarray(certSeqStartOffset, cb.offset);
 
     } else {
       this.serialNumber = u8FromHex(certData.serialNumber);
