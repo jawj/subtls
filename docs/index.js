@@ -2453,28 +2453,54 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   return { read, write, userCert };
 }
 
-// src/roots/isrg-root-x1.pem
-var isrg_root_x1_default = "-----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\nTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\ncmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\nWhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\nZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\nMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\nh77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\nA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\nT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\nB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\nB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\nKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\nOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\njh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\nqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\nrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\nHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\nhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\nubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\nNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\nORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\nTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\njNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\noyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\nmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\nemyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n";
+// src/rootCerts.ts
+var txtDec2 = new TextDecoder();
+async function getFile(name) {
+  try {
+    const response = await fetch(name);
+    const buf = await response.arrayBuffer();
+    console.log(buf);
+    return buf;
+  } catch {
+    const fs = await import("fs/promises");
+    const buf = await fs.readFile(`docs/${name}`);
+    return buf.buffer;
+  }
+}
+async function getRootCertsIndex() {
+  const file = await getFile("certs.index.json");
+  const rootCertsIndex = JSON.parse(txtDec2.decode(file));
+  return rootCertsIndex;
+}
+async function getRootCertsData() {
+  const file = await getFile("certs.bin");
+  const rootCertsData = new Uint8Array(file);
+  return rootCertsData;
+}
+async function getRootCertsDatabase() {
+  const [index, data] = await Promise.all([getRootCertsIndex(), getRootCertsData()]);
+  return { index, data };
+}
 
 // src/postgres.ts
-async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true) {
+async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false) {
   const t0 = Date.now();
   const url = parse(urlStr2);
   const host = url.hostname;
   const port = url.port || "5432";
   const db = url.pathname.slice(1);
   const user = url.username;
-  const password = neonPasswordPipelining ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
+  const password = pipelinedPasswordAuth ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
   let done = false;
   const transport = await transportFactory(host, port, () => {
     if (!done) throw new Error("Unexpected connection close");
     log("Connection closed");
   });
+  log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   const sslRequest = new Bytes(8);
   const endSslRequest = sslRequest.writeLengthUint32Incl("SSL request");
   sslRequest.writeUint32(80877103, "[SSLRequest](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST) code");
   endSslRequest();
-  log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   log(...highlightBytes(sslRequest.commentedString(), "#8cc" /* client */));
   const writePreData = sslRequest.array();
   transport.write(writePreData);
@@ -2483,8 +2509,9 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   const byte = new Bytes(SorN);
   byte.expectUint8(83, '"S" = SSL connection supported');
   log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
-  const { read, write, userCert } = await startTls(host, isrg_root_x1_default, transport.read, transport.write, {
-    useSNI: !neonPasswordPipelining,
+  const rootCerts = await getRootCertsDatabase();
+  const { read, write, userCert } = await startTls(host, rootCerts, transport.read, transport.write, {
+    useSNI: !pipelinedPasswordAuth,
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false
   });
@@ -2497,7 +2524,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   msg.writeUTF8StringNullTerminated(db);
   msg.writeUint8(0, "end of message");
   endStartupMessage();
-  if (neonPasswordPipelining) {
+  if (pipelinedPasswordAuth) {
     msg.writeUTF8String("p");
     msg.comment("= [PasswordMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)");
     const endPasswordMessage = msg.writeLengthUint32Incl("password message");
@@ -2519,12 +2546,12 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   preAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
   const [endAuthReq, authReqRemaining] = preAuthBytes.expectLengthUint32Incl("request");
   const authMechanism = preAuthBytes.readUint32();
-  const saslMechanisms = [];
+  const saslMechanisms = /* @__PURE__ */ new Set();
   if (authMechanism === 3) {
     preAuthBytes.comment("request password auth ([AuthenticationCleartextPassword](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONCLEARTEXTPASSWORD))");
   } else if (authMechanism === 10) {
     preAuthBytes.comment("AuthenticationSASL message: request SASL auth");
-    while (authReqRemaining() > 1) saslMechanisms.push(preAuthBytes.readUTF8StringNullTerminated());
+    while (authReqRemaining() > 1) saslMechanisms.add(preAuthBytes.readUTF8StringNullTerminated());
     preAuthBytes.expectUint8(0, "null terminated list");
   } else {
     throw new Error(`Unsupported auth mechanism (${authMechanism})`);
@@ -2532,8 +2559,8 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   endAuthReq();
   log("Decrypted and parsed:");
   log(...highlightBytes(preAuthBytes.commentedString(true), "#88c" /* server */));
-  if (authMechanism === 10 && saslMechanisms.includes("SCRAM-SHA-256")) {
-    log("The supported SASL mechanisms are: " + saslMechanisms.join(", "));
+  if (authMechanism === 10 && saslMechanisms.has("SCRAM-SHA-256")) {
+    log("The supported SASL mechanisms are: " + [...saslMechanisms].join(", "));
     log("We continue by selecting SCRAM-SHA-256, as defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802).");
     const saslInitResponse = new Bytes(1024);
     saslInitResponse.writeUTF8String("p");
@@ -2712,7 +2739,7 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
   }
   log("Decrypted and parsed:");
   log(...highlightBytes(postAuthBytes.commentedString(true), "#88c" /* server */));
-  if (neonPasswordPipelining === false) {
+  if (pipelinedPasswordAuth === false) {
     const query = new Bytes(1024);
     query.writeUTF8String("Q");
     msg.comment("= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)");
@@ -2797,33 +2824,7 @@ function parse(url, parseQueryString = false) {
 }
 
 // src/https.ts
-var txtDec2 = new TextDecoder();
-async function getFile(name) {
-  try {
-    const response = await fetch(name);
-    const buf = await response.arrayBuffer();
-    console.log(buf);
-    return buf;
-  } catch {
-    const fs = await import("fs/promises");
-    const buf = await fs.readFile(`docs/${name}`);
-    return buf.buffer;
-  }
-}
-async function getRootCertsIndex() {
-  const file = await getFile("certs.index.json");
-  const rootCertsIndex = JSON.parse(new TextDecoder().decode(file));
-  return rootCertsIndex;
-}
-async function getRootCertsData() {
-  const file = await getFile("certs.bin");
-  const rootCertsData = new Uint8Array(file);
-  return rootCertsData;
-}
-async function getRootCertsDatabase() {
-  const [index, data] = await Promise.all([getRootCertsIndex(), getRootCertsData()]);
-  return { index, data };
-}
+var txtDec3 = new TextDecoder();
 async function https(urlStr2, method, transportFactory) {
   const t0 = Date.now();
   const url = new URL(urlStr2);
@@ -2834,8 +2835,8 @@ async function https(urlStr2, method, transportFactory) {
   const transport = await transportFactory(host, port, () => {
     log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");
   });
-  const rootCertsDatabase = await getRootCertsDatabase();
-  const { read, write } = await startTls(host, rootCertsDatabase, transport.read, transport.write);
+  const rootCerts = await getRootCertsDatabase();
+  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write);
   log("Here\u2019s a GET request:");
   const request = new Bytes(1024);
   request.writeUTF8String(`${method} ${reqPath} HTTP/1.1\r
@@ -2852,7 +2853,7 @@ Connection: close\r
   do {
     responseData = await read();
     if (responseData) {
-      const responseText = txtDec2.decode(responseData);
+      const responseText = txtDec3.decode(responseData);
       response += responseText;
       log(responseText);
     }

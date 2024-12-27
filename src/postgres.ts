@@ -7,14 +7,16 @@ import { startTls } from './tls/startTls';
 import { getRandomValues } from './util/cryptoRandom';
 import cs from './util/cryptoProxy';
 import type wsTransport from './util/wsTransport';
-
-// @ts-ignore
-import isrgrootx1 from './roots/isrg-root-x1.pem';
+import { getRootCertsDatabase } from './rootCerts';
 import { hexFromU8 } from './util/hex';
 import { concat } from './util/array';
 import { algorithmWithOID } from './tls/certUtils';
 
-export async function postgres(urlStr: string, transportFactory: typeof wsTransport, neonPasswordPipelining = true) {
+export async function postgres(
+  urlStr: string,
+  transportFactory: typeof wsTransport,
+  pipelinedPasswordAuth = false,
+) {
   const t0 = Date.now();
 
   const url = parse(urlStr);
@@ -23,7 +25,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   const port = url.port || '5432';  // not `?? '5432'`, because it's an empty string if unspecified
   const db = url.pathname.slice(1);
   const user = url.username;
-  const password = neonPasswordPipelining ?
+  const password = pipelinedPasswordAuth ?
     `project=${host.match(/^[^.]+/)![0]};${url.password}` :
     url.password;
 
@@ -33,12 +35,14 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     chatty && log('Connection closed');
   });
 
+  // SSLRequest
+
+  chatty && log('First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:');
+
   const sslRequest = new Bytes(8);
   const endSslRequest = sslRequest.writeLengthUint32Incl(chatty && 'SSL request');
   sslRequest.writeUint32(0x04d2162f, '[SSLRequest](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST) code');
   endSslRequest();
-
-  chatty && log('First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:');
 
   chatty && log(...highlightBytes(sslRequest.commentedString(), LogColours.client));
   const writePreData = sslRequest.array();
@@ -50,14 +54,18 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   byte.expectUint8(0x53, '"S" = SSL connection supported');
   chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
 
-  const { read, write, userCert } = await startTls(host, isrgrootx1, transport.read, transport.write, {
-    useSNI: !neonPasswordPipelining,
+  // TLS connection
+
+  const rootCerts = await getRootCertsDatabase();
+  const { read, write, userCert } = await startTls(host, rootCerts, transport.read, transport.write, {
+    useSNI: !pipelinedPasswordAuth,
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false,
   });
 
-  const msg = new Bytes(1024);
+  // StartupMessage
 
+  const msg = new Bytes(1024);
   const endStartupMessage = msg.writeLengthUint32Incl(chatty && '[StartupMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE)');
   msg.writeUint32(0x0003_0000, chatty && 'protocol version');
   msg.writeUTF8StringNullTerminated('user');
@@ -67,7 +75,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   msg.writeUint8(0x00, chatty && 'end of message');
   endStartupMessage();
 
-  if (neonPasswordPipelining) {
+  if (pipelinedPasswordAuth) {
     msg.writeUTF8String('p');
     chatty && msg.comment('= [PasswordMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)');
     const endPasswordMessage = msg.writeLengthUint32Incl(chatty && 'password message');
@@ -98,14 +106,16 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
   const authMechanism = preAuthBytes.readUint32();
 
-  const saslMechanisms = [];
+  const saslMechanisms = new Set();
   if (authMechanism === 3) {  // password auth
     chatty && preAuthBytes.comment('request password auth ([AuthenticationCleartextPassword](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONCLEARTEXTPASSWORD))');
 
   } else if (authMechanism === 10) {  // SASL auth
     chatty && preAuthBytes.comment('AuthenticationSASL message: request SASL auth');
-    while (authReqRemaining() > 1) saslMechanisms.push(preAuthBytes.readUTF8StringNullTerminated());
+    while (authReqRemaining() > 1) saslMechanisms.add(preAuthBytes.readUTF8StringNullTerminated());
     preAuthBytes.expectUint8(0, chatty && 'null terminated list');
+
+
 
   } else {
     throw new Error(`Unsupported auth mechanism (${authMechanism})`);
@@ -115,8 +125,8 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   chatty && log('Decrypted and parsed:');
   chatty && log(...highlightBytes(preAuthBytes.commentedString(true), LogColours.server));
 
-  if (authMechanism === 10 && saslMechanisms.includes('SCRAM-SHA-256')) {  // continue SASL auth
-    chatty && log('The supported SASL mechanisms are: ' + saslMechanisms.join(', '));
+  if (authMechanism === 10 && saslMechanisms.has('SCRAM-SHA-256')) {  // continue SASL auth
+    chatty && log('The supported SASL mechanisms are: ' + [...saslMechanisms].join(', '));
     chatty && log('We continue by selecting SCRAM-SHA-256, as defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802).');
 
     const saslInitResponse = new Bytes(1024);
@@ -360,7 +370,7 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
   chatty && log('Decrypted and parsed:');
   chatty && log(...highlightBytes(postAuthBytes.commentedString(true), LogColours.server));
 
-  if (neonPasswordPipelining === false) {
+  if (pipelinedPasswordAuth === false) {
     const query = new Bytes(1024)
     query.writeUTF8String('Q');
     chatty && msg.comment('= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)');
