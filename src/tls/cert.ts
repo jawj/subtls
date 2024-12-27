@@ -63,7 +63,6 @@ export interface RootCertsDatabase {
 }
 
 export class Cert {
-  completeData?: Uint8Array;
   serialNumber: Uint8Array;
   algorithm: OID;
   issuer: DistinguishedName;
@@ -79,6 +78,7 @@ export class Cert {
   basicConstraints?: { critical?: boolean; ca?: boolean; pathLength?: number } | undefined;
   // nameConstraints?: { critical?: boolean; permitted?: string[]; excluded?: string[] };
   signedData: Uint8Array;
+  rawData: Uint8Array;
 
   static distinguishedNamesAreEqual(dn1: DistinguishedName, dn2: DistinguishedName) {
     return this.stringFromDistinguishedName(dn1) === this.stringFromDistinguishedName(dn2);
@@ -474,7 +474,7 @@ export class Cert {
 
       endCertSeq();
 
-      this.completeData = cb.data.subarray(certSeqStartOffset, cb.offset);
+      this.rawData = cb.data.subarray(certSeqStartOffset, cb.offset);
 
     } else {
       this.serialNumber = u8FromHex(certData.serialNumber);
@@ -501,6 +501,7 @@ export class Cert {
       if (certData.subjectKeyIdentifier) this.subjectKeyIdentifier = u8FromHex(certData.subjectKeyIdentifier);
       this.basicConstraints = certData.basicConstraints;
       this.signedData = u8FromHex(certData.signedData);
+      this.rawData = u8FromHex(certData.rawData);
     }
   }
 
@@ -565,6 +566,7 @@ export class Cert {
       subjectKeyIdentifier: this.subjectKeyIdentifier && hexFromU8(this.subjectKeyIdentifier),
       basicConstraints: this.basicConstraints,
       signedData: hexFromU8(this.signedData),
+      rawData: hexFromU8(this.rawData),
     }
   }
 

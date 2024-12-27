@@ -1631,7 +1631,6 @@ var allKeyUsages = [
 ];
 var Cert = class _Cert {
   constructor(certData) {
-    __publicField(this, "completeData");
     __publicField(this, "serialNumber");
     __publicField(this, "algorithm");
     __publicField(this, "issuer");
@@ -1647,6 +1646,7 @@ var Cert = class _Cert {
     __publicField(this, "basicConstraints");
     // nameConstraints?: { critical?: boolean; permitted?: string[]; excluded?: string[] };
     __publicField(this, "signedData");
+    __publicField(this, "rawData");
     if (certData instanceof ASN1Bytes || certData instanceof Uint8Array) {
       const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
       const certSeqStartOffset = cb.offset;
@@ -1931,7 +1931,7 @@ var Cert = class _Cert {
       this.signature = cb.readASN1BitString();
       cb.comment("signature");
       endCertSeq();
-      this.completeData = cb.data.subarray(certSeqStartOffset, cb.offset);
+      this.rawData = cb.data.subarray(certSeqStartOffset, cb.offset);
     } else {
       this.serialNumber = u8FromHex(certData.serialNumber);
       this.algorithm = certData.algorithm;
@@ -1957,6 +1957,7 @@ var Cert = class _Cert {
       if (certData.subjectKeyIdentifier) this.subjectKeyIdentifier = u8FromHex(certData.subjectKeyIdentifier);
       this.basicConstraints = certData.basicConstraints;
       this.signedData = u8FromHex(certData.signedData);
+      this.rawData = u8FromHex(certData.rawData);
     }
   }
   static distinguishedNamesAreEqual(dn1, dn2) {
@@ -2015,7 +2016,8 @@ basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical
       authorityKeyIdentifier: this.authorityKeyIdentifier && hexFromU8(this.authorityKeyIdentifier),
       subjectKeyIdentifier: this.subjectKeyIdentifier && hexFromU8(this.subjectKeyIdentifier),
       basicConstraints: this.basicConstraints,
-      signedData: hexFromU8(this.signedData)
+      signedData: hexFromU8(this.signedData),
+      rawData: hexFromU8(this.rawData)
     };
   }
   static uint8ArraysFromPEM(pem) {
@@ -2538,13 +2540,14 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     saslInitResponse.comment("= SASLInitialResponse");
     const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl("message");
     saslInitResponse.writeUTF8StringNullTerminated("SCRAM-SHA-256-PLUS");
+    const gs2Header = "p=tls-server-end-point,,";
     const endInitialClientResponse = saslInitResponse.writeLengthUint32("message");
-    saslInitResponse.writeUTF8String(`p=tls-server-end-point,,`);
+    saslInitResponse.writeUTF8String(gs2Header);
     saslInitResponse.comment("\u2014 the n means channel binding is unsupported, then there\u2019s an (empty) authzid between the commas");
     const clientNonce = new Uint8Array(18);
     await getRandomValues(clientNonce);
     const clientNonceB64 = toBase64(clientNonce);
-    const clientFirstMessageBare = `n=*,r=${clientNonceB64}`;
+    const clientFirstMessageBare = `n=,r=${clientNonceB64}`;
     saslInitResponse.writeUTF8String(clientFirstMessageBare);
     saslInitResponse.comment("\u2014 this is \u2018client-first-message-bare\u2019: n=* represents a dummy username (which Postgres ignores in favour of the user specified in the StartupMessage above), and r is a base64-encoded 18-byte random nonce we just generated");
     endInitialClientResponse();
@@ -2605,10 +2608,10 @@ async function postgres(urlStr2, transportFactory, neonPasswordPipelining = true
     log("The StoredKey is then just an SHA-256 hash of the ClientKey.");
     log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey, " ")}`));
     let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name;
-    if (hashAlgo === "SHA-1" || hashAlgo === "MD5" || hashAlgo === void 0) hashAlgo = "SHA-256";
+    if (hashAlgo === "SHA-1" || hashAlgo === "MD5") hashAlgo = "SHA-256";
     log(...highlightColonList(`certificate hash algorithm: ${hashAlgo}`));
-    const hashedCert = new Uint8Array(await cryptoProxy_default.digest(hashAlgo, userCert.completeData));
-    const cbindMessageB64 = toBase64(concat(te2.encode(`p=tls-server-end-point,,`), hashedCert));
+    const hashedCert = new Uint8Array(await cryptoProxy_default.digest(hashAlgo, userCert.rawData));
+    const cbindMessageB64 = toBase64(concat(te2.encode(gs2Header), hashedCert));
     const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceB64}`;
     log("The \u2018client-final-message-without-proof\u2019 is the channel-binding message plus a reiteration of the full (client + server) nonce.");
     log(...highlightColonList(`client-final-message-without-proof: ${clientFinalMessageWithoutProof}`));

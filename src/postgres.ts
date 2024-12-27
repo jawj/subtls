@@ -126,15 +126,16 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
 
     saslInitResponse.writeUTF8StringNullTerminated('SCRAM-SHA-256-PLUS');
 
+    const gs2Header = 'p=tls-server-end-point,,';
     const endInitialClientResponse = saslInitResponse.writeLengthUint32(chatty && 'message');
-    saslInitResponse.writeUTF8String(`p=tls-server-end-point,,`);
+    saslInitResponse.writeUTF8String(gs2Header);
     chatty && saslInitResponse.comment('— the n means channel binding is unsupported, then there’s an (empty) authzid between the commas')
 
     const clientNonce = new Uint8Array(18);
     await getRandomValues(clientNonce);
     const clientNonceB64 = toBase64(clientNonce);
 
-    const clientFirstMessageBare = `n=*,r=${clientNonceB64}`;
+    const clientFirstMessageBare = `n=,r=${clientNonceB64}`;
     saslInitResponse.writeUTF8String(clientFirstMessageBare);
     chatty && saslInitResponse.comment('— this is ‘client-first-message-bare’: n=* represents a dummy username (which Postgres ignores in favour of the user specified in the StartupMessage above), and r is a base64-encoded 18-byte random nonce we just generated')
     endInitialClientResponse();
@@ -227,11 +228,11 @@ export async function postgres(urlStr: string, transportFactory: typeof wsTransp
     chatty && log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey, ' ')}`));
 
     let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name;
-    if (hashAlgo === 'SHA-1' || hashAlgo === 'MD5' || hashAlgo === undefined) hashAlgo = 'SHA-256';
+    if (hashAlgo === 'SHA-1' || hashAlgo === 'MD5') hashAlgo = 'SHA-256';
     chatty && log(...highlightColonList(`certificate hash algorithm: ${hashAlgo}`));
 
-    const hashedCert = new Uint8Array(await cs.digest(hashAlgo, userCert.completeData!));
-    const cbindMessageB64 = toBase64(concat(te.encode(`p=tls-server-end-point,,`), hashedCert));
+    const hashedCert = new Uint8Array(await cs.digest(hashAlgo, userCert.rawData!));
+    const cbindMessageB64 = toBase64(concat(te.encode(gs2Header), hashedCert));
     const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceB64}`;
 
     chatty && log('The ‘client-final-message-without-proof’ is the channel-binding message plus a reiteration of the full (client + server) nonce.');
