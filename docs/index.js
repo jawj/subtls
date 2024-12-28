@@ -2453,7 +2453,23 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   return { read, write, userCert };
 }
 
-// src/rootCerts.ts
+// src/util/randomInt.ts
+var randUint32 = new Uint32Array(1);
+var maxUint32 = 2 ** 32 - 1;
+async function randomIntBetween(lowestIncl, highestIncl) {
+  const range = highestIncl - lowestIncl;
+  if (range === 0) return lowestIncl;
+  if (range < 0) throw new Error("Upper bound cannot be below lower bound");
+  if (range > maxUint32) throw new Error(`Range cannot exceed ${maxUint32}`);
+  const mod = range + 1;
+  const maxUsable = Math.floor(maxUint32 / mod) * mod;
+  do {
+    await getRandomValues(randUint32);
+  } while (randUint32[0] > maxUsable);
+  return lowestIncl + randUint32[0] % mod;
+}
+
+// src/util/rootCerts.ts
 var txtDec2 = new TextDecoder();
 async function getFile(name) {
   try {
@@ -2482,10 +2498,22 @@ async function getRootCertsDatabase() {
   return { index, data };
 }
 
+// src/util/parseURL.ts
+function parseAsHTTP(url, parseQueryString = false) {
+  const { protocol } = new URL(url);
+  const httpUrl = "http:" + url.substring(protocol.length);
+  let { username, password, hostname, port, pathname, search, searchParams, hash } = new URL(httpUrl);
+  password = decodeURIComponent(password);
+  const auth = username + ":" + password;
+  const query = parseQueryString ? Object.fromEntries(searchParams.entries()) : search;
+  return { href: url, protocol, auth, username, password, hostname, port, pathname, search, query, hash };
+}
+
 // src/postgres.ts
+var te2 = new TextEncoder();
 async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false) {
   const t0 = Date.now();
-  const url = parse(urlStr2);
+  const url = parseAsHTTP(urlStr2);
   const host = url.hostname;
   const port = url.port || "5432";
   const db = url.pathname.slice(1);
@@ -2522,6 +2550,8 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   msg.writeUTF8StringNullTerminated(user);
   msg.writeUTF8StringNullTerminated("database");
   msg.writeUTF8StringNullTerminated(db);
+  msg.writeUTF8StringNullTerminated("application_name");
+  msg.writeUTF8StringNullTerminated("bytebybyte.dev");
   msg.writeUint8(0, "end of message");
   endStartupMessage();
   if (pipelinedPasswordAuth) {
@@ -2540,7 +2570,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   log(...highlightBytes(msg.commentedString(), "#8cc" /* client */));
   log("And the ciphertext looks like this:");
   await write(msg.array());
-  log("The server now responds to each message in turn. First it responds to the startup message with a request for our password. Encrypted, as received:");
+  log("The server now responds to each message in turn. First it responds to the startup message with a request for authentication. Encrypted, as received:");
   const preAuthResponse = await read();
   const preAuthBytes = new Bytes(preAuthResponse);
   preAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
@@ -2553,43 +2583,52 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     preAuthBytes.comment("AuthenticationSASL message: request SASL auth");
     while (authReqRemaining() > 1) saslMechanisms.add(preAuthBytes.readUTF8StringNullTerminated());
     preAuthBytes.expectUint8(0, "null terminated list");
+    if (!saslMechanisms.has("SCRAM-SHA-256-PLUS")) throw new Error(`SCRAM-SHA-256 without channel binding is not supported`);
   } else {
-    throw new Error(`Unsupported auth mechanism (${authMechanism})`);
+    throw new Error(`Unsupported auth mechanism: ${authMechanism}`);
   }
   endAuthReq();
   log("Decrypted and parsed:");
   log(...highlightBytes(preAuthBytes.commentedString(true), "#88c" /* server */));
-  if (authMechanism === 10 && saslMechanisms.has("SCRAM-SHA-256")) {
-    log("The supported SASL mechanisms are: " + [...saslMechanisms].join(", "));
-    log("We continue by selecting SCRAM-SHA-256, as defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802).");
+  if (authMechanism === 10) {
+    log("So the server requires [SASL authentication](https://www.postgresql.org/docs/current/sasl-authentication.html), and the supported mechanisms are: " + [...saslMechanisms].join(", ") + ".");
+    log("We continue by picking SCRAM-SHA-256-PLUS. This is defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802) and provides channel binding (see [RFC5056](https://datatracker.ietf.org/doc/html/rfc5056)) for some additional protection against MITM attacks.");
+    log("p= selects the channel binding method: tls-server-end-point is the only one Postgres currently supports.");
+    log("n= sets the username: we leave this empty, since Postgres ignores this in favour of the user specified in the StartupMessage above.");
+    log("r= provides a 24-byte printable-ASCII random nonce, which we\u2019ll generate now.");
+    let clientNonce = "";
+    for (let i = 0; i < 24; i++) {
+      let chr = await randomIntBetween(33, 125);
+      if (chr === 44) chr = 126;
+      clientNonce += String.fromCharCode(chr);
+    }
+    log(...highlightColonList(`client nonce: ${clientNonce}`));
+    log("(The nonce is commonly created by [generating 18 random bytes and base64-encoding them](https://github.com/brianc/node-postgres/blob/master/packages/pg/lib/crypto/sasl.js). But using every printable ASCII character, as the standard allows, gets us 93 bits of entropy per character rather than only 64).");
+    log("These three parameters make up the SCRAM client-first-message, which is the last part of the Postgres SASLInitialResponse we now send.");
     const saslInitResponse = new Bytes(1024);
     saslInitResponse.writeUTF8String("p");
     saslInitResponse.comment("= SASLInitialResponse");
     const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl("message");
     saslInitResponse.writeUTF8StringNullTerminated("SCRAM-SHA-256-PLUS");
     const gs2Header = "p=tls-server-end-point,,";
-    const endInitialClientResponse = saslInitResponse.writeLengthUint32("message");
+    const endInitialClientResponse = saslInitResponse.writeLengthUint32("client-first-message");
     saslInitResponse.writeUTF8String(gs2Header);
-    saslInitResponse.comment("\u2014 the n means channel binding is unsupported, then there\u2019s an (empty) authzid between the commas");
-    const clientNonce = new Uint8Array(18);
-    await getRandomValues(clientNonce);
-    const clientNonceB64 = toBase64(clientNonce);
-    const clientFirstMessageBare = `n=,r=${clientNonceB64}`;
+    saslInitResponse.comment("(there\u2019s an empty authzid field between these commas)");
+    const clientFirstMessageBare = `n=,r=${clientNonce}`;
     saslInitResponse.writeUTF8String(clientFirstMessageBare);
-    saslInitResponse.comment("\u2014 this is \u2018client-first-message-bare\u2019: n=* represents a dummy username (which Postgres ignores in favour of the user specified in the StartupMessage above), and r is a base64-encoded 18-byte random nonce we just generated");
+    saslInitResponse.comment("(this part is called the client-first-message-bare)");
     endInitialClientResponse();
     endSaslInitResponse();
     log(...highlightBytes(saslInitResponse.commentedString(), "#8cc" /* client */));
     log("And as ciphertext:");
     await write(saslInitResponse.array());
-    log("The server responds with a SASL challenge:");
+    log("The server responds with an AuthenticationSASLContinue SASL challenge message. This carries the SCRAM server-first-message, made up of our random nonce extended by another 24 bytes (r), a salt (s), and an iteration count (i).");
     const serverSaslContinueResponse = await read();
     const serverSaslContinueBytes = new Bytes(serverSaslContinueResponse);
     serverSaslContinueBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
     const [endServerSaslContinue, serverSaslContinueRemaining] = serverSaslContinueBytes.expectLengthUint32Incl();
     serverSaslContinueBytes.expectUint32(11, "AuthenticationSASLContinue");
     const serverFirstMessage = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
-    serverSaslContinueBytes.comment("\u2014 this is the SCRAM \u2018server-first-message\u2019");
     endServerSaslContinue();
     log(...highlightBytes(serverSaslContinueBytes.commentedString(), "#88c" /* server */));
     const attrs = Object.fromEntries(serverFirstMessage.split(",").map((v) => [v[0], v.slice(2)]));
@@ -2599,12 +2638,22 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     log(...highlightColonList(`nonce: ${nonceB64}`));
     log(...highlightColonList(`salt: ${saltB64}`));
     log(...highlightColonList(`number of iterations: ${iterations}`));
-    if (!nonceB64.startsWith(clientNonceB64)) throw new Error("Server nonce does not extend client nonce we supplied");
+    if (!nonceB64.startsWith(clientNonce)) throw new Error("Server nonce does not extend client nonce we supplied");
     log("%c\u2713 nonce extends the client nonce we supplied", "color: #8c8;");
+    log("The second and final client authentication message has several elements. First, a channel-binding message. Second, a reiteration of the full (client + server) nonce. And third, a proof that we know the user\u2019s password.");
+    log(...highlightColonList(`The channel binding message tells the server who we think we\u2019re talking to. We provide a hash of the end-user certificate we received from the server during the TLS handshake above. That\u2019s the first certificate in the chain, which in this case is: serial number ${hexFromU8(userCert.serialNumber)} for ${userCert.subjectAltNames?.join(", ")}.`));
+    log("This has a somewhat similar purpose to [certificate pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning). It rules out some sophisticated MITM attacks in which we connect to a proxy that has a certificate that\u2019s valid for the real server but is not the real server\u2019s.");
+    let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name;
+    if (hashAlgo === "SHA-1" || hashAlgo === "MD5") hashAlgo = "SHA-256";
+    log(...highlightColonList(`The hash we present is determined by the certificate\u2019s algorithm (unless that\u2019s MD5 or SHA-1, in which case we upgrade it to SHA-256). For this certificate, it\u2019s: ${hashAlgo}.`));
+    const hashedCert = new Uint8Array(await cryptoProxy_default.digest(hashAlgo, userCert.rawData));
+    log(...highlightColonList(`certificate hash: ${hexFromU8(hashedCert, " ")}`));
+    const cbindMessageB64 = toBase64(concat(te2.encode(gs2Header), hashedCert));
+    const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceB64}`;
     const salt = fromBase64(saltB64);
-    const te2 = new TextEncoder();
     const passwordBytes = te2.encode(password);
-    log("Now we calculate a long chain of SHA-256 HMACs using the password and the salt, and XOR each result with the previous one. This is [operation Hi(str, salt, i) in RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802#section-2.2).");
+    log("SCRAM auth has several security goals. One is to make it more difficult to brute-force a user\u2019s password even given access to their stored credentials, by requiring time-consuming sequential calculations via [PBKDF2](https://en.wikipedia.org/wiki/PBKDF2).");
+    log("So we now we calculate a long chain of SHA-256 HMACs using the password and the salt, and XOR each result with the previous one. This is [operation Hi(str, salt, i) in RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802#section-2.2).");
     const HiHmacKey = await cryptoProxy_default.importKey(
       "raw",
       passwordBytes,
@@ -2615,12 +2664,12 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     let Ui = new Uint8Array(await cryptoProxy_default.sign("HMAC", HiHmacKey, concat(salt, [0, 0, 0, 1])));
     let saltedPassword = Ui;
     log(...highlightColonList(`first result: ${hexFromU8(saltedPassword, " ")}`));
-    log(`... ${iterations - 2} intermediate results ...`);
     for (let i = 1; i < iterations; i++) {
       Ui = new Uint8Array(await cryptoProxy_default.sign("HMAC", HiHmacKey, Ui));
       saltedPassword = saltedPassword.map((x, j) => x ^ Ui[j]);
     }
-    log(...highlightColonList(`final result \u2014 the SaltedPassword: ${hexFromU8(saltedPassword, " ")}`));
+    log(`... ${iterations - 2} intermediate results ...`);
+    log(...highlightColonList(`final result, which is the SaltedPassword: ${hexFromU8(saltedPassword, " ")}`));
     const ckHmacKey = await cryptoProxy_default.importKey(
       "raw",
       saltedPassword,
@@ -2629,20 +2678,16 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
       ["sign"]
     );
     const clientKey = new Uint8Array(await cryptoProxy_default.sign("HMAC", ckHmacKey, te2.encode("Client Key")));
-    log("Now we generate the ClientKey as an HMAC of the string \u2018Client Key\u2019 using the SaltedPassword.");
+    log('Next we generate the ClientKey as an HMAC of the string "Client Key" using the SaltedPassword.');
     log(...highlightColonList(`ClientKey: ${hexFromU8(clientKey, " ")}`));
     const storedKey = new Uint8Array(await cryptoProxy_default.digest("SHA-256", clientKey));
-    log("The StoredKey is then just an SHA-256 hash of the ClientKey.");
+    log("The StoredKey is then the SHA-256 hash of the ClientKey.");
     log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey, " ")}`));
-    let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name;
-    if (hashAlgo === "SHA-1" || hashAlgo === "MD5") hashAlgo = "SHA-256";
-    log(...highlightColonList(`certificate hash algorithm: ${hashAlgo}`));
-    const hashedCert = new Uint8Array(await cryptoProxy_default.digest(hashAlgo, userCert.rawData));
-    const cbindMessageB64 = toBase64(concat(te2.encode(gs2Header), hashedCert));
-    const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceB64}`;
-    log("The \u2018client-final-message-without-proof\u2019 is the channel-binding message plus a reiteration of the full (client + server) nonce.");
+    log(`You\u2019ll see the base64-encoded StoredKey ([alongside various other parameters](https://www.postgresql.org/docs/current/catalog-pg-authid.html)) if you run the following query against the database: SELECT rolpassword FROM pgauthid WHERE rolname='${user.replace(/'/g, "''")}'.`);
+    log(...highlightColonList(`StoredKey, base64-encoded: ${toBase64(storedKey)}`));
+    log("The client-final-message-without-proof is a channel-binding message plus a reiteration of the full (client + server) nonce.");
     log(...highlightColonList(`client-final-message-without-proof: ${clientFinalMessageWithoutProof}`));
-    log("The \u2018client-final-message\u2019 has a proof tacked on the end. First we calculate the ClientSignature as an HMAC of the AuthMessage: a concatenation of the three previous messages sent between client and server.");
+    log("The client-final-message has a proof tacked on the end. First we calculate the ClientSignature as an HMAC of the AuthMessage, which is a concatenation of the three previous messages sent between client and server.");
     const authMessage = `${clientFirstMessageBare},${serverFirstMessage},${clientFinalMessageWithoutProof}`;
     log(...highlightColonList(`AuthMessage: ${authMessage}`));
     const csHmacKey = await cryptoProxy_default.importKey(
@@ -2657,7 +2702,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     log("Then we calculate the proof by XORing this ClientSignature with the ClientKey.");
     const clientProof = clientKey.map((x, i) => x ^ clientSignature[i]);
     log(...highlightColonList(`ClientProof: ${hexFromU8(clientProof, " ")}`));
-    log("We\u2019re now ready to send the \u2018client-final-message\u2019 as a Postgres SASLResponse:");
+    log("We\u2019re now ready to send the client-final-message as a Postgres SASLResponse:");
     const clientProofB64 = toBase64(clientProof);
     const clientFinalMessage = `${clientFinalMessageWithoutProof},p=${clientProofB64}`;
     const saslResponse = new Bytes(1024);
@@ -2665,7 +2710,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     saslResponse.comment("= SASLResponse");
     const endSaslResponse = saslResponse.writeLengthUint32Incl("message");
     saslResponse.writeUTF8String(clientFinalMessage);
-    saslResponse.comment("\u2014 the SCRAM \u2018client-final-message\u2019");
+    saslResponse.comment("\u2014 the SCRAM client-final-message");
     endSaslResponse();
     log(...highlightBytes(saslResponse.commentedString(), "#8cc" /* client */));
     log("And as ciphertext:");
@@ -2681,7 +2726,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     authSaslFinalBytes.comment("\u2014 the base64-encoded ServerSignature");
     endAuthSaslFinal();
     log(...highlightBytes(authSaslFinalBytes.commentedString(), "#88c" /* server */));
-    log("Now we calculate a server signature for ourselves, to see that it matches up. First we produce the ServerKey: an HMAC of the string \u2018Server Key\u2019 using the SaltedPassword.");
+    log('Now we calculate a server signature for ourselves, to see that it matches up. First we produce the ServerKey: an HMAC of the string "Server Key" using the SaltedPassword.');
     const skHmacKey = await cryptoProxy_default.importKey(
       "raw",
       saltedPassword,
@@ -2812,15 +2857,6 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   log("And as sent on the wire:");
   await write(endBytes.array());
   done = true;
-}
-function parse(url, parseQueryString = false) {
-  const { protocol } = new URL(url);
-  const httpUrl = "http:" + url.substring(protocol.length);
-  let { username, password, hostname, port, pathname, search, searchParams, hash } = new URL(httpUrl);
-  password = decodeURIComponent(password);
-  const auth = username + ":" + password;
-  const query = parseQueryString ? Object.fromEntries(searchParams.entries()) : search;
-  return { href: url, protocol, auth, username, password, hostname, port, pathname, search, query, hash };
 }
 
 // src/https.ts

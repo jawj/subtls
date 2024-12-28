@@ -4,7 +4,7 @@ import { highlightBytes } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
 import type wsTransport from './util/wsTransport';
-import { getRootCertsDatabase } from './rootCerts';
+import { getRootCertsDatabase } from './util/rootCerts';
 
 const txtDec = new TextDecoder();
 
