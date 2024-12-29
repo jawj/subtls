@@ -2640,20 +2640,23 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     log(...highlightColonList(`number of iterations: ${iterations}`));
     if (!nonceB64.startsWith(clientNonce)) throw new Error("Server nonce does not extend client nonce we supplied");
     log("%c\u2713 nonce extends the client nonce we supplied", "color: #8c8;");
-    log("The second and final client authentication message has several elements. First, a channel-binding message. Second, a reiteration of the full (client + server) nonce. And third, a proof that we know the user\u2019s password.");
-    log(...highlightColonList(`The channel binding message tells the server who we think we\u2019re talking to. We provide a hash of the end-user certificate we received from the server during the TLS handshake above. That\u2019s the first certificate in the chain, which in this case is: serial number ${hexFromU8(userCert.serialNumber)} for ${userCert.subjectAltNames?.join(", ")}.`));
-    log("This has a somewhat similar purpose to [certificate pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning). It rules out some sophisticated MITM attacks in which we connect to a proxy that has a certificate that\u2019s valid for the real server but is not the real server\u2019s.");
+    log("The second and final client authentication message has several elements. First, some channel-binding data. Second, a reiteration of the full client + server nonce. Those two give us the client-final-message-without-proof. And third, a proof that we know the user\u2019s password. That gives us the full client-final-message.");
+    log(...highlightColonList(`The channel-binding data tells the server who we think we\u2019re talking to. We present a hash of the end-user certificate we received from the server during the TLS handshake above. That\u2019s the first certificate in the chain, which in this case is: serial number ${hexFromU8(userCert.serialNumber)}, for ${userCert.subjectAltNames?.join(", ")}.`));
+    log("This has a somewhat similar purpose to [certificate pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning). It rules out some sophisticated MITM attacks in which we connect to a proxy that has a certificate that appears valid for the real server but is not the real server\u2019s.");
     let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name;
     if (hashAlgo === "SHA-1" || hashAlgo === "MD5") hashAlgo = "SHA-256";
-    log(...highlightColonList(`The hash we present is determined by the certificate\u2019s algorithm (unless that\u2019s MD5 or SHA-1, in which case we upgrade it to SHA-256). For this certificate, it\u2019s: ${hashAlgo}.`));
+    log(...highlightColonList(`The hash we present is determined by the certificate\u2019s algorithm (unless that\u2019s MD5 or SHA-1, in which case it\u2019s upgraded to SHA-256). For this particular certificate, it\u2019s: ${hashAlgo}.`));
     const hashedCert = new Uint8Array(await cryptoProxy_default.digest(hashAlgo, userCert.rawData));
     log(...highlightColonList(`certificate hash: ${hexFromU8(hashedCert, " ")}`));
     const cbindMessageB64 = toBase64(concat(te2.encode(gs2Header), hashedCert));
     const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceB64}`;
+    log(`The channel-binding data (c) consists of the channel-binding header we sent before (${gs2Header}), followed by this binary hash, all base64-encoded. That completes the client-final-message-without-proof.`);
+    log(...highlightColonList(`client-final-message-without-proof: ${clientFinalMessageWithoutProof}`));
     const salt = fromBase64(saltB64);
     const passwordBytes = te2.encode(password);
-    log("SCRAM auth has several security goals. One is to make it more difficult to brute-force a user\u2019s password even given access to their stored credentials, by requiring time-consuming sequential calculations via [PBKDF2](https://en.wikipedia.org/wiki/PBKDF2).");
-    log("So we now we calculate a long chain of SHA-256 HMACs using the password and the salt, and XOR each result with the previous one. This is [operation Hi(str, salt, i) in RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802#section-2.2).");
+    log("So: what about the proof? Well, there are a few steps to this.");
+    log("One of SCRAM authentication\u2019s goals is to make it hard to brute-force a user\u2019s password even given access to their stored credentials. That\u2019s done by requiring time-consuming sequential calculations via [PBKDF2](https://en.wikipedia.org/wiki/PBKDF2).");
+    log("So we now calculate a long chain of SHA-256 HMACs using the password and the salt, and XOR each result with the previous one. This is [operation Hi(str, salt, i) in RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802#section-2.2).");
     const HiHmacKey = await cryptoProxy_default.importKey(
       "raw",
       passwordBytes,
@@ -2669,7 +2672,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
       saltedPassword = saltedPassword.map((x, j) => x ^ Ui[j]);
     }
     log(`... ${iterations - 2} intermediate results ...`);
-    log(...highlightColonList(`final result, which is the SaltedPassword: ${hexFromU8(saltedPassword, " ")}`));
+    log(...highlightColonList(`final result \u2014 the SaltedPassword: ${hexFromU8(saltedPassword, " ")}`));
     const ckHmacKey = await cryptoProxy_default.importKey(
       "raw",
       saltedPassword,
@@ -2678,16 +2681,14 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
       ["sign"]
     );
     const clientKey = new Uint8Array(await cryptoProxy_default.sign("HMAC", ckHmacKey, te2.encode("Client Key")));
-    log('Next we generate the ClientKey as an HMAC of the string "Client Key" using the SaltedPassword.');
+    log('Next, we generate the ClientKey. It\u2019s an HMAC of the string "Client Key" using that SaltedPassword.');
     log(...highlightColonList(`ClientKey: ${hexFromU8(clientKey, " ")}`));
     const storedKey = new Uint8Array(await cryptoProxy_default.digest("SHA-256", clientKey));
     log("The StoredKey is then the SHA-256 hash of the ClientKey.");
     log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey, " ")}`));
-    log(`You\u2019ll see the base64-encoded StoredKey ([alongside various other parameters](https://www.postgresql.org/docs/current/catalog-pg-authid.html)) if you run the following query against the database: SELECT rolpassword FROM pgauthid WHERE rolname='${user.replace(/'/g, "''")}'.`);
+    log(`The StoredKey is one of the auth parameters stored by Postgres. In fact, you\u2019ll see the base64-encoded StoredKey ([alongside the salt, iteration count, and some other parameters](https://www.postgresql.org/docs/current/catalog-pg-authid.html)) if you run the following query against your database: SELECT rolpassword FROM pgauthid WHERE rolname='${user.replace(/'/g, "''")}'.`);
     log(...highlightColonList(`StoredKey, base64-encoded: ${toBase64(storedKey)}`));
-    log("The client-final-message-without-proof is a channel-binding message plus a reiteration of the full (client + server) nonce.");
-    log(...highlightColonList(`client-final-message-without-proof: ${clientFinalMessageWithoutProof}`));
-    log("The client-final-message has a proof tacked on the end. First we calculate the ClientSignature as an HMAC of the AuthMessage, which is a concatenation of the three previous messages sent between client and server.");
+    log("We now need to calculate the ClientSignature. This is an HMAC of the AuthMessage, which is itself a concatenation of the three previous messages sent between client and server.");
     const authMessage = `${clientFirstMessageBare},${serverFirstMessage},${clientFinalMessageWithoutProof}`;
     log(...highlightColonList(`AuthMessage: ${authMessage}`));
     const csHmacKey = await cryptoProxy_default.importKey(
@@ -2699,9 +2700,10 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     );
     const clientSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", csHmacKey, te2.encode(authMessage)));
     log(...highlightColonList(`ClientSignature: ${hexFromU8(clientSignature, " ")}`));
-    log("Then we calculate the proof by XORing this ClientSignature with the ClientKey.");
+    log("And at last we can calculate the proof (p), by XORing this ClientSignature with the ClientKey.");
     const clientProof = clientKey.map((x, i) => x ^ clientSignature[i]);
     log(...highlightColonList(`ClientProof: ${hexFromU8(clientProof, " ")}`));
+    log(...highlightColonList(`ClientProof, base64-encoded: ${toBase64(clientProof)}`));
     log("We\u2019re now ready to send the client-final-message as a Postgres SASLResponse:");
     const clientProofB64 = toBase64(clientProof);
     const clientFinalMessage = `${clientFinalMessageWithoutProof},p=${clientProofB64}`;
@@ -2715,7 +2717,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     log(...highlightBytes(saslResponse.commentedString(), "#8cc" /* client */));
     log("And as ciphertext:");
     await write(saslResponse.array());
-    log("The server responds:");
+    log("The server responds with a base64-encoded ServerSignature (v):");
     const authSaslFinalResponse = await read();
     const authSaslFinalBytes = new Bytes(authSaslFinalResponse);
     console.log(new TextDecoder().decode(authSaslFinalResponse));
@@ -2745,8 +2747,9 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
       ["sign"]
     );
     const serverSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", ssbHmacKey, te2.encode(authMessage)));
+    log(...highlightColonList(`ServerSignature: ${hexFromU8(serverSignature, " ")}`));
     const serverSignatureB64 = toBase64(serverSignature);
-    log(...highlightColonList(`base64-encoded ServerSignature: ${serverSignatureB64}`));
+    log(...highlightColonList(`ServerSignature, base64-encoded: ${serverSignatureB64}`));
     const remoteServerSignatureB64 = Object.fromEntries(saslOutcome.split(",").map((v) => [v[0], v.slice(2)])).v;
     if (remoteServerSignatureB64 !== serverSignatureB64) throw new Error("Server signature mismatch");
     log("%c\u2713 server signature matches locally-generated server signature", "color: #8c8;");
