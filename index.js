@@ -3,6 +3,484 @@ var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { en
 writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
+// node_modules/hextreme/index.mjs
+var __defProp2 = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp2 = (obj, key, value) => key in obj ? __defProp2(obj, key, {
+  enumerable: true,
+  configurable: true,
+  writable: true,
+  value
+}) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp2(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp2(a, prop, b[prop]);
+    }
+  return a;
+};
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var chunkBytes = 1008e3;
+var littleEndian = new Uint8Array(new Uint16Array([258]).buffer)[0] === 2;
+var td = new TextDecoder();
+var te = new TextEncoder();
+var hexCharsLower = te.encode("0123456789abcdef");
+var hexCharsUpper = te.encode("0123456789ABCDEF");
+var b64ChStd = te.encode("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
+var b64ChPad = 61;
+var b64ChUrl = b64ChStd.slice();
+b64ChUrl[62] = 45;
+b64ChUrl[63] = 95;
+var ccl;
+var ccu;
+function _toHex(in8, { alphabet, scratchArr } = {}) {
+  if (!ccl) {
+    ccl = new Uint16Array(256);
+    ccu = new Uint16Array(256);
+    if (littleEndian) for (let i2 = 0; i2 < 256; i2++) {
+      ccl[i2] = hexCharsLower[i2 & 15] << 8 | hexCharsLower[i2 >>> 4];
+      ccu[i2] = hexCharsUpper[i2 & 15] << 8 | hexCharsUpper[i2 >>> 4];
+    }
+    else for (let i2 = 0; i2 < 256; i2++) {
+      ccl[i2] = hexCharsLower[i2 & 15] | hexCharsLower[i2 >>> 4] << 8;
+      ccu[i2] = hexCharsUpper[i2 & 15] | hexCharsUpper[i2 >>> 4] << 8;
+    }
+  }
+  if (in8.byteOffset % 4 !== 0) in8 = new Uint8Array(in8);
+  const len = in8.length, halfLen = len >>> 1, quarterLen = len >>> 2, out16 = scratchArr || new Uint16Array(len),
+  in32 = new Uint32Array(
+    in8.buffer,
+    in8.byteOffset,
+    quarterLen
+  ), out32 = new Uint32Array(out16.buffer, out16.byteOffset, halfLen), cc = alphabet === "upper" ? ccu : ccl;
+  let i = 0, j = 0, v;
+  if (littleEndian) while (i < quarterLen) {
+    v = in32[i++];
+    out32[j++] = cc[v >>> 8 & 255] << 16 | cc[v & 255];
+    out32[j++] = cc[v >>> 24] << 16 | cc[v >>> 16 & 255];
+  }
+  else while (i < quarterLen) {
+    v = in32[i++];
+    out32[j++] = cc[v >>> 24] << 16 | cc[v >>> 16 & 255];
+    out32[j++] = cc[v >>> 8 & 255] << 16 | cc[v & 255];
+  }
+  i <<= 2;
+  while (i < len) out16[i] = cc[in8[i++]];
+  const hex = td.decode(out16.subarray(0, len));
+  return hex;
+}
+function _toHexChunked(d, options = {}) {
+  let hex = "", len = d.length, chunkWords = chunkBytes >>> 1, chunks = Math.ceil(len / chunkWords), scratchArr = new Uint16Array(
+    chunks > 1 ? chunkWords : len
+  );
+  for (let i = 0; i < chunks; i++) {
+    const start = i * chunkWords, end = start + chunkWords;
+    hex += _toHex(d.subarray(start, end), __spreadProps(__spreadValues({}, options), { scratchArr }));
+  }
+  return hex;
+}
+function toHex(d, options = {}) {
+  return options.alphabet !== "upper" && typeof d.toHex === "function" ? d.toHex() : _toHexChunked(d, options);
+}
+var vff = 26214;
+var hl;
+function _fromHex(s, { onInvalidInput, scratchArray: scratchArr, outArray: outArr, indexOffset } = {}) {
+  if (!hl) {
+    hl = new Uint8Array(vff + 1);
+    for (let l = 0; l < 22; l++) for (let r = 0; r < 22; r++) {
+      const cl = l + (l < 10 ? 48 : l < 16 ? 55 : 81), cr = r + (r < 10 ? 48 : r < 16 ? 55 : 81), vin = littleEndian ?
+      cr << 8 | cl : cr | cl << 8, vout = (l < 16 ? l : l - 6) << 4 | (r < 16 ? r : r - 6);
+      hl[vin] = vout;
+    }
+  }
+  const lax = onInvalidInput === "truncate", slen = s.length;
+  if (!lax && slen & 1) throw new Error("Hex input is an odd number of characters");
+  const bytelen = slen >>> 1, last7 = bytelen - 7, h16len = bytelen + 2, h16 = scratchArr || new Uint16Array(h16len),
+  h8 = new Uint8Array(
+    h16.buffer,
+    h16.byteOffset
+  ), out = outArr || new Uint8Array(bytelen);
+  if (h16.length < h16len) throw new Error(`Wrong-sized scratch array supplied (was ${h16.length}, expected at\
+ least ${h16len})`);
+  if (out.length != bytelen) throw new Error(`Wrong-sized output array supplied (was ${out.length}, expected ${bytelen}\
+)`);
+  te.encodeInto(s, h8);
+  let i = 0, ok = false;
+  e: {
+    let vin, vout;
+    while (i < last7) {
+      vin = h16[i];
+      vout = hl[vin];
+      if (!vout && vin !== 12336) break e;
+      out[i++] = vout;
+      vin = h16[i];
+      vout = hl[vin];
+      if (!vout && vin !== 12336) break e;
+      out[i++] = vout;
+      vin = h16[i];
+      vout = hl[vin];
+      if (!vout && vin !== 12336) break e;
+      out[i++] = vout;
+      vin = h16[i];
+      vout = hl[vin];
+      if (!vout && vin !== 12336) break e;
+      out[i++] = vout;
+      vin = h16[i];
+      vout = hl[vin];
+      if (!vout && vin !== 12336) break e;
+      out[i++] = vout;
+      vin = h16[i];
+      vout = hl[vin];
+      if (!vout && vin !== 12336) break e;
+      out[i++] = vout;
+      vin = h16[i];
+      vout = hl[vin];
+      if (!vout && vin !== 12336) break e;
+      out[i++] = vout;
+      vin = h16[i];
+      vout = hl[vin];
+      if (!vout && vin !== 12336) break e;
+      out[i++] = vout;
+    }
+    while (i < bytelen) {
+      vin = h16[i];
+      vout = hl[vin];
+      if (!vout && vin !== 12336) break e;
+      out[i++] = vout;
+    }
+    ok = true;
+  }
+  if (!ok && !lax) throw new Error(`Invalid pair in hex input at index ${(indexOffset || 0) + i << 1}`);
+  return i < bytelen ? out.subarray(0, i) : out;
+}
+function _fromHexChunked(s, { onInvalidInput, outArray } = {}) {
+  const lax = onInvalidInput === "truncate", slen = s.length;
+  if (!lax && slen & 1) throw new Error("Hex input is an odd number of characters");
+  const byteLength = slen >>> 1, chunkInts = chunkBytes >>> 1, chunksCount = Math.ceil(byteLength / chunkInts),
+  scratchArr = new Uint16Array(
+    (chunksCount > 1 ? chunkInts : byteLength) + 2
+  ), outArr = outArray || new Uint8Array(byteLength);
+  if (outArr.length !== byteLength) throw new Error(`Provided output array is of wrong length: expected ${byteLength}\
+, got ${outArr.length}`);
+  for (let i = 0; i < chunksCount; i++) {
+    const chunkStartByte = i * chunkInts, chunkEndByte = chunkStartByte + chunkInts, result = _fromHex(s.slice(
+      chunkStartByte << 1,
+      chunkEndByte << 1
+    ), {
+      onInvalidInput,
+      scratchArray: scratchArr,
+      outArray: outArr.subarray(chunkStartByte, chunkEndByte),
+      indexOffset: chunkStartByte
+    });
+    if (lax && result.length < chunkEndByte - chunkStartByte) {
+      return outArr.subarray(0, chunkStartByte + result.length);
+    }
+  }
+  return outArr;
+}
+function fromHex(s, options = {}) {
+  if (typeof Uint8Array.fromHex === "function" && options.onInvalidInput !== "truncate" && !options.outArray) return Uint8Array.
+  fromHex(
+    s
+  );
+  return _fromHexChunked(s, options);
+}
+var chpairsStd;
+var chpairsUrl;
+function _toBase64(d, { omitPadding, alphabet, scratchArr } = {}) {
+  if (!chpairsStd) {
+    chpairsStd = new Uint16Array(4096);
+    if (littleEndian) for (let i2 = 0; i2 < 64; i2++) for (let j2 = 0; j2 < 64; j2++) chpairsStd[i2 << 6 | j2] =
+    b64ChStd[i2] | b64ChStd[j2] << 8;
+    else for (let i2 = 0; i2 < 64; i2++) for (let j2 = 0; j2 < 64; j2++) chpairsStd[i2 << 6 | j2] = b64ChStd[i2] <<
+    8 | b64ChStd[j2];
+    chpairsUrl = chpairsStd.slice();
+    if (littleEndian) {
+      for (let i2 = 0; i2 < 64; i2++) for (let j2 = 62; j2 < 64; j2++) chpairsUrl[i2 << 6 | j2] = b64ChUrl[i2] |
+      b64ChUrl[j2] << 8;
+      for (let i2 = 62; i2 < 64; i2++) for (let j2 = 0; j2 < 62; j2++) chpairsUrl[i2 << 6 | j2] = b64ChUrl[i2] |
+      b64ChUrl[j2] << 8;
+    } else {
+      for (let i2 = 0; i2 < 64; i2++) for (let j2 = 62; j2 < 64; j2++) chpairsUrl[i2 << 6 | j2] = b64ChUrl[i2] <<
+      8 | b64ChUrl[j2];
+      for (let i2 = 62; i2 < 64; i2++) for (let j2 = 0; j2 < 62; j2++) chpairsUrl[i2 << 6 | j2] = b64ChUrl[i2] <<
+      8 | b64ChUrl[j2];
+    }
+  }
+  if (d.byteOffset % 4 !== 0) d = new Uint8Array(d);
+  const urlsafe = alphabet === "base64url", ch = urlsafe ? b64ChUrl : b64ChStd, chpairs = urlsafe ? chpairsUrl :
+  chpairsStd, inlen = d.length, last2 = inlen - 2, inints = inlen >>> 2, intlast3 = inints - 3, d32 = new Uint32Array(
+  d.buffer, d.byteOffset, inints), outints = Math.ceil(inlen / 3), out = scratchArr || new Uint32Array(outints);
+  let i = 0, j = 0, u1, u2, u3, b1, b2, b3;
+  if (littleEndian) while (i < intlast3) {
+    u1 = d32[i++];
+    u2 = d32[i++];
+    u3 = d32[i++];
+    b1 = u1 & 255;
+    b2 = u1 >>> 8 & 255;
+    b3 = u1 >>> 16 & 255;
+    out[j++] = chpairs[b1 << 4 | b2 >>> 4] | chpairs[(b2 & 15) << 8 | b3] << 16;
+    b1 = u1 >>> 24;
+    b2 = u2 & 255;
+    b3 = u2 >>> 8 & 255;
+    out[j++] = chpairs[b1 << 4 | b2 >>> 4] | chpairs[(b2 & 15) << 8 | b3] << 16;
+    b1 = u2 >>> 16 & 255;
+    b2 = u2 >>> 24;
+    b3 = u3 & 255;
+    out[j++] = chpairs[b1 << 4 | b2 >>> 4] | chpairs[(b2 & 15) << 8 | b3] << 16;
+    b1 = u3 >>> 8 & 255;
+    b2 = u3 >>> 16 & 255;
+    b3 = u3 >>> 24;
+    out[j++] = chpairs[b1 << 4 | b2 >>> 4] | chpairs[(b2 & 15) << 8 | b3] << 16;
+  }
+  else while (i < intlast3) {
+    u1 = d32[i++];
+    u2 = d32[i++];
+    u3 = d32[i++];
+    out[j++] = chpairs[u1 >>> 20] << 16 | chpairs[u1 >>> 8 & 4095];
+    out[j++] = chpairs[(u1 & 255) << 4 | u2 >>> 28] << 16 | chpairs[u2 >>> 16 & 4095];
+    out[j++] = chpairs[u2 >>> 4 & 4095] << 16 | chpairs[(u2 & 15) << 8 | u3 >>> 24];
+    out[j++] = chpairs[u3 >>> 12 & 4095] << 16 | chpairs[u3 & 4095];
+  }
+  i = i << 2;
+  while (i < last2) {
+    b1 = d[i++];
+    b2 = d[i++];
+    b3 = d[i++];
+    out[j++] = chpairs[b1 << 4 | b2 >>> 4] << (littleEndian ? 0 : 16) | chpairs[(b2 & 15) << 8 | b3] << (littleEndian ?
+    16 : 0);
+  }
+  if (i === inlen) return td.decode(out);
+  b1 = d[i++];
+  b2 = d[i++];
+  out[j++] = chpairs[b1 << 4 | (b2 || 0) >>> 4] << (littleEndian ? 0 : 16) | // first 16 bits (no padding)
+  (b2 === void 0 ? b64ChPad : ch[((b2 || 0) & 15) << 2]) << (littleEndian ? 16 : 8) | // next 8 bits
+  b64ChPad << (littleEndian ? 24 : 0);
+  if (!omitPadding) return td.decode(out);
+  let out8 = new Uint8Array(out.buffer, 0, (outints << 2) - (b2 === void 0 ? 2 : 1));
+  return td.decode(out8);
+}
+function _toBase64Chunked(d, options = {}) {
+  const inBytes = d.length, outInts = Math.ceil(inBytes / 3), outChunkInts = chunkBytes >>> 2, chunksCount = Math.
+  ceil(outInts / outChunkInts), inChunkBytes = outChunkInts * 3, scratchArr = new Uint32Array(chunksCount > 1 ?
+  outChunkInts : outInts);
+  let b64 = "";
+  for (let i = 0; i < chunksCount; i++) {
+    const startInBytes = i * inChunkBytes, endInBytes = startInBytes + inChunkBytes, startOutInts = i * outChunkInts,
+    endOutInts = Math.min(startOutInts + outChunkInts, outInts);
+    b64 += _toBase64(d.subarray(startInBytes, endInBytes), __spreadProps(__spreadValues({}, options), {
+      scratchArr: scratchArr.subarray(0, endOutInts - startOutInts)
+    }));
+  }
+  return b64;
+}
+function toBase64(d, options = {}) {
+  return typeof d.toBase64 === "function" ? d.toBase64(options) : _toBase64Chunked(d, options);
+}
+var vzz = 31354;
+var stdWordLookup;
+var urlWordLookup;
+var anyWordLookup;
+var stdByteLookup;
+var urlByteLookup;
+var anyByteLookup;
+function _fromBase64(s, { alphabet, onInvalidInput } = {}) {
+  const lax = onInvalidInput === "skip";
+  if (!stdWordLookup && alphabet !== "base64url" && alphabet !== "base64any") {
+    stdWordLookup = new Uint16Array(vzz + 1);
+    for (let l = 0; l < 64; l++) for (let r = 0; r < 64; r++) {
+      const cl = b64ChStd[l], cr = b64ChStd[r], vin = littleEndian ? cr << 8 | cl : cr | cl << 8, vout = l << 6 |
+      r;
+      stdWordLookup[vin] = vout;
+    }
+  }
+  if (!urlWordLookup && alphabet === "base64url") {
+    urlWordLookup = new Uint16Array(vzz + 1);
+    for (let l = 0; l < 64; l++) for (let r = 0; r < 64; r++) {
+      const cl = b64ChUrl[l], cr = b64ChUrl[r], vin = littleEndian ? cr << 8 | cl : cr | cl << 8, vout = l << 6 |
+      r;
+      urlWordLookup[vin] = vout;
+    }
+  }
+  if (!anyWordLookup && alphabet === "base64any") {
+    anyWordLookup = new Uint16Array(vzz + 1);
+    for (let l = 0; l < 64; l++) for (let r = 0; r < 64; r++) {
+      const cl = b64ChStd[l], cr = b64ChStd[r], vin = littleEndian ? cr << 8 | cl : cr | cl << 8, vout = l << 6 |
+      r;
+      anyWordLookup[vin] = vout;
+      if (l > 61 || r > 61) {
+        const cl2 = b64ChUrl[l], cr2 = b64ChUrl[r], vin2 = littleEndian ? cr2 << 8 | cl2 : cr2 | cl2 << 8;
+        anyWordLookup[vin2] = vout;
+      }
+    }
+  }
+  if (!stdByteLookup) {
+    stdByteLookup = new Uint8Array(256).fill(66);
+    urlByteLookup = new Uint8Array(256).fill(66);
+    anyByteLookup = new Uint8Array(256).fill(66);
+    stdByteLookup[b64ChPad] = urlByteLookup[b64ChPad] = anyByteLookup[b64ChPad] = 65;
+    stdByteLookup[9] = stdByteLookup[10] = stdByteLookup[13] = stdByteLookup[32] = // tab, \r, \n, space
+    urlByteLookup[9] = urlByteLookup[10] = urlByteLookup[13] = urlByteLookup[32] = anyByteLookup[9] = anyByteLookup[10] =
+    anyByteLookup[13] = anyByteLookup[32] = 64;
+    for (let i2 = 0; i2 < 64; i2++) {
+      const chStdI = b64ChStd[i2], chUrlI = b64ChUrl[i2];
+      stdByteLookup[chStdI] = urlByteLookup[chUrlI] = anyByteLookup[chStdI] = anyByteLookup[chUrlI] = i2;
+    }
+  }
+  const inBytes = te.encode(s), inBytesLen = inBytes.length, inIntsLen = inBytesLen >>> 2, inInts = new Uint32Array(
+    inBytes.buffer,
+    inBytes.byteOffset,
+    inIntsLen
+  ), last3 = inIntsLen - 3, maxOutBytesLen = inIntsLen * 3 + inBytesLen % 4, outBytes = new Uint8Array(
+    maxOutBytesLen
+  ), outInts = new Uint32Array(outBytes.buffer, 0, maxOutBytesLen >>> 2), wl = alphabet === "base64url" ? urlWordLookup :
+  alphabet === "base64any" ? anyWordLookup : stdWordLookup, bl = alphabet === "base64url" ? urlByteLookup : alphabet ===
+  "base64any" ? anyByteLookup : stdByteLookup;
+  let i = 0, j = 0, inInt, inL, inR, vL1, vR1, vL2, vR2, vL3, vR3, vL4, vR4;
+  if (littleEndian) while (i < last3) {
+    inInt = inInts[i++];
+    inL = inInt & 65535;
+    inR = inInt >>> 16;
+    vL1 = wl[inL];
+    vR1 = wl[inR];
+    if (!((vL1 || inL === 16705) && (vR1 || inR === 16705))) {
+      i -= 1;
+      break;
+    }
+    inInt = inInts[i++];
+    inL = inInt & 65535;
+    inR = inInt >>> 16;
+    vL2 = wl[inL];
+    vR2 = wl[inR];
+    if (!((vL2 || inL === 16705) && (vR2 || inR === 16705))) {
+      i -= 2;
+      break;
+    }
+    inInt = inInts[i++];
+    inL = inInt & 65535;
+    inR = inInt >>> 16;
+    vL3 = wl[inL];
+    vR3 = wl[inR];
+    if (!((vL3 || inL === 16705) && (vR3 || inR === 16705))) {
+      i -= 3;
+      break;
+    }
+    inInt = inInts[i++];
+    inL = inInt & 65535;
+    inR = inInt >>> 16;
+    vL4 = wl[inL];
+    vR4 = wl[inR];
+    if (!((vL4 || inL === 16705) && (vR4 || inR === 16705))) {
+      i -= 4;
+      break;
+    }
+    outInts[j++] = vL1 >>> 4 | (vL1 & 15) << 12 | vR1 & 65280 | (vR1 & 255) << 16 | (vL2 & 4080) << 20;
+    outInts[j++] = (vL2 & 15) << 4 | (vR2 & 65280) >>> 8 | (vR2 & 255) << 8 | (vL3 & 4080) << 12 | (vL3 & 15) <<
+    28 | (vR3 & 65280) << 16;
+    outInts[j++] = vR3 & 255 | (vL4 & 4080) << 4 | (vL4 & 15) << 20 | (vR4 & 3840) << 8 | vR4 << 24;
+  }
+  else while (i < last3) {
+    inInt = inInts[i++];
+    inL = inInt >>> 16;
+    inR = inInt & 65535;
+    vL1 = wl[inL];
+    vR1 = wl[inR];
+    if (!((vL1 || inL === 16705) && (vR1 || inR === 16705))) {
+      i -= 1;
+      break;
+    }
+    inInt = inInts[i++];
+    inL = inInt >>> 16;
+    inR = inInt & 65535;
+    vL2 = wl[inL];
+    vR2 = wl[inR];
+    if (!((vL2 || inL === 16705) && (vR2 || inR === 16705))) {
+      i -= 2;
+      break;
+    }
+    inInt = inInts[i++];
+    inL = inInt >>> 16;
+    inR = inInt & 65535;
+    vL3 = wl[inL];
+    vR3 = wl[inR];
+    if (!((vL3 || inL === 16705) && (vR3 || inR === 16705))) {
+      i -= 3;
+      break;
+    }
+    inInt = inInts[i++];
+    inL = inInt >>> 16;
+    inR = inInt & 65535;
+    vL4 = wl[inL];
+    vR4 = wl[inR];
+    if (!((vL4 || inL === 16705) && (vR4 || inR === 16705))) {
+      i -= 4;
+      break;
+    }
+    outInts[j++] = vL1 << 20 | vR1 << 8 | vL2 >>> 4;
+    outInts[j++] = (vL2 & 15) << 28 | vR2 << 16 | vL3 << 4 | vR3 >>> 8;
+    outInts[j++] = (vR3 & 255) << 24 | vL4 << 12 | vR4;
+  }
+  i <<= 2;
+  j <<= 2;
+  if (i === inBytesLen) return outBytes;
+  let i0 = i, ok = false;
+  e: {
+    if (lax) while (i < inBytesLen) {
+      i0 = i;
+      while ((vL1 = bl[inBytes[i++]]) > 63) if (vL1 === 65) ok = true;
+      while ((vL2 = bl[inBytes[i++]]) > 63) if (vL2 === 65) ok = true;
+      while ((vL3 = bl[inBytes[i++]]) > 63) if (vL3 === 65) ok = true;
+      while ((vL4 = bl[inBytes[i++]]) > 63) if (vL4 === 65) ok = true;
+      outBytes[j++] = vL1 << 2 | vL2 >>> 4;
+      outBytes[j++] = (vL2 << 4 | vL3 >>> 2) & 255;
+      outBytes[j++] = (vL3 << 6 | vL4) & 255;
+      if (ok) break;
+    }
+    else while (i < inBytesLen) {
+      i0 = i;
+      while ((vL1 = bl[inBytes[i++]]) > 63) if (vL1 === 66) break e;
+      else if (vL1 === 65) ok = true;
+      while ((vL2 = bl[inBytes[i++]]) > 63) if (vL2 === 66) break e;
+      else if (vL2 === 65) ok = true;
+      while ((vL3 = bl[inBytes[i++]]) > 63) if (vL3 === 66) break e;
+      else if (vL3 === 65) ok = true;
+      while ((vL4 = bl[inBytes[i++]]) > 63) if (vL4 === 66) break e;
+      else if (vL4 === 65) ok = true;
+      outBytes[j++] = vL1 << 2 | vL2 >>> 4;
+      outBytes[j++] = (vL2 << 4 | vL3 >>> 2) & 255;
+      outBytes[j++] = (vL3 << 6 | vL4) & 255;
+      if (ok) break;
+    }
+    ok = true;
+  }
+  if (!ok) throw new Error(`Invalid character in base64 at index ${i - 1}`);
+  let validChars = 0;
+  for (i = i0; i < inBytesLen; i++) {
+    const v = bl[inBytes[i]];
+    if (v < 64) validChars++;
+    if (v === 65) break;
+  }
+  if (!lax) for (i = i0; i < inBytesLen; i++) {
+    const v = bl[inBytes[i]];
+    if (v > 65) throw new Error(`Invalid character in base64 after padding`);
+  }
+  const truncateBytes = { 4: 0, 3: 1, 2: 2, 1: 3, 0: 3 }[validChars];
+  return outBytes.subarray(0, j - truncateBytes);
+}
+function fromBase64(s, options = {}) {
+  if (typeof Uint8Array.fromBase64 === "function" && options.onInvalidInput !== "skip" && options.alphabet !==
+  "base64any") return Uint8Array.fromBase64(s, options);
+  return _fromBase64(s, options);
+}
+
 // src/util/array.ts
 function concat(...arrs) {
   if (arrs.length === 1 && arrs[0] instanceof Uint8Array) return arrs[0];
@@ -739,37 +1217,6 @@ var Crypter = class {
   }
 };
 
-// src/util/base64.ts
-function base64Error(charCode) {
-  throw new Error(`Invalid base 64 character: ${String.fromCharCode(charCode)}`);
-}
-function stdCharCodes(charCode) {
-  return charCode > 64 && charCode < 91 ? charCode - 65 : charCode > 96 && charCode < 123 ? charCode - 71 : charCode >
-  47 && charCode < 58 ? charCode + 4 : charCode === 43 ? 62 : charCode === 47 ? 63 : charCode === 61 ? 64 : base64Error(
-  charCode);
-}
-function base64Decode(input, charCodes = stdCharCodes, autoPad = true) {
-  const len = input.length;
-  if (autoPad) input += "=".repeat(len % 4);
-  let inputIdx = 0, outputIdx = 0;
-  let enc1 = 64, enc2 = 64, enc3 = 64, enc4 = 64;
-  const output = new Uint8Array(len * 0.75);
-  while (inputIdx < len) {
-    enc1 = charCodes(input.charCodeAt(inputIdx++));
-    enc2 = charCodes(input.charCodeAt(inputIdx++));
-    enc3 = charCodes(input.charCodeAt(inputIdx++));
-    enc4 = charCodes(input.charCodeAt(inputIdx++));
-    output[outputIdx++] = enc1 << 2 | enc2 >> 4;
-    output[outputIdx++] = (enc2 & 15) << 4 | enc3 >> 2;
-    output[outputIdx++] = (enc3 & 3) << 6 | enc4;
-  }
-  const excessLength = enc2 === 64 ? 0 : (
-    // implies zero-length input
-    enc3 === 64 ? 2 : enc4 === 64 ? 1 : 0
-  );
-  return output.subarray(0, outputIdx - excessLength);
-}
-
 // src/util/asn1bytes.ts
 var ASN1Bytes = class extends Bytes {
   readASN1Length(comment) {
@@ -1204,8 +1651,10 @@ var Cert = class _Cert {
     __publicField(this, "basicConstraints");
     // nameConstraints?: { critical?: boolean; permitted?: string[]; excluded?: string[] };
     __publicField(this, "signedData");
+    __publicField(this, "rawData");
     if (certData instanceof ASN1Bytes || certData instanceof Uint8Array) {
       const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
+      const certSeqStartOffset = cb.offset;
       cb.expectUint8(constructedUniversalTypeSequence, 0);
       const [endCertSeq] = cb.expectASN1Length(0);
       const tbsCertStartOffset = cb.offset;
@@ -1463,10 +1912,11 @@ ier data");
       }
       endSigAlgo();
       if (sigAlgoOID !== this.algorithm) throw new Error(`Certificate specifies different signature algorithms\
- inside(${this.algorithm}) and out(${sigAlgoOID})`);
+ inside (${this.algorithm}) and out (${sigAlgoOID})`);
       cb.expectUint8(universalTypeBitString, 0);
       this.signature = cb.readASN1BitString();
       endCertSeq();
+      this.rawData = cb.data.subarray(certSeqStartOffset, cb.offset);
     } else {
       this.serialNumber = u8FromHex(certData.serialNumber);
       this.algorithm = certData.algorithm;
@@ -1492,6 +1942,7 @@ ier data");
       if (certData.subjectKeyIdentifier) this.subjectKeyIdentifier = u8FromHex(certData.subjectKeyIdentifier);
       this.basicConstraints = certData.basicConstraints;
       this.signedData = u8FromHex(certData.signedData);
+      this.rawData = u8FromHex(certData.rawData);
     }
   }
   static distinguishedNamesAreEqual(dn1, dn2) {
@@ -1559,7 +2010,8 @@ basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical
       authorityKeyIdentifier: this.authorityKeyIdentifier && hexFromU8(this.authorityKeyIdentifier),
       subjectKeyIdentifier: this.subjectKeyIdentifier && hexFromU8(this.subjectKeyIdentifier),
       basicConstraints: this.basicConstraints,
-      signedData: hexFromU8(this.signedData)
+      signedData: hexFromU8(this.signedData),
+      rawData: hexFromU8(this.rawData)
     };
   }
   static uint8ArraysFromPEM(pem) {
@@ -1569,7 +2021,7 @@ basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical
     let matches = null;
     while (matches = pattern.exec(pem)) {
       const base64 = matches[1].replace(/[\r\n]/g, "");
-      const binary = base64Decode(base64);
+      const binary = fromBase64(base64);
       res.push(binary);
     }
     return res;
@@ -1823,7 +2275,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage,
   requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot) throw new Error("Validated certificate chain did not end in a trusted root");
-  return [hs.data, clientCertRequested];
+  return { handshakeData: hs.data, clientCertRequested, userCert };
 }
 
 // src/tls/startTls.ts
@@ -1842,11 +2294,11 @@ Key", "deriveBits"]);
     log7("We begin the TLS connection by generating an [ECDH](https://en.wikipedia.org/wiki/Elliptic-curve_Dif\
 fie%E2%80%93Hellman) key pair using curve [P-256](https://neuromancer.sk/std/nist/P-256). The private key, d, \
 is simply a 256-bit integer picked at random:");
-    log7(...highlightColonList3("d: " + hexFromU84(base64Decode2(privateKeyJWK.d, urlCharCodes))));
+    log7(...highlightColonList3("d: " + hexFromU84(fromBase642(privateKeyJWK.d, { alphabet: "base64url" }))));
     log7("The public key is a point on the curve. The point is [derived from d and a base point](https://curve\
 s.xargs.org). It\u2019s identified by coordinates x and y.");
-    log7(...highlightColonList3("x: " + hexFromU84(base64Decode2(privateKeyJWK.x, urlCharCodes))));
-    log7(...highlightColonList3("y: " + hexFromU84(base64Decode2(privateKeyJWK.y, urlCharCodes))));
+    log7(...highlightColonList3("x: " + hexFromU84(fromBase642(privateKeyJWK.x, { alphabet: "base64url" }))));
+    log7(...highlightColonList3("y: " + hexFromU84(fromBase642(privateKeyJWK.y, { alphabet: "base64url" }))));
   }
   const sessionId = new Uint8Array(32);
   await getRandomValues(sessionId);
@@ -1884,7 +2336,7 @@ AES-GCM" }, false, ["encrypt"]);
     if (tlsRecord === void 0) throw new Error("Premature end of encrypted server handshake");
     return tlsRecord;
   };
-  const [serverHandshake, clientCertRequested] = await readEncryptedHandshake(
+  const { handshakeData: serverHandshake, clientCertRequested, userCert } = await readEncryptedHandshake(
     host,
     readHandshakeRecord,
     handshakeKeys.serverSecret,
@@ -1956,7 +2408,7 @@ SHA-256" } }, false, ["sign"]);
     ...encryptedClientFinished, ...encryptedRecords);
     networkWrite(allRecords);
   };
-  return [read, write];
+  return { read, write, userCert };
 }
 
 // src/util/readqueue.ts
@@ -2059,9 +2511,19 @@ export {
   SocketReadQueue,
   TrustedCert,
   WebSocketReadQueue,
-  base64Decode,
+  _fromBase64,
+  _fromHex,
+  _fromHexChunked,
+  _toBase64,
+  _toBase64Chunked,
+  _toHex,
+  _toHexChunked,
+  fromBase64,
+  fromHex,
   hexFromU8,
   stableStringify,
   startTls,
+  toBase64,
+  toHex,
   u8FromHex
 };

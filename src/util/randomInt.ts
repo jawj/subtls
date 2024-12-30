@@ -9,9 +9,8 @@ export async function randomIntBetween(lowestIncl: number, highestIncl: number) 
   if (range < 0) throw new Error('Upper bound cannot be below lower bound');
   if (range > maxUint32) throw new Error(`Range cannot exceed ${maxUint32}`);
 
-  const mod = range + 1;
-  const maxUsable = Math.floor(maxUint32 / mod) * mod;  // if we use values above this we will bias the output, reducing entropy
+  const maxUsable = Math.floor(maxUint32 / range) * range;  // if we use values above this we will bias the output, reducing entropy
   do { await getRandomValues(randUint32); } while (randUint32[0] > maxUsable);
 
-  return lowestIncl + randUint32[0] % mod;
+  return lowestIncl + randUint32[0] % (range + 1);
 }

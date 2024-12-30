@@ -14,8 +14,6 @@ declare class ASN1Bytes extends Bytes {
     readASN1BitString(): Uint8Array<ArrayBuffer>;
 }
 
-export declare function base64Decode(input: string, charCodes?: typeof stdCharCodes, autoPad?: boolean): Uint8Array<ArrayBuffer>;
-
 declare class Bytes {
     offset: number;
     dataView: DataView;
@@ -103,6 +101,7 @@ declare class Cert {
         pathLength?: number;
     } | undefined;
     signedData: Uint8Array;
+    rawData: Uint8Array;
     static distinguishedNamesAreEqual(dn1: DistinguishedName, dn2: DistinguishedName): boolean;
     static stringFromDistinguishedName(dn: DistinguishedName): string;
     constructor(certData: Uint8Array | ASN1Bytes | CertJSON);
@@ -141,8 +140,9 @@ declare class Cert {
             pathLength?: number;
         } | undefined;
         signedData: string;
+        rawData: string;
     };
-    static uint8ArraysFromPEM(pem: string): Uint8Array<ArrayBuffer>[];
+    static uint8ArraysFromPEM(pem: string): any[];
     static fromPEM(pem: string): Cert[];
 }
 
@@ -197,9 +197,11 @@ export declare function startTls(host: string, rootCertsDatabase: RootCertsDatab
     writePreData?: Uint8Array;
     expectPreData?: Uint8Array;
     commentPreData?: string;
-}): Promise<readonly [() => Promise<Uint8Array<ArrayBufferLike> | undefined>, (data: Uint8Array) => Promise<void>]>;
-
-declare function stdCharCodes(charCode: number): number | void;
+}): Promise<{
+    readonly read: () => Promise<Uint8Array<ArrayBufferLike> | undefined>;
+    readonly write: (data: Uint8Array) => Promise<void>;
+    readonly userCert: Cert;
+}>;
 
 export declare class TrustedCert extends Cert {
     static databaseFromPEM(pem: string): RootCertsDatabase;
@@ -213,4 +215,7 @@ export declare class WebSocketReadQueue extends ReadQueue {
     constructor(socket: WebSocket);
     socketIsNotClosed(): boolean;
 }
+
+
+export * from "hextreme";
 
