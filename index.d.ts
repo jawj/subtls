@@ -142,7 +142,7 @@ declare class Cert {
         signedData: string;
         rawData: string;
     };
-    static uint8ArraysFromPEM(pem: string): any[];
+    static uint8ArraysFromPEM(pem: string): Uint8Array<ArrayBuffer>[];
     static fromPEM(pem: string): Cert[];
 }
 
