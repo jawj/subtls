@@ -527,8 +527,10 @@ var indentChars = "\xB7\xB7 ";
 // src/util/bytes.ts
 var txtEnc = new TextEncoder();
 var txtDec = new TextDecoder();
+var emptyArray = new Uint8Array(0);
+var emptyView = new DataView(emptyArray.buffer);
 var Bytes = class {
-  constructor(arrayOrMaxBytes) {
+  constructor(data) {
     __publicField(this, "offset");
     __publicField(this, "dataView");
     __publicField(this, "data");
@@ -536,15 +538,18 @@ var Bytes = class {
     __publicField(this, "indents");
     __publicField(this, "indent");
     this.offset = 0;
-    this.data = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
+    this.data = emptyArray;
+    this.dataView = emptyView;
     this.comments = {};
     this.indents = {};
     this.indent = 0;
+    this.extend(data);
   }
-  extend(arrayOrMaxBytes) {
-    const newData = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.data = concat(this.data, newData);
+  extend(newData) {
+    const data = typeof newData === "number" ? new Uint8Array(newData) : typeof newData === "function" ? newData() :
+    newData;
+    if (data == void 0) throw new Error("Attempted to extend Bytes, but data function returned undefined");
+    this.data = concat(this.data, data);
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
   remaining() {
@@ -2411,7 +2416,7 @@ SHA-256" } }, false, ["sign"]);
   return { read, write, userCert };
 }
 
-// src/util/readqueue.ts
+// src/util/readQueue.ts
 var ReadQueue = class {
   constructor() {
     __publicField(this, "queue");
@@ -2508,6 +2513,10 @@ function stableStringify(x, replacer = (_, v) => v, indent) {
   return JSON.stringify(x, deterministicReplacer, indent);
 }
 export {
+  ASN1Bytes,
+  Bytes,
+  Cert,
+  ReadQueue,
   SocketReadQueue,
   TrustedCert,
   WebSocketReadQueue,
@@ -2518,6 +2527,7 @@ export {
   _toBase64Chunked,
   _toHex,
   _toHexChunked,
+  allKeyUsages,
   fromBase64,
   fromHex,
   hexFromU8,

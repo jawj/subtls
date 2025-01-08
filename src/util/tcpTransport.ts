@@ -1,5 +1,5 @@
 import { Socket } from 'net';
-import { SocketReadQueue } from './readqueue';
+import { SocketReadQueue } from './readQueue';
 
 export default async function tcpTransport(host: string, port: string | number, close = () => { }) {
   const socket = new Socket();

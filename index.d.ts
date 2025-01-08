@@ -2,9 +2,9 @@
 
 import type { Socket } from 'net';
 
-declare const allKeyUsages: readonly ["digitalSignature", "nonRepudiation", "keyEncipherment", "dataEncipherment", "keyAgreement", "keyCertSign", "cRLSign", "encipherOnly", "decipherOnly"];
+export declare const allKeyUsages: readonly ["digitalSignature", "nonRepudiation", "keyEncipherment", "dataEncipherment", "keyAgreement", "keyCertSign", "cRLSign", "encipherOnly", "decipherOnly"];
 
-declare class ASN1Bytes extends Bytes {
+export declare class ASN1Bytes extends Bytes {
     readASN1Length(comment?: string): number;
     expectASN1Length(comment?: string): readonly [() => void, () => number];
     readASN1OID(comment?: string): string;
@@ -14,15 +14,15 @@ declare class ASN1Bytes extends Bytes {
     readASN1BitString(): Uint8Array<ArrayBuffer>;
 }
 
-declare class Bytes {
+export declare class Bytes {
     offset: number;
     dataView: DataView;
     data: Uint8Array;
     comments: Record<number, string>;
     indents: Record<number, number>;
     indent: number;
-    constructor(arrayOrMaxBytes: number | Uint8Array);
-    extend(arrayOrMaxBytes: number | Uint8Array): void;
+    constructor(data: number | Uint8Array | (() => Uint8Array | undefined));
+    extend(newData: number | Uint8Array | (() => Uint8Array | undefined)): void;
     remaining(): number;
     subarray(length: number): Uint8Array<ArrayBufferLike>;
     skip(length: number, comment?: string): this;
@@ -69,7 +69,7 @@ declare class Bytes {
     commentedString(all?: boolean): string;
 }
 
-declare class Cert {
+export declare class Cert {
     serialNumber: Uint8Array;
     algorithm: OID;
     issuer: DistinguishedName;
@@ -146,20 +146,20 @@ declare class Cert {
     static fromPEM(pem: string): Cert[];
 }
 
-declare type CertJSON = ReturnType<typeof Cert.prototype.toJSON>;
+export declare type CertJSON = ReturnType<typeof Cert.prototype.toJSON>;
 
-declare interface DataRequest {
+export declare interface DataRequest {
     bytes: number;
     resolve: (data: Uint8Array | undefined) => void;
 }
 
-declare type DistinguishedName = Record<string, string | string[]>;
+export declare type DistinguishedName = Record<string, string | string[]>;
 
 export declare function hexFromU8(u8: Uint8Array | number[], spacer?: string): string;
 
-declare type OID = string;
+export declare type OID = string;
 
-declare abstract class ReadQueue {
+export declare abstract class ReadQueue {
     queue: Uint8Array[];
     outstandingRequest: DataRequest | undefined;
     constructor();
@@ -170,14 +170,14 @@ declare abstract class ReadQueue {
     read(bytes: number): Promise<Uint8Array<ArrayBufferLike> | undefined>;
 }
 
-declare type RootCertsData = Uint8Array;
+export declare type RootCertsData = Uint8Array;
 
-declare interface RootCertsDatabase {
+export declare interface RootCertsDatabase {
     index: RootCertsIndex;
     data: RootCertsData;
 }
 
-declare interface RootCertsIndex {
+export declare interface RootCertsIndex {
     offsets: number[];
     subjects: Record<string, number>;
 }

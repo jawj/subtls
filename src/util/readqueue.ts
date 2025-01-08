@@ -1,6 +1,6 @@
 import type { Socket } from 'net';
 
-interface DataRequest {
+export interface DataRequest {
   bytes: number;
   resolve: (data: Uint8Array | undefined) => void;
 }
@@ -12,7 +12,7 @@ enum WebSocketReadyState {
   CLOSED = 3,
 }
 
-abstract class ReadQueue {
+export abstract class ReadQueue {
   queue: Uint8Array[];
   outstandingRequest: DataRequest | undefined;
 

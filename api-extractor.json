@@ -14,5 +14,12 @@
   },
   "tsdocMetadata": {
     "enabled": false
+  },
+  "messages": {
+    "extractorMessageReporting": {
+      "ae-missing-release-tag": {
+        "logLevel": "none"
+      }
+    }
   }
 }

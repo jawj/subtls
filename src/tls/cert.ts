@@ -32,9 +32,9 @@ import { hexFromU8, u8FromHex } from '../util/hex';
 import { GrowableData } from '../util/array';
 import { fromBase64 } from 'hextreme';
 
-type OID = string;
+export type OID = string;
 
-const allKeyUsages = [
+export const allKeyUsages = [
   // https://www.rfc-editor.org/rfc/rfc3280#section-4.2.1.3
   'digitalSignature', // (0)
   'nonRepudiation',   // (1)
@@ -50,12 +50,12 @@ const allKeyUsages = [
 export type CertJSON = ReturnType<typeof Cert.prototype.toJSON>;
 export type DistinguishedName = Record<string, string | string[]>
 
-interface RootCertsIndex {
+export interface RootCertsIndex {
   offsets: number[];
   subjects: Record<string, number>;
 }
 
-type RootCertsData = Uint8Array;
+export type RootCertsData = Uint8Array;
 
 export interface RootCertsDatabase {
   index: RootCertsIndex;
