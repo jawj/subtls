@@ -335,7 +335,7 @@ export async function postgres(
 
     chatty && log(...highlightBytes(authSaslFinalBytes.commentedString(), LogColours.server));
 
-    chatty && log('Now we calculate a server signature for ourselves, to see that it matches up. First we produce the ServerKey: an HMAC of the string "Server Key" using the SaltedPassword.');
+    chatty && log('Now we calculate a server signature for ourselves, to see that it matches up — proving that the server has a record of our credentials. First we produce the ServerKey: an HMAC of the string "Server Key" using the SaltedPassword.');
 
     const skHmacKey = await cs.importKey(
       'raw',

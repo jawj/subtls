@@ -2714,7 +2714,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     authSaslFinalBytes.comment("\u2014 the base64-encoded ServerSignature");
     endAuthSaslFinal();
     log(...highlightBytes(authSaslFinalBytes.commentedString(), "#88c" /* server */));
-    log('Now we calculate a server signature for ourselves, to see that it matches up. First we produce the ServerKey: an HMAC of the string "Server Key" using the SaltedPassword.');
+    log('Now we calculate a server signature for ourselves, to see that it matches up \u2014 proving that the server has a record of our credentials. First we produce the ServerKey: an HMAC of the string "Server Key" using the SaltedPassword.');
     const skHmacKey = await cryptoProxy_default.importKey(
       "raw",
       saltedPassword,
