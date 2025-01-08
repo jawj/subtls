@@ -2531,8 +2531,9 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false
   });
+  log("We continue by sending Postgres a [StartupMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE).");
   const msg = new Bytes(1024);
-  const endStartupMessage = msg.writeLengthUint32Incl("[StartupMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE)");
+  const endStartupMessage = msg.writeLengthUint32Incl("StartupMessage");
   msg.writeUint32(196608, "protocol version");
   msg.writeUTF8StringNullTerminated("user");
   msg.writeUTF8StringNullTerminated(user);

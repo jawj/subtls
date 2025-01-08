@@ -68,8 +68,10 @@ export async function postgres(
 
   // StartupMessage
 
+  chatty && log('We continue by sending Postgres a [StartupMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE).');
+
   const msg = new Bytes(1024);
-  const endStartupMessage = msg.writeLengthUint32Incl(chatty && '[StartupMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE)');
+  const endStartupMessage = msg.writeLengthUint32Incl(chatty && 'StartupMessage');
   msg.writeUint32(0x0003_0000, chatty && 'protocol version');
   msg.writeUTF8StringNullTerminated('user');
   msg.writeUTF8StringNullTerminated(user);
