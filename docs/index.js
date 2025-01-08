@@ -2887,7 +2887,7 @@ Connection: close\r
   return response;
 }
 
-// src/util/readqueue.ts
+// src/util/readQueue.ts
 var ReadQueue = class {
   constructor() {
     __publicField(this, "queue");
