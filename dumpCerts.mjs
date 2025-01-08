@@ -6,7 +6,7 @@
 //   cat '/etc/ssl/cert.pem' | ./dumpCerts.mjs
 
 import { readFileSync, writeFileSync } from "fs";
-import { TrustedCert } from "./export/index.js";
+import { TrustedCert } from "./index.js";
 
 const pem = readFileSync("/dev/stdin", { encoding: "utf8" });
 const { index, data } = TrustedCert.databaseFromPEM(pem);
