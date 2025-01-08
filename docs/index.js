@@ -352,8 +352,10 @@ var indentChars = "\xB7\xB7 ";
 // src/util/bytes.ts
 var txtEnc = new TextEncoder();
 var txtDec = new TextDecoder();
+var emptyArray = new Uint8Array(0);
+var emptyView = new DataView(emptyArray.buffer);
 var Bytes = class {
-  constructor(arrayOrMaxBytes) {
+  constructor(data) {
     __publicField(this, "offset");
     __publicField(this, "dataView");
     __publicField(this, "data");
@@ -361,15 +363,17 @@ var Bytes = class {
     __publicField(this, "indents");
     __publicField(this, "indent");
     this.offset = 0;
-    this.data = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
+    this.data = emptyArray;
+    this.dataView = emptyView;
     this.comments = {};
     this.indents = {};
     this.indent = 0;
+    this.extend(data);
   }
-  extend(arrayOrMaxBytes) {
-    const newData = typeof arrayOrMaxBytes === "number" ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.data = concat(this.data, newData);
+  extend(newData) {
+    const data = typeof newData === "number" ? new Uint8Array(newData) : typeof newData === "function" ? newData() : newData;
+    if (data == void 0) throw new Error("Attempted to extend Bytes, but data function returned undefined");
+    this.data = concat(this.data, data);
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
   remaining() {
@@ -2453,21 +2457,6 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   return { read, write, userCert };
 }
 
-// src/util/randomInt.ts
-var randUint32 = new Uint32Array(1);
-var maxUint32 = 2 ** 32 - 1;
-async function randomIntBetween(lowestIncl, highestIncl) {
-  const range = highestIncl - lowestIncl;
-  if (range === 0) return lowestIncl;
-  if (range < 0) throw new Error("Upper bound cannot be below lower bound");
-  if (range > maxUint32) throw new Error(`Range cannot exceed ${maxUint32}`);
-  const maxUsable = Math.floor(maxUint32 / range) * range;
-  do {
-    await getRandomValues(randUint32);
-  } while (randUint32[0] > maxUsable);
-  return lowestIncl + randUint32[0] % (range + 1);
-}
-
 // src/util/rootCerts.ts
 var txtDec2 = new TextDecoder();
 async function getFile(name) {
@@ -2569,7 +2558,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   log(...highlightBytes(msg.commentedString(), "#8cc" /* client */));
   log("And the ciphertext looks like this:");
   await write(msg.array());
-  log("The server now responds to each message in turn. First it responds to the startup message with a request for authentication. Encrypted, as received:");
+  log("Postgres now responds to each message in turn. First it responds to the startup message with a request for authentication. Encrypted, as received:");
   const preAuthResponse = await read();
   const preAuthBytes = new Bytes(preAuthResponse);
   preAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
@@ -2581,7 +2570,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   } else if (authMechanism === 10) {
     preAuthBytes.comment("AuthenticationSASL message: request SASL auth");
     while (authReqRemaining() > 1) saslMechanisms.add(preAuthBytes.readUTF8StringNullTerminated());
-    preAuthBytes.expectUint8(0, "null terminated list");
+    preAuthBytes.expectUint8(0, "end of list");
     if (!saslMechanisms.has("SCRAM-SHA-256-PLUS")) throw new Error(`SCRAM-SHA-256 without channel binding is not supported`);
   } else {
     throw new Error(`Unsupported auth mechanism: ${authMechanism}`);
@@ -2591,19 +2580,16 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   log(...highlightBytes(preAuthBytes.commentedString(true), "#88c" /* server */));
   if (authMechanism === 10) {
     log("So the server requires [SASL authentication](https://www.postgresql.org/docs/current/sasl-authentication.html), and the supported mechanisms are: " + [...saslMechanisms].join(", ") + ".");
-    log("We continue by picking SCRAM-SHA-256-PLUS. This is defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802) and provides channel binding (see [RFC5056](https://datatracker.ietf.org/doc/html/rfc5056)) for some additional protection against MITM attacks.");
-    log("p= selects the channel binding method: tls-server-end-point is the only one Postgres currently supports.");
-    log("n= sets the username: we leave this empty, since Postgres ignores this in favour of the user specified in the StartupMessage above.");
-    log("r= provides a 24-byte printable-ASCII random nonce, which we\u2019ll generate now.");
-    let clientNonce = "";
-    for (let i = 0; i < 24; i++) {
-      let chr = await randomIntBetween(33, 125);
-      if (chr === 44) chr = 126;
-      clientNonce += String.fromCharCode(chr);
-    }
-    log(...highlightColonList(`client nonce: ${clientNonce}`));
-    log("(The nonce is commonly created by [generating 18 random bytes and base64-encoding them](https://github.com/brianc/node-postgres/blob/master/packages/pg/lib/crypto/sasl.js). But using every printable ASCII character, as the standard allows, gets us 93 bits of entropy per character rather than only 64).");
-    log("These three parameters make up the SCRAM client-first-message, which is the last part of the Postgres SASLInitialResponse we now send.");
+    log("We continue by picking SCRAM-SHA-256-PLUS. This is defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802) and provides channel binding (see [RFC 5056](https://datatracker.ietf.org/doc/html/rfc5056)) for some additional protection against MITM attacks.");
+    log("That selection is the first part of the Postgres SASLInitialResponse we now send. The second part is a SCRAM client-first-message, which consists of three parameters: p, n and r.");
+    log("p= selects the channel binding method: tls-server-end-point is the only one Postgres currently supports. A patch to also support tls-exporter ([RFC 9266](https://datatracker.ietf.org/doc/html/rfc9266)) [was discussed back in 2022](https://www.postgresql.org/message-id/YwxWWQR6uwWHBCbQ%40paquier.xyz), but ran into difficulties.");
+    log("n= sets the username: we leave this empty, since [Postgres ignores this](https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256) in favour of the user specified in the StartupMessage above.");
+    log("r= provides a 24-character random nonce, which we\u2019ll generate now.");
+    const clientNonceData = new Uint8Array(18);
+    await getRandomValues(clientNonceData);
+    const clientNonceStr = toBase64(clientNonceData);
+    log(...highlightColonList(`client nonce: ${clientNonceStr}`));
+    log("(By the standard, the nonce can include any printable ASCII characters except comma. But, [following Postgres\u2019 lead](https://github.com/postgres/postgres/blob/6304632eaa2107bb1763d29e213ff166ff6104c0/src/backend/libpq/auth-scram.c#L1217), we sacrifice some entropy for the sake of convenience, generating 18 random bytes and base64-encoding them instead).");
     const saslInitResponse = new Bytes(1024);
     saslInitResponse.writeUTF8String("p");
     saslInitResponse.comment("= SASLInitialResponse");
@@ -2613,7 +2599,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     const endInitialClientResponse = saslInitResponse.writeLengthUint32("client-first-message");
     saslInitResponse.writeUTF8String(gs2Header);
     saslInitResponse.comment("(there\u2019s an empty authzid field between these commas)");
-    const clientFirstMessageBare = `n=,r=${clientNonce}`;
+    const clientFirstMessageBare = `n=,r=${clientNonceStr}`;
     saslInitResponse.writeUTF8String(clientFirstMessageBare);
     saslInitResponse.comment("(this part is called the client-first-message-bare)");
     endInitialClientResponse();
@@ -2631,16 +2617,16 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     endServerSaslContinue();
     log(...highlightBytes(serverSaslContinueBytes.commentedString(), "#88c" /* server */));
     const attrs = Object.fromEntries(serverFirstMessage.split(",").map((v) => [v[0], v.slice(2)]));
-    const { r: nonceB64, s: saltB64, i: iterationsStr } = attrs;
+    const { r: nonceStr, s: saltB64, i: iterationsStr } = attrs;
     const iterations = parseInt(iterationsStr, 10);
     log("%c%s", `color: ${"#c88" /* header */}`, `server-supplied SASL values`);
-    log(...highlightColonList(`nonce: ${nonceB64}`));
+    log(...highlightColonList(`nonce: ${nonceStr}`));
     log(...highlightColonList(`salt: ${saltB64}`));
     log(...highlightColonList(`number of iterations: ${iterations}`));
-    if (!nonceB64.startsWith(clientNonce)) throw new Error("Server nonce does not extend client nonce we supplied");
+    if (!nonceStr.startsWith(clientNonceStr)) throw new Error("Server nonce does not extend client nonce we supplied");
     log("%c\u2713 nonce extends the client nonce we supplied", "color: #8c8;");
-    log("The second and final client authentication message has several elements. First, some channel-binding data. Second, a reiteration of the full client + server nonce. Those two give us the client-final-message-without-proof. And third, a proof that we know the user\u2019s password. That gives us the full client-final-message.");
-    log(...highlightColonList(`The channel-binding data tells the server who we think we\u2019re talking to. We present a hash of the end-user certificate we received from the server during the TLS handshake above. That\u2019s the first certificate in the chain, which in this case is: serial number ${hexFromU8(userCert.serialNumber)}, for ${userCert.subjectAltNames?.join(", ")}.`));
+    log("The second and final client authentication message has several elements. First, some channel-binding data (c). Second, a reiteration of the full client + server nonce (r). Those two give us the client-final-message-without-proof. And third, a proof (p) that we know the user\u2019s password. That gives us the full client-final-message.");
+    log(...highlightColonList(`The channel-binding data tells the server who we think we\u2019re talking to. We present a hash of the end-user certificate we received from the server during the TLS handshake above. That\u2019s the first certificate in the chain, which (as you can double-check above) is in this case: serial number ${hexFromU8(userCert.serialNumber)}, for ${userCert.subjectAltNames?.join(", ")}.`));
     log("This has a somewhat similar purpose to [certificate pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning). It rules out some sophisticated MITM attacks in which we connect to a proxy that has a certificate that appears valid for the real server but is not the real server\u2019s.");
     let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name;
     if (hashAlgo === "SHA-1" || hashAlgo === "MD5") hashAlgo = "SHA-256";
@@ -2648,7 +2634,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     const hashedCert = new Uint8Array(await cryptoProxy_default.digest(hashAlgo, userCert.rawData));
     log(...highlightColonList(`certificate hash: ${hexFromU8(hashedCert, " ")}`));
     const cbindMessageB64 = toBase64(concat(te2.encode(gs2Header), hashedCert));
-    const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceB64}`;
+    const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceStr}`;
     log(`The channel-binding data (c) consists of the channel-binding header we sent before (${gs2Header}), followed by this binary hash, all base64-encoded. That completes the client-final-message-without-proof.`);
     log(...highlightColonList(`client-final-message-without-proof: ${clientFinalMessageWithoutProof}`));
     const salt = fromBase64(saltB64);
@@ -2793,7 +2779,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     const endQuery = query.writeLengthUint32Incl("query");
     query.writeUTF8StringNullTerminated("SELECT now()");
     endQuery();
-    log("At last we can send our query message.");
+    log("At last: we can send our query message. It\u2019s pretty simple.");
     log(...highlightBytes(query.commentedString(), "#8cc" /* client */));
     log("Encrypted, that\u2019s:");
     await write(query.array());
@@ -2854,6 +2840,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   endBytes.comment("= [Terminate](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-TERMINATE)");
   const endTerminate = endBytes.writeLengthUint32Incl();
   endTerminate();
+  endBytes.comment("(and therefore end here too)");
   log("Last of all, we send a termination command. Before encryption, that\u2019s:");
   log(...highlightBytes(endBytes.commentedString(true), "#8cc" /* client */));
   log("And as sent on the wire:");

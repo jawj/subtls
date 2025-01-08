@@ -5,7 +5,6 @@ import { highlightBytes, highlightColonList } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
 import { getRandomValues } from './util/cryptoRandom';
-import { randomIntBetween } from './util/randomInt';
 import cs from './util/cryptoProxy';
 import type wsTransport from './util/wsTransport';
 import { getRootCertsDatabase } from './util/rootCerts';
@@ -106,7 +105,7 @@ export async function postgres(
 
   // server response: auth request
 
-  chatty && log('The server now responds to each message in turn. First it responds to the startup message with a request for authentication. Encrypted, as received:');
+  chatty && log('Postgres now responds to each message in turn. First it responds to the startup message with a request for authentication. Encrypted, as received:');
 
   const preAuthResponse = await read();
   const preAuthBytes = new Bytes(preAuthResponse!);
@@ -123,7 +122,7 @@ export async function postgres(
   } else if (authMechanism === 10) {  // SASL auth
     chatty && preAuthBytes.comment('AuthenticationSASL message: request SASL auth');
     while (authReqRemaining() > 1) saslMechanisms.add(preAuthBytes.readUTF8StringNullTerminated());
-    preAuthBytes.expectUint8(0, chatty && 'null terminated list');
+    preAuthBytes.expectUint8(0, chatty && 'end of list');
 
     if (!saslMechanisms.has('SCRAM-SHA-256-PLUS')) throw new Error(`SCRAM-SHA-256 without channel binding is not supported`);
 
@@ -139,21 +138,18 @@ export async function postgres(
 
   if (authMechanism === 10) {  // continue SASL auth
     chatty && log('So the server requires [SASL authentication](https://www.postgresql.org/docs/current/sasl-authentication.html), and the supported mechanisms are: ' + [...saslMechanisms].join(', ') + '.');
-    chatty && log('We continue by picking SCRAM-SHA-256-PLUS. This is defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802) and provides channel binding (see [RFC5056](https://datatracker.ietf.org/doc/html/rfc5056)) for some additional protection against MITM attacks.');
-    chatty && log('p= selects the channel binding method: tls-server-end-point is the only one Postgres currently supports.');
-    chatty && log('n= sets the username: we leave this empty, since Postgres ignores this in favour of the user specified in the StartupMessage above.');
-    chatty && log('r= provides a 24-byte printable-ASCII random nonce, which we’ll generate now.');
+    chatty && log('We continue by picking SCRAM-SHA-256-PLUS. This is defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802) and provides channel binding (see [RFC 5056](https://datatracker.ietf.org/doc/html/rfc5056)) for some additional protection against MITM attacks.');
+    chatty && log('That selection is the first part of the Postgres SASLInitialResponse we now send. The second part is a SCRAM client-first-message, which consists of three parameters: p, n and r.');
+    chatty && log('p= selects the channel binding method: tls-server-end-point is the only one Postgres currently supports. A patch to also support tls-exporter ([RFC 9266](https://datatracker.ietf.org/doc/html/rfc9266)) [was discussed back in 2022](https://www.postgresql.org/message-id/YwxWWQR6uwWHBCbQ%40paquier.xyz), but ran into difficulties.');
+    chatty && log('n= sets the username: we leave this empty, since [Postgres ignores this](https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256) in favour of the user specified in the StartupMessage above.');
+    chatty && log('r= provides a 24-character random nonce, which we’ll generate now.');
 
-    let clientNonce = '';
-    for (let i = 0; i < 24; i++) {
-      let chr = await randomIntBetween(33, 125); // printable ASCII is codes 33 - 126 ...
-      if (chr === 44) chr = 126; // ... but we can't use a comma
-      clientNonce += String.fromCharCode(chr);
-    }
-    chatty && log(...highlightColonList(`client nonce: ${clientNonce}`));
-    chatty && log('(The nonce is commonly created by [generating 18 random bytes and base64-encoding them](https://github.com/brianc/node-postgres/blob/master/packages/pg/lib/crypto/sasl.js). But using every printable ASCII character, as the standard allows, gets us 93 bits of entropy per character rather than only 64).');
+    const clientNonceData = new Uint8Array(18);
+    await getRandomValues(clientNonceData);
+    const clientNonceStr = toBase64(clientNonceData);
 
-    chatty && log('These three parameters make up the SCRAM client-first-message, which is the last part of the Postgres SASLInitialResponse we now send.');
+    chatty && log(...highlightColonList(`client nonce: ${clientNonceStr}`));
+    chatty && log('(By the standard, the nonce can include any printable ASCII characters except comma. But, [following Postgres’ lead](https://github.com/postgres/postgres/blob/6304632eaa2107bb1763d29e213ff166ff6104c0/src/backend/libpq/auth-scram.c#L1217), we sacrifice some entropy for the sake of convenience, generating 18 random bytes and base64-encoding them instead).');
 
     const saslInitResponse = new Bytes(1024);
     saslInitResponse.writeUTF8String('p');
@@ -167,7 +163,7 @@ export async function postgres(
     saslInitResponse.writeUTF8String(gs2Header);
     chatty && saslInitResponse.comment('(there’s an empty authzid field between these commas)');
 
-    const clientFirstMessageBare = `n=,r=${clientNonce}`;
+    const clientFirstMessageBare = `n=,r=${clientNonceStr}`;
     saslInitResponse.writeUTF8String(clientFirstMessageBare);
     chatty && saslInitResponse.comment('(this part is called the client-first-message-bare)');
     endInitialClientResponse();
@@ -190,21 +186,19 @@ export async function postgres(
     chatty && log(...highlightBytes(serverSaslContinueBytes.commentedString(), LogColours.server));
 
     const attrs = Object.fromEntries(serverFirstMessage.split(',').map(v => [v[0], v.slice(2)]));
-    const { r: nonceB64, s: saltB64, i: iterationsStr } = attrs as Record<string, string>;
+    const { r: nonceStr, s: saltB64, i: iterationsStr } = attrs as Record<string, string>;
     const iterations = parseInt(iterationsStr, 10);
 
     chatty && log('%c%s', `color: ${LogColours.header}`, `server-supplied SASL values`);
-    chatty && log(...highlightColonList(`nonce: ${nonceB64}`));
+    chatty && log(...highlightColonList(`nonce: ${nonceStr}`));
     chatty && log(...highlightColonList(`salt: ${saltB64}`));
     chatty && log(...highlightColonList(`number of iterations: ${iterations}`));
 
-    if (!nonceB64.startsWith(clientNonce)) throw new Error('Server nonce does not extend client nonce we supplied');
+    if (!nonceStr.startsWith(clientNonceStr)) throw new Error('Server nonce does not extend client nonce we supplied');
     chatty && log('%c✓ nonce extends the client nonce we supplied', 'color: #8c8;');
 
-    chatty && log('The second and final client authentication message has several elements. First, some channel-binding data. Second, a reiteration of the full client + server nonce. Those two give us the client-final-message-without-proof. And third, a proof that we know the user’s password. That gives us the full client-final-message.');
-
-    chatty && log(...highlightColonList(`The channel-binding data tells the server who we think we’re talking to. We present a hash of the end-user certificate we received from the server during the TLS handshake above. That’s the first certificate in the chain, which in this case is: serial number ${hexFromU8(userCert.serialNumber)}, for ${userCert.subjectAltNames?.join(', ')}.`));
-
+    chatty && log('The second and final client authentication message has several elements. First, some channel-binding data (c). Second, a reiteration of the full client + server nonce (r). Those two give us the client-final-message-without-proof. And third, a proof (p) that we know the user’s password. That gives us the full client-final-message.');
+    chatty && log(...highlightColonList(`The channel-binding data tells the server who we think we’re talking to. We present a hash of the end-user certificate we received from the server during the TLS handshake above. That’s the first certificate in the chain, which (as you can double-check above) is in this case: serial number ${hexFromU8(userCert.serialNumber)}, for ${userCert.subjectAltNames?.join(', ')}.`));
     chatty && log('This has a somewhat similar purpose to [certificate pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning). It rules out some sophisticated MITM attacks in which we connect to a proxy that has a certificate that appears valid for the real server but is not the real server’s.');
 
     let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name;
@@ -217,7 +211,7 @@ export async function postgres(
     chatty && log(...highlightColonList(`certificate hash: ${hexFromU8(hashedCert, ' ')}`));
 
     const cbindMessageB64 = toBase64(concat(te.encode(gs2Header), hashedCert));
-    const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceB64}`;
+    const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceStr}`;
 
     chatty && log(`The channel-binding data (c) consists of the channel-binding header we sent before (${gs2Header}), followed by this binary hash, all base64-encoded. That completes the client-final-message-without-proof.`);
 
@@ -419,7 +413,7 @@ export async function postgres(
     query.writeUTF8StringNullTerminated('SELECT now()');
     endQuery();
 
-    chatty && log('At last we can send our query message.');
+    chatty && log('At last: we can send our query message. It’s pretty simple.');
     chatty && log(...highlightBytes(query.commentedString(), LogColours.client));
     chatty && log('Encrypted, that’s:');
     await write(query.array());
@@ -489,6 +483,7 @@ export async function postgres(
   chatty && endBytes.comment('= [Terminate](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-TERMINATE)');
   const endTerminate = endBytes.writeLengthUint32Incl();
   endTerminate();
+  chatty && endBytes.comment("(and therefore end here too)");
 
   chatty && log('Last of all, we send a termination command. Before encryption, that’s:');
   chatty && log(...highlightBytes(endBytes.commentedString(true), LogColours.client));

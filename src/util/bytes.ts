@@ -3,6 +3,8 @@ import { indentChars } from '../presentation/appearance';
 
 const txtEnc = new TextEncoder();
 const txtDec = new TextDecoder();
+const emptyArray = new Uint8Array(0);
+const emptyView = new DataView(emptyArray.buffer);
 
 export class Bytes {
   offset: number;
@@ -12,18 +14,24 @@ export class Bytes {
   indents: Record<number, number>;
   indent: number;
 
-  constructor(arrayOrMaxBytes: number | Uint8Array) {
+  constructor(data: number | Uint8Array | (() => Uint8Array | undefined)) {
     this.offset = 0;
-    this.data = typeof arrayOrMaxBytes === 'number' ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
+    this.data = emptyArray;
+    this.dataView = emptyView;
     this.comments = {};
     this.indents = {};
     this.indent = 0;
+    this.extend(data);
   }
 
-  extend(arrayOrMaxBytes: number | Uint8Array) {
-    const newData = typeof arrayOrMaxBytes === 'number' ? new Uint8Array(arrayOrMaxBytes) : arrayOrMaxBytes;
-    this.data = concat(this.data, newData);
+  extend(newData: number | Uint8Array | (() => Uint8Array | undefined)) {
+    const data =
+      typeof newData === 'number' ? new Uint8Array(newData) :
+        typeof newData === 'function' ? newData() :
+          newData;
+
+    if (data == undefined) throw new Error('Attempted to extend Bytes, but data function returned undefined');
+    this.data = concat(this.data, data);
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
 
