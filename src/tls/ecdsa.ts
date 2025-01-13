@@ -5,18 +5,18 @@ import { constructedUniversalTypeSequence, universalTypeInteger } from './certUt
 import cs from '../util/cryptoProxy';
 
 export async function ecdsaVerify(sb: ASN1Bytes /* signature */, publicKey: Uint8Array, signedData: Uint8Array, namedCurve: 'P-256' | 'P-384', hash: 'SHA-256' | 'SHA-384') {
-  sb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-  const [endSigDer] = sb.expectASN1Length(chatty && 'sequence');
+  await sb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+  const [endSigDer] = await sb.expectASN1Length(chatty && 'sequence');
 
-  sb.expectUint8(universalTypeInteger, chatty && 'integer');
-  const [endSigRBytes, sigRBytesRemaining] = sb.expectASN1Length(chatty && 'integer');
-  let sigR = sb.readBytes(sigRBytesRemaining());
+  await sb.expectUint8(universalTypeInteger, chatty && 'integer');
+  const [endSigRBytes, sigRBytesRemaining] = await sb.expectASN1Length(chatty && 'integer');
+  let sigR = await sb.readBytes(sigRBytesRemaining());
   chatty && sb.comment('signature: r');
   endSigRBytes();
 
-  sb.expectUint8(universalTypeInteger, chatty && 'integer');
-  const [endSigSBytes, sigSBytesRemaining] = sb.expectASN1Length(chatty && 'integer');
-  let sigS = sb.readBytes(sigSBytesRemaining());
+  await sb.expectUint8(universalTypeInteger, chatty && 'integer');
+  const [endSigSBytes, sigSBytesRemaining] = await sb.expectASN1Length(chatty && 'integer');
+  let sigS = await sb.readBytes(sigSBytesRemaining());
   chatty && sb.comment('signature: s');
   endSigSBytes();
 

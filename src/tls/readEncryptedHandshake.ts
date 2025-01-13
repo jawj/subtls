@@ -15,21 +15,20 @@ const txtEnc = new TextEncoder();
 
 export async function readEncryptedHandshake(
   host: string,
-  readHandshakeRecord: () => Promise<Uint8Array>,
+  hs: ASN1Bytes,
   serverSecret: Uint8Array,
   hellos: Uint8Array,
   rootCertsDatabase: RootCertsDatabase,
   requireServerTlsExtKeyUsage = true,
   requireDigitalSigKeyUsage = true,
 ) {
-  const hs = new ASN1Bytes(await readHandshakeRecord());
 
-  hs.expectUint8(0x08, chatty && 'handshake record type: encrypted extensions ([RFC 8446 §4.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))');
-  const [eeMessageEnd] = hs.expectLengthUint24();
-  const [extEnd, extRemaining] = hs.expectLengthUint16(chatty && 'extensions');
+  await hs.expectUint8(0x08, chatty && 'handshake record type: encrypted extensions ([RFC 8446 §4.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))');
+  const [eeMessageEnd] = await hs.expectLengthUint24();
+  const [extEnd, extRemaining] = await hs.expectLengthUint16(chatty && 'extensions');
 
   while (extRemaining() > 0) {
-    const extType = hs.readUint16(chatty && 'extension type:');
+    const extType = await hs.readUint16(chatty && 'extension type:');
 
     if (extType === 0x0000) {
       /*
@@ -42,7 +41,7 @@ export async function readEncryptedHandshake(
       - https://datatracker.ietf.org/doc/html/rfc6066#section-3
       */
       chatty && hs.comment('SNI');
-      hs.expectUint16(0x0000, chatty && 'no extension data ([RFC 6066 §3](https://datatracker.ietf.org/doc/html/rfc6066#section-3))');
+      await hs.expectUint16(0x0000, chatty && 'no extension data ([RFC 6066 §3](https://datatracker.ietf.org/doc/html/rfc6066#section-3))');
 
     } else if (extType === 0x000a) {
       /*
@@ -60,12 +59,12 @@ export async function readEncryptedHandshake(
       - https://www.rfc-editor.org/rfc/rfc8446#section-4.2
       */
       chatty && hs.comment('supported groups ([RFC 8446 §4.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2), [§4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
-      const [endGroupsData] = hs.expectLengthUint16(chatty && 'groups data');
-      const [endGroups, groupsRemaining] = hs.expectLengthUint16(chatty && 'groups');
+      const [endGroupsData] = await hs.expectLengthUint16(chatty && 'groups data');
+      const [endGroups, groupsRemaining] = await hs.expectLengthUint16(chatty && 'groups');
       chatty && hs.comment('(most preferred first)');
 
       while (groupsRemaining() > 0) {
-        const group = hs.readUint16();
+        const group = await hs.readUint16();
         if (chatty) {
           const groupName = {
             0x0017: 'secp256r1',
@@ -92,48 +91,45 @@ export async function readEncryptedHandshake(
   extEnd();
   eeMessageEnd();
 
-  if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());  // e.g. Vercel sends certs in a separate record
-
   let clientCertRequested = false;
 
   // certificate request (unusual)
-  let certMsgType = hs.readUint8();
+  let certMsgType = await hs.readUint8();
   if (certMsgType === 0x0d) {
     chatty && hs.comment('handshake record type: certificate request ([RFC 8446 §4.3.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.2))');
     clientCertRequested = true;
 
-    const [endCertReq] = hs.expectLengthUint24('certificate request data');
+    const [endCertReq] = await hs.expectLengthUint24('certificate request data');
 
     // this field SHALL be zero length unless used for the post-handshake authentication exchanges described in Section 4.6.2
-    hs.expectUint8(0x00, chatty && 'length of certificate request context');
+    await hs.expectUint8(0x00, chatty && 'length of certificate request context');
 
-    const [endCertReqExts, certReqExtsRemaining] = hs.expectLengthUint16('certificate request extensions');
-    hs.skipRead(certReqExtsRemaining(), chatty && 'certificate request extensions (ignored)');
+    const [endCertReqExts, certReqExtsRemaining] = await hs.expectLengthUint16('certificate request extensions');
+    await hs.skipRead(certReqExtsRemaining(), chatty && 'certificate request extensions (ignored)');
     endCertReqExts();
 
     endCertReq();
 
-    if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());
-    certMsgType = hs.readUint8();
+    certMsgType = await hs.readUint8();
   }
 
   // certificates
   if (certMsgType !== 0x0b) throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
   chatty && hs.comment('handshake record type: certificate ([RFC 8446 §4.4.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2))');
-  const [endCertPayload] = hs.expectLengthUint24(chatty && 'certificate payload');
+  const [endCertPayload] = await hs.expectLengthUint24(chatty && 'certificate payload');
 
-  hs.expectUint8(0x00, chatty && 'no bytes of request context follow');
-  const [endCerts, certsRemaining] = hs.expectLengthUint24(chatty && 'certificates');
+  await hs.expectUint8(0x00, chatty && 'no bytes of request context follow');
+  const [endCerts, certsRemaining] = await hs.expectLengthUint24(chatty && 'certificates');
 
   const certs: Cert[] = [];
   while (certsRemaining() > 0) {
-    const [endCert] = hs.expectLengthUint24(chatty && 'certificate');
-    const cert = new Cert(hs);  // this parses the cert and advances the Bytes object offset
+    const [endCert] = await hs.expectLengthUint24(chatty && 'certificate');
+    const cert = await Cert.create(hs);  // this parses the cert and advances the Bytes object offset
     certs.push(cert);
     endCert();
 
-    const [endCertExt, certExtRemaining] = hs.expectLengthUint16('certificate extensions');
-    hs.skipRead(certExtRemaining());
+    const [endCertExt, certExtRemaining] = await hs.expectLengthUint16('certificate extensions');
+    await hs.skipRead(certExtRemaining());
     endCertExt();
   }
   endCerts();
@@ -149,23 +145,21 @@ export async function readEncryptedHandshake(
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
   const certVerifySignedData = concat(txtEnc.encode(' '.repeat(64) + 'TLS 1.3, server CertificateVerify'), [0x00], certVerifyHash);
 
-  if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());
-
-  hs.expectUint8(0x0f, chatty && 'handshake message type: certificate verify ([RFC 8446 §4.4.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.3))');
-  const [endCertVerifyPayload] = hs.expectLengthUint24(chatty && 'handshake message data');
-  const sigType = hs.readUint16();
+  await hs.expectUint8(0x0f, chatty && 'handshake message type: certificate verify ([RFC 8446 §4.4.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.3))');
+  const [endCertVerifyPayload] = await hs.expectLengthUint24(chatty && 'handshake message data');
+  const sigType = await hs.readUint16();
 
   chatty && log('verifying end-user certificate ...');
   if (sigType === 0x0403) {
     chatty && hs.comment('signature type ECDSA-SECP256R1-SHA256');  // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.3
-    const [endSignature] = hs.expectLengthUint16();
+    const [endSignature] = await hs.expectLengthUint16();
     await ecdsaVerify(hs, userCert.publicKey.all, certVerifySignedData, 'P-256', 'SHA-256');
     endSignature();
 
   } else if (sigType === 0x0804) {
     chatty && hs.comment('signature type RSA-PSS-RSAE-SHA256');
-    const [endSignature, signatureRemaining] = hs.expectLengthUint16();
-    const signature = hs.subarrayForRead(signatureRemaining());
+    const [endSignature, signatureRemaining] = await hs.expectLengthUint16();
+    const signature = await hs.subarrayForRead(signatureRemaining());
     chatty && hs.comment('signature');
     endSignature();
 
@@ -199,11 +193,9 @@ export async function readEncryptedHandshake(
   const correctVerifyHashBuffer = await cs.sign('HMAC', hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
 
-  if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());
-
-  hs.expectUint8(0x14, chatty && 'handshake message type: finished ([RFC 8446 §4.4.4](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.4))');
-  const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24(chatty && 'verify hash');
-  const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
+  await hs.expectUint8(0x14, chatty && 'handshake message type: finished ([RFC 8446 §4.4.4](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.4))');
+  const [endHsFinishedPayload, hsFinishedPayloadRemaining] = await hs.expectLengthUint24(chatty && 'verify hash');
+  const verifyHash = await hs.readBytes(hsFinishedPayloadRemaining());
   chatty && hs.comment('verify hash');
   endHsFinishedPayload();
 
@@ -213,10 +205,10 @@ export async function readEncryptedHandshake(
   if (verifyHashVerified !== true) throw new Error('Invalid server verify hash');
 
   chatty && log('Decrypted using the server handshake key, the server’s handshake messages are parsed as follows ([source](https://github.com/jawj/subtls/blob/main/src/tls/readEncryptedHandshake.ts)). This is a long section, since X.509 certificates are quite complex and there will be several of them:');
-  chatty && log(...highlightBytes(hs.commentedString(true), LogColours.server));
+  chatty && log(...highlightBytes(hs.commentedString(), LogColours.server));
 
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in a trusted root');
 
-  return { handshakeData: hs.data, clientCertRequested, userCert } as const;
+  return { handshakeData: hs.data.subarray(0, hs.offset), clientCertRequested, userCert } as const;
 }

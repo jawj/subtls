@@ -12,6 +12,7 @@ import { hexFromU8 } from './util/hex';
 import { concat } from './util/array';
 import { algorithmWithOID } from './tls/certUtils';
 import { parseAsHTTP } from './util/parseURL';
+import { LazyReadFunctionReadQueue } from './util/readQueue';
 
 const te = new TextEncoder();
 
@@ -54,23 +55,26 @@ export async function postgres(
   const SorN = await transport.read(1);
   chatty && log('The server tells us if it can speak SSL/TLS ("S" for yes, "N" for no):');
   const byte = new Bytes(SorN!);
-  byte.expectUint8(0x53, '"S" = SSL connection supported');
+  await byte.expectUint8(0x53, '"S" = SSL connection supported');
   chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
 
   // TLS connection
 
   const rootCerts = await getRootCertsDatabase();
-  const { read, write, userCert } = await startTls(host, rootCerts, transport.read, transport.write, {
+  const { read: readChunk, write, userCert } = await startTls(host, rootCerts, transport.read, transport.write, {
     useSNI: !pipelinedPasswordAuth,
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false,
   });
 
+  const readQueue = new LazyReadFunctionReadQueue(readChunk);
+  const read = readQueue.read.bind(readQueue);
+
   // StartupMessage
 
   chatty && log('We continue by sending Postgres a [StartupMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE).');
 
-  const msg = new Bytes(1024);
+  const msg = new Bytes();
   const endStartupMessage = msg.writeLengthUint32Incl(chatty && 'StartupMessage');
   msg.writeUint32(0x0003_0000, chatty && 'protocol version');
   msg.writeUTF8StringNullTerminated('user');
@@ -107,24 +111,27 @@ export async function postgres(
 
   // server response: auth request
 
-  chatty && log('Postgres now responds to each message in turn. First it responds to the startup message with a request for authentication. Encrypted, as received:');
+  chatty && log('Postgres now responds with a request for authentication. Encrypted, as received:');
 
-  const preAuthResponse = await read();
-  const preAuthBytes = new Bytes(preAuthResponse!);
+  // const preAuthResponse = await read();
+  const preAuthBytes = new Bytes(read);
 
-  preAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
-  const [endAuthReq, authReqRemaining] = preAuthBytes.expectLengthUint32Incl(chatty && 'request');
+  await preAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
+  const [endAuthReq, authReqRemaining] = await preAuthBytes.expectLengthUint32Incl(chatty && 'request');
 
-  const authMechanism = preAuthBytes.readUint32();
+  const authMechanism = await preAuthBytes.readUint32();
 
-  const saslMechanisms = new Set();
+  const saslMechanisms = new Set<string>();
   if (authMechanism === 3) {  // password auth
     chatty && preAuthBytes.comment('request password auth ([AuthenticationCleartextPassword](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONCLEARTEXTPASSWORD))');
 
   } else if (authMechanism === 10) {  // SASL auth
     chatty && preAuthBytes.comment('AuthenticationSASL message: request SASL auth');
-    while (authReqRemaining() > 1) saslMechanisms.add(preAuthBytes.readUTF8StringNullTerminated());
-    preAuthBytes.expectUint8(0, chatty && 'end of list');
+    while (authReqRemaining() > 1) {
+      const mechanism = await preAuthBytes.readUTF8StringNullTerminated();
+      saslMechanisms.add(mechanism);
+    }
+    await preAuthBytes.expectUint8(0, chatty && 'end of list');
 
     if (!saslMechanisms.has('SCRAM-SHA-256-PLUS')) throw new Error(`SCRAM-SHA-256 without channel binding is not supported`);
 
@@ -134,7 +141,7 @@ export async function postgres(
 
   endAuthReq();
   chatty && log('Decrypted and parsed:');
-  chatty && log(...highlightBytes(preAuthBytes.commentedString(true), LogColours.server));
+  chatty && log(...highlightBytes(preAuthBytes.commentedString(), LogColours.server));
 
   // SASL/SCRAM
 
@@ -153,7 +160,7 @@ export async function postgres(
     chatty && log(...highlightColonList(`client nonce: ${clientNonceStr}`));
     chatty && log('(By the standard, the nonce can include any printable ASCII characters except comma. But, [following Postgres’ lead](https://github.com/postgres/postgres/blob/6304632eaa2107bb1763d29e213ff166ff6104c0/src/backend/libpq/auth-scram.c#L1217), we sacrifice some entropy for the sake of convenience, generating 18 random bytes and base64-encoding them instead).');
 
-    const saslInitResponse = new Bytes(1024);
+    const saslInitResponse = new Bytes();
     saslInitResponse.writeUTF8String('p');
     chatty && saslInitResponse.comment('= SASLInitialResponse');
     const endSaslInitResponse = saslInitResponse.writeLengthUint32Incl(chatty && 'message');
@@ -177,12 +184,12 @@ export async function postgres(
     await write(saslInitResponse.array());
 
     chatty && log('The server responds with an AuthenticationSASLContinue SASL challenge message. This carries the SCRAM server-first-message, made up of our random nonce extended by another 24 bytes (r), a salt (s), and an iteration count (i).');
-    const serverSaslContinueResponse = await read();
-    const serverSaslContinueBytes = new Bytes(serverSaslContinueResponse!);
-    serverSaslContinueBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
-    const [endServerSaslContinue, serverSaslContinueRemaining] = serverSaslContinueBytes.expectLengthUint32Incl();
-    serverSaslContinueBytes.expectUint32(11, chatty && 'AuthenticationSASLContinue');
-    const serverFirstMessage = serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
+    // const serverSaslContinueResponse = await read();
+    const serverSaslContinueBytes = new Bytes(read);
+    await serverSaslContinueBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
+    const [endServerSaslContinue, serverSaslContinueRemaining] = await serverSaslContinueBytes.expectLengthUint32Incl();
+    await serverSaslContinueBytes.expectUint32(11, chatty && 'AuthenticationSASLContinue');
+    const serverFirstMessage = await serverSaslContinueBytes.readUTF8String(serverSaslContinueRemaining());
     endServerSaslContinue();
 
     chatty && log(...highlightBytes(serverSaslContinueBytes.commentedString(), LogColours.server));
@@ -308,7 +315,7 @@ export async function postgres(
     const clientProofB64 = toBase64(clientProof);
     const clientFinalMessage = `${clientFinalMessageWithoutProof},p=${clientProofB64}`;
 
-    const saslResponse = new Bytes(1024);
+    const saslResponse = new Bytes();
     saslResponse.writeUTF8String('p');
     chatty && saslResponse.comment('= SASLResponse');
     const endSaslResponse = saslResponse.writeLengthUint32Incl(chatty && 'message');
@@ -321,13 +328,13 @@ export async function postgres(
     await write(saslResponse.array());
 
     chatty && log('The server responds with a base64-encoded ServerSignature (v):');
-    const authSaslFinalResponse = await read();
-    const authSaslFinalBytes = new Bytes(authSaslFinalResponse!);
+    //const authSaslFinalResponse = await read();
+    const authSaslFinalBytes = new Bytes(read);
 
-    authSaslFinalBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
-    const [endAuthSaslFinal, authSaslFinalRemaining] = authSaslFinalBytes.expectLengthUint32Incl(chatty && 'message');
-    authSaslFinalBytes.expectUint32(12, chatty && '= AuthenticationSASLFinal');
-    const saslOutcome = authSaslFinalBytes.readUTF8String(authSaslFinalRemaining());
+    await authSaslFinalBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
+    const [endAuthSaslFinal, authSaslFinalRemaining] = await authSaslFinalBytes.expectLengthUint32Incl(chatty && 'message');
+    await authSaslFinalBytes.expectUint32(12, chatty && '= AuthenticationSASLFinal');
+    const saslOutcome = await authSaslFinalBytes.readUTF8String(authSaslFinalRemaining());
     chatty && authSaslFinalBytes.comment('— the base64-encoded ServerSignature');
     endAuthSaslFinal();
 
@@ -368,87 +375,91 @@ export async function postgres(
 
   chatty && log('Now the server tells us we’re in, and provides some other useful data. Encrypted, that’s:');
 
-  const postAuthResponse = await read();
-  const postAuthBytes = new Bytes(postAuthResponse!);
+  // const postAuthResponse = await read();
+  const postAuthBytes = new Bytes(read);
 
-  postAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
-  const [endAuthOK] = postAuthBytes.expectLengthUint32Incl(chatty && 'authentication result');
-  postAuthBytes.expectUint32(0, chatty && '[AuthenticationOk](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)');
+  await postAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
+  const [endAuthOK] = await postAuthBytes.expectLengthUint32Incl(chatty && 'authentication result');
+  await postAuthBytes.expectUint32(0, chatty && '[AuthenticationOk](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)');
   endAuthOK();
 
-  while (postAuthBytes.readRemaining() > 0) {
-    const msgType = postAuthBytes.readUTF8String(1);
+  while (true) {
+    const msgType = await postAuthBytes.readUTF8String(1);
     if (msgType === 'S') {
       chatty && postAuthBytes.comment('= [ParameterStatus](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PARAMETERSTATUS)');
-      const [endParams, paramsRemaining] = postAuthBytes.expectLengthUint32Incl(chatty && 'run-time parameters');
+      const [endParams, paramsRemaining] = await postAuthBytes.expectLengthUint32Incl(chatty && 'run-time parameters');
       while (paramsRemaining() > 0) {
-        const k = postAuthBytes.readUTF8StringNullTerminated();
-        const v = postAuthBytes.readUTF8StringNullTerminated();
+        const k = await postAuthBytes.readUTF8StringNullTerminated();
+        const v = await postAuthBytes.readUTF8StringNullTerminated();
         void k, v;
       }
       endParams();
 
     } else if (msgType === 'K') {
       chatty && postAuthBytes.comment('= [BackendKeyData](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-BACKENDKEYDATA)');
-      const [endKeyData] = postAuthBytes.expectLengthUint32Incl();
-      postAuthBytes.readUint32(chatty && 'backend process ID');
-      postAuthBytes.readUint32(chatty && 'backend secret key');
+      const [endKeyData] = await postAuthBytes.expectLengthUint32Incl();
+      await postAuthBytes.readUint32(chatty && 'backend process ID');
+      await postAuthBytes.readUint32(chatty && 'backend secret key');
       endKeyData();
 
     } else if (msgType === 'Z') {
       chatty && postAuthBytes.comment('= [ReadyForQuery](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-READYFORQUERY)');
-      const [endStatus] = postAuthBytes.expectLengthUint32Incl(chatty && 'status');
-      postAuthBytes.expectUint8('I'.charCodeAt(0), chatty && '"I" = status: idle');
+      const [endStatus] = await postAuthBytes.expectLengthUint32Incl(chatty && 'status');
+      await postAuthBytes.expectUint8('I'.charCodeAt(0), chatty && '"I" = status: idle');
       endStatus();
+      break;
+
+    } else {
+      throw new Error(`Unexpected message type: ${msgType} `);
     }
   }
   chatty && log('Decrypted and parsed:');
-  chatty && log(...highlightBytes(postAuthBytes.commentedString(true), LogColours.server));
+  chatty && log(...highlightBytes(postAuthBytes.commentedString(), LogColours.server));
 
   if (pipelinedPasswordAuth === false) {
-    const query = new Bytes(1024)
+    const query = new Bytes()
     query.writeUTF8String('Q');
     chatty && msg.comment('= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)');
     const endQuery = query.writeLengthUint32Incl(chatty && 'query');
     query.writeUTF8StringNullTerminated('SELECT now()');
     endQuery();
 
-    chatty && log('At last: we can send our query message. It’s pretty simple.');
+    chatty && log('The ReadyForQuery message indicates, of course, that we can now send our query message. It’s pretty simple.');
     chatty && log(...highlightBytes(query.commentedString(), LogColours.client));
     chatty && log('Encrypted, that’s:');
     await write(query.array());
   }
 
   chatty && log('Postgres returns our query result. Encrypted:');
-  const queryResult = await read();
-  const queryResultBytes = new Bytes(queryResult!);
+  // const queryResult = await read();
+  const queryResultBytes = new Bytes(read);
 
-  queryResultBytes.expectUint8('T'.charCodeAt(0), chatty && '"T" = [RowDescription](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-ROWDESCRIPTION)');
-  const [endRowDescription] = queryResultBytes.expectLengthUint32Incl();
-  const fieldsPerRow = queryResultBytes.readUint16(chatty && 'fields per row');
+  await queryResultBytes.expectUint8('T'.charCodeAt(0), chatty && '"T" = [RowDescription](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-ROWDESCRIPTION)');
+  const [endRowDescription] = await queryResultBytes.expectLengthUint32Incl();
+  const fieldsPerRow = await queryResultBytes.readUint16(chatty && 'fields per row');
   for (let i = 0; i < fieldsPerRow; i++) {
-    const columnName = queryResultBytes.readUTF8StringNullTerminated();
+    const columnName = await queryResultBytes.readUTF8StringNullTerminated();
     chatty && queryResultBytes.comment('= column name', queryResultBytes.offset - 1);
-    const tableOID = queryResultBytes.readUint32(chatty && 'table OID');
-    const colAttrNum = queryResultBytes.readUint16(chatty && 'column attribute number');
-    const dataTypeOID = queryResultBytes.readUint32(chatty && 'data type OID');
-    const dataTypeSize = queryResultBytes.readUint16(chatty && 'data type size');  // TODO: these should be Int16 not Uint16
-    const dataTypeModifier = queryResultBytes.readUint32(chatty && 'data type modifier');
-    const formatCode = queryResultBytes.readUint16(chatty && 'format code');
+    const tableOID = await queryResultBytes.readUint32(chatty && 'table OID');
+    const colAttrNum = await queryResultBytes.readUint16(chatty && 'column attribute number');
+    const dataTypeOID = await queryResultBytes.readUint32(chatty && 'data type OID');
+    const dataTypeSize = await queryResultBytes.readUint16(chatty && 'data type size');  // TODO: these should be Int16 not Uint16
+    const dataTypeModifier = await queryResultBytes.readUint32(chatty && 'data type modifier');
+    const formatCode = await queryResultBytes.readUint16(chatty && 'format code');
     void columnName, tableOID, colAttrNum, dataTypeOID, dataTypeSize, dataTypeModifier, formatCode;
   }
   endRowDescription();
 
   let lastColumnData;
-  while (queryResultBytes.readRemaining() > 0) {
-    const msgType = queryResultBytes.readUTF8String(1);
+  while (true) {
+    const msgType = await queryResultBytes.readUTF8String(1);
     if (msgType === 'D') {
       chatty && queryResultBytes.comment('= [DataRow](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-DATAROW)');
-      const [endDataRow] = queryResultBytes.expectLengthUint32Incl();
-      const columnsToFollow = queryResultBytes.readUint16(chatty && 'columns to follow');
+      const [endDataRow] = await queryResultBytes.expectLengthUint32Incl();
+      const columnsToFollow = await queryResultBytes.readUint16(chatty && 'columns to follow');
       for (let i = 0; i < columnsToFollow; i++) {
-        const [endColumn, columnRemaining] = queryResultBytes.expectLengthUint32();  // NOT including self this time
-        lastColumnData = queryResultBytes.readUTF8String(columnRemaining());
+        const [endColumn, columnRemaining] = await queryResultBytes.expectLengthUint32();  // NOT including self this time
+        lastColumnData = await queryResultBytes.readUTF8String(columnRemaining());
         chatty && queryResultBytes.comment('= column value');
         endColumn();
       }
@@ -456,16 +467,17 @@ export async function postgres(
 
     } else if (msgType === 'C') {
       chatty && queryResultBytes.comment('= [Close](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-CLOSE)');
-      const [endClose] = queryResultBytes.expectLengthUint32Incl();
-      queryResultBytes.readUTF8StringNullTerminated();
+      const [endClose] = await queryResultBytes.expectLengthUint32Incl();
+      await queryResultBytes.readUTF8StringNullTerminated();
       chatty && queryResultBytes.comment('= command tag', queryResultBytes.offset - 1);
       endClose();
 
     } else if (msgType === 'Z') {
       chatty && queryResultBytes.comment('= [ReadyForQuery](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-READYFORQUERY)');
-      const [endReady] = queryResultBytes.expectLengthUint32Incl();
-      queryResultBytes.expectUint8('I'.charCodeAt(0), chatty && '"I" = status: idle');
+      const [endReady] = await queryResultBytes.expectLengthUint32Incl();
+      await queryResultBytes.expectUint8('I'.charCodeAt(0), chatty && '"I" = status: idle');
       endReady();
+      break;
 
     } else {
       throw new Error(`Unexpected message type: ${msgType} `);
@@ -473,7 +485,7 @@ export async function postgres(
   }
 
   chatty && log('Decrypted and parsed:');
-  chatty && log(...highlightBytes(queryResultBytes.commentedString(true), LogColours.server));
+  chatty && log(...highlightBytes(queryResultBytes.commentedString(), LogColours.server));
   chatty && log('We pick out our result — the current time on our server:');
   log('%c%s', 'font-size: 2em; color: #000;', lastColumnData);
   chatty || log(`time taken: ${Date.now() - t0} ms`);
@@ -486,7 +498,7 @@ export async function postgres(
   chatty && endBytes.comment("(and therefore end here too)");
 
   chatty && log('Last of all, we send a termination command. Before encryption, that’s:');
-  chatty && log(...highlightBytes(endBytes.commentedString(true), LogColours.client));
+  chatty && log(...highlightBytes(endBytes.commentedString(), LogColours.client));
   chatty && log('And as sent on the wire:');
   await write(endBytes.array());
 

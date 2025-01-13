@@ -1,7 +1,7 @@
 import { fromBase64 } from 'hextreme';
 import makeClientHello from './makeClientHello';
 import parseServerHello from './parseServerHello';
-import { makeEncryptedTlsRecords, readEncryptedTlsRecord, readTlsRecord, RecordType } from './tlsRecord';
+import { bytesFromEncryptedTlsRecords, bytesFromTlsRecords, makeEncryptedTlsRecords, readEncryptedTlsRecord, readTlsRecord, RecordType } from './tlsRecord';
 import { getApplicationKeys, getHandshakeKeys } from './keys';
 import { hkdfExpandLabel } from "./hkdf";
 import { Crypter } from './aesgcm';
@@ -35,7 +35,7 @@ export async function startTls(
   requireServerTlsExtKeyUsage ??= true;
   requireDigitalSigKeyUsage ??= true;
 
-  if (typeof rootCertsDatabase === 'string') rootCertsDatabase = TrustedCert.databaseFromPEM(rootCertsDatabase);
+  if (typeof rootCertsDatabase === 'string') rootCertsDatabase = await TrustedCert.databaseFromPEM(rootCertsDatabase);
 
   const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
   const rawPublicKeyBuffer = await cs.exportKey('raw', ecdhKeys.publicKey);
@@ -70,19 +70,13 @@ export async function startTls(
   }
 
   // parse server hello
-  const serverHelloReadQueue = new LazyReadFunctionReadQueue(async () => (await readTlsRecord(networkRead, RecordType.Handshake)).content);
-  const serverHello = new Bytes(serverHelloReadQueue.boundRead, 1);
+  const serverHello = bytesFromTlsRecords(networkRead, RecordType.Handshake);
   const serverPublicKey = await parseServerHello(serverHello, sessionId);
   chatty && log(...highlightBytes(serverHello.commentedString(false), LogColours.server));
 
   // parse dummy cipher change
   chatty && log('For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends us a meaningless cipher change record:');
-  const changeCipherRecordReadQueue = new LazyReadFunctionReadQueue(async () => (await readTlsRecord(networkRead, RecordType.ChangeCipherSpec)).content);
-
-  // const changeCipherRecord = await readTlsRecord(networkRead, RecordType.ChangeCipherSpec);
-  // if (changeCipherRecord === undefined) throw new Error('Connection closed awaiting server cipher change');
-
-  const ccipher = new Bytes(changeCipherRecordReadQueue.boundRead, 1);
+  const ccipher = bytesFromTlsRecords(networkRead, RecordType.ChangeCipherSpec);
   await ccipher.expectUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
   chatty && log(...highlightBytes(ccipher.commentedString(false), LogColours.server));
 
@@ -99,14 +93,11 @@ export async function startTls(
   const handshakeEncrypter = new Crypter('encrypt', clientHandshakeKey, handshakeKeys.clientHandshakeIV);
 
   chatty && log('The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the ‘certificate verify’ message, which we check on the spot, and the full certificate chain, which we verify a bit later on:');
-  const readHandshakeRecord = async () => {
-    const tlsRecord = await readEncryptedTlsRecord(networkRead, handshakeDecrypter, RecordType.Handshake);
-    if (tlsRecord === undefined) throw new Error('Premature end of encrypted server handshake');
-    return tlsRecord;
-  };
+
+  const handshakeBytes = bytesFromEncryptedTlsRecords(networkRead, handshakeDecrypter, RecordType.Handshake);
   const { handshakeData: serverHandshake, clientCertRequested, userCert } = await readEncryptedHandshake(
     host,
-    readHandshakeRecord,
+    handshakeBytes,
     handshakeKeys.serverSecret,
     hellos,
     rootCertsDatabase,

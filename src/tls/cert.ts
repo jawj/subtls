@@ -63,13 +63,13 @@ export interface RootCertsDatabase {
 }
 
 export class Cert {
-  serialNumber: Uint8Array;
-  algorithm: OID;
-  issuer: DistinguishedName;
-  validityPeriod: { notBefore: Date; notAfter: Date };
-  subject: DistinguishedName;
-  publicKey: { identifiers: OID[]; data: Uint8Array; all: Uint8Array };
-  signature: Uint8Array;
+  serialNumber!: Uint8Array;
+  algorithm!: OID;
+  issuer!: DistinguishedName;
+  validityPeriod!: { notBefore: Date; notAfter: Date };
+  subject!: DistinguishedName;
+  publicKey!: { identifiers: OID[]; data: Uint8Array; all: Uint8Array };
+  signature!: Uint8Array;
   keyUsage?: { critical?: boolean; usages: Set<typeof allKeyUsages[number]> };
   subjectAltNames?: string[];
   extKeyUsage?: { clientTls?: true; serverTls?: true };
@@ -77,8 +77,12 @@ export class Cert {
   subjectKeyIdentifier?: Uint8Array;
   basicConstraints?: { critical?: boolean; ca?: boolean; pathLength?: number } | undefined;
   // nameConstraints?: { critical?: boolean; permitted?: string[]; excluded?: string[] };
-  signedData: Uint8Array;
-  rawData: Uint8Array;
+  signedData!: Uint8Array;
+  rawData!: Uint8Array;
+
+  constructor() {
+    throw new Error('Use `await Cert.create(...)`, not `new Cert(...)`');
+  }
 
   static distinguishedNamesAreEqual(dn1: DistinguishedName, dn2: DistinguishedName) {
     return this.stringFromDistinguishedName(dn1) === this.stringFromDistinguishedName(dn2);
@@ -92,199 +96,201 @@ export class Cert {
       ).join(', ');
   }
 
-  constructor(certData: Uint8Array | ASN1Bytes | CertJSON) {
+  static async create(certData: Uint8Array | ASN1Bytes | CertJSON) {
+    const cert: Cert = Object.create(this.prototype);
+
     if (certData instanceof ASN1Bytes || certData instanceof Uint8Array) {
       const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
       const certSeqStartOffset = cb.offset;
 
-      cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate)');
-      const [endCertSeq] = cb.expectASN1Length(chatty && 'certificate sequence');
+      await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate)');
+      const [endCertSeq] = await cb.expectASN1Length(chatty && 'certificate sequence');
 
       const tbsCertStartOffset = cb.offset;
 
-      cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate info)');
-      const [endCertInfoSeq] = cb.expectASN1Length(chatty && 'certificate info');
+      await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate info)');
+      const [endCertInfoSeq] = await cb.expectASN1Length(chatty && 'certificate info');
 
-      cb.expectBytes([0xa0, 0x03, 0x02, 0x01, 0x02], chatty && 'certificate version 3');  // must be v3 to have extensions
+      await cb.expectBytes([0xa0, 0x03, 0x02, 0x01, 0x02], chatty && 'certificate version 3');  // must be v3 to have extensions
 
       // serial number
-      cb.expectUint8(universalTypeInteger, chatty && 'integer');
-      const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length(chatty && 'serial number');
-      this.serialNumber = cb.subarrayForRead(serialNumberRemaining());
+      await cb.expectUint8(universalTypeInteger, chatty && 'integer');
+      const [endSerialNumber, serialNumberRemaining] = await cb.expectASN1Length(chatty && 'serial number');
+      cert.serialNumber = await cb.subarrayForRead(serialNumberRemaining());
       chatty && cb.comment('serial number');
       endSerialNumber();
 
       // algorithm
-      cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (algorithm)');
-      const [endAlgo, algoRemaining] = cb.expectASN1Length(chatty && 'algorithm sequence');
-      cb.expectUint8(universalTypeOID, chatty && 'OID');
-      this.algorithm = cb.readASN1OID();
-      chatty && cb.comment(`${this.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(this.algorithm))}`);
+      await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (algorithm)');
+      const [endAlgo, algoRemaining] = await cb.expectASN1Length(chatty && 'algorithm sequence');
+      await cb.expectUint8(universalTypeOID, chatty && 'OID');
+      cert.algorithm = await cb.readASN1OID();
+      chatty && cb.comment(`${cert.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(cert.algorithm))}`);
       if (algoRemaining() > 0) {  // null parameters
-        cb.expectUint8(universalTypeNull, chatty && 'null');
-        cb.expectUint8(0x00, chatty && 'null length');
+        await cb.expectUint8(universalTypeNull, chatty && 'null');
+        await cb.expectUint8(0x00, chatty && 'null length');
       }
       endAlgo();
 
       // issuer
-      this.issuer = readSeqOfSetOfSeq(cb, 'issuer');
+      cert.issuer = await readSeqOfSetOfSeq(cb, 'issuer');
 
       // validity
       let notBefore, notAfter;
-      cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (validity)');
-      const [endValiditySeq] = cb.expectASN1Length(chatty && 'validity sequence');
+      await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (validity)');
+      const [endValiditySeq] = await cb.expectASN1Length(chatty && 'validity sequence');
 
-      const startTimeType = cb.readUint8();
+      const startTimeType = await cb.readUint8();
       if (startTimeType === universalTypeUTCTime) {
         chatty && cb.comment('UTC time (not before)');
-        notBefore = cb.readASN1UTCTime();
+        notBefore = await cb.readASN1UTCTime();
       } else if (startTimeType === universalTypeGeneralizedTime) {
         chatty && cb.comment('generalized time (not before)');
-        notBefore = cb.readASN1GeneralizedTime();
+        notBefore = await cb.readASN1GeneralizedTime();
       } else {
         throw new Error(`Unexpected validity start type 0x${hexFromU8([startTimeType])}`);
       }
 
-      const endTimeType = cb.readUint8();
+      const endTimeType = await cb.readUint8();
       if (endTimeType === universalTypeUTCTime) {
         chatty && cb.comment('UTC time (not after)');
-        notAfter = cb.readASN1UTCTime();
+        notAfter = await cb.readASN1UTCTime();
       } else if (endTimeType === universalTypeGeneralizedTime) {
         chatty && cb.comment('generalized time (not after)');
-        notAfter = cb.readASN1GeneralizedTime();
+        notAfter = await cb.readASN1GeneralizedTime();
       } else {
         throw new Error(`Unexpected validity end type 0x${hexFromU8([endTimeType])}`);
       }
 
-      this.validityPeriod = { notBefore, notAfter };
+      cert.validityPeriod = { notBefore, notAfter };
       endValiditySeq();
 
       // subject
-      this.subject = readSeqOfSetOfSeq(cb, 'subject');
+      cert.subject = await readSeqOfSetOfSeq(cb, 'subject');
 
       // public key
       const publicKeyStartOffset = cb.offset;
-      cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (public key)');
-      const [endPublicKeySeq] = cb.expectASN1Length(chatty && 'public key sequence');
-      cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (public key params)');
-      const [endKeyOID, keyOIDRemaining] = cb.expectASN1Length(chatty && 'public key params sequence');
+      await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (public key)');
+      const [endPublicKeySeq] = await cb.expectASN1Length(chatty && 'public key sequence');
+      await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (public key params)');
+      const [endKeyOID, keyOIDRemaining] = await cb.expectASN1Length(chatty && 'public key params sequence');
 
       const publicKeyOIDs: string[] = [];
       while (keyOIDRemaining() > 0) {
-        const keyParamRecordType = cb.readUint8();
+        const keyParamRecordType = await cb.readUint8();
         if (keyParamRecordType === universalTypeOID) {
           chatty && cb.comment('OID');
-          const keyOID = cb.readASN1OID();
+          const keyOID = await cb.readASN1OID();
           chatty && cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`)
           publicKeyOIDs.push(keyOID);
 
         } else if (keyParamRecordType === universalTypeNull) {
           chatty && cb.comment('null');
-          cb.expectUint8(0x00, chatty && 'null length');
+          await cb.expectUint8(0x00, chatty && 'null length');
         }
       }
       endKeyOID();
 
-      cb.expectUint8(universalTypeBitString, chatty && 'bit string');
-      const publicKeyData = cb.readASN1BitString();
+      await cb.expectUint8(universalTypeBitString, chatty && 'bit string');
+      const publicKeyData = await cb.readASN1BitString();
       chatty && cb.comment('public key');
 
-      this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.data.subarray(publicKeyStartOffset, cb.offset) };
+      cert.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.data.subarray(publicKeyStartOffset, cb.offset) };
 
       endPublicKeySeq();
 
       // extensions
-      cb.expectUint8(constructedContextSpecificType, chatty && 'constructed context-specific type: extensions');
-      const [endExtsData] = cb.expectASN1Length();
-      cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate extensions)');
-      const [endExts, extsRemaining] = cb.expectASN1Length(chatty && 'sequence');
+      await cb.expectUint8(constructedContextSpecificType, chatty && 'constructed context-specific type: extensions');
+      const [endExtsData] = await cb.expectASN1Length();
+      await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate extensions)');
+      const [endExts, extsRemaining] = await cb.expectASN1Length(chatty && 'sequence');
 
       while (extsRemaining() > 0) {
-        cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate extension)');
-        const [endExt, extRemaining] = cb.expectASN1Length();
-        cb.expectUint8(universalTypeOID, chatty && 'OID (extension type)');
-        const extOID = cb.readASN1OID();
+        await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (certificate extension)');
+        const [endExt, extRemaining] = await cb.expectASN1Length();
+        await cb.expectUint8(universalTypeOID, chatty && 'OID (extension type)');
+        const extOID = await cb.readASN1OID();
         chatty && cb.comment(`${extOID} = ${extOIDMap[extOID]}`);
 
         if (extOID === "2.5.29.17") {  // subjectAltName
-          cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endSanDerDoc] = cb.expectASN1Length(chatty && 'DER document');
-          cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (names)');
-          const allSubjectAltNames = readNamesSeq(cb, contextSpecificType);
-          this.subjectAltNames = allSubjectAltNames
+          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
+          const [endSanDerDoc] = await cb.expectASN1Length(chatty && 'DER document');
+          await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (names)');
+          const allSubjectAltNames = await readNamesSeq(cb, contextSpecificType);
+          cert.subjectAltNames = allSubjectAltNames
             .filter((san: any) => san.type === (GeneralName.dNSName | contextSpecificType))
             .map((san: any) => san.name);
           endSanDerDoc();
 
         } else if (extOID === '2.5.29.15') {  // keyUsage
           let keyUsageCritical;
-          let nextType = cb.readUint8();
+          let nextType = await cb.readUint8();
           if (nextType === universalTypeBoolean) {
             chatty && cb.comment('boolean');
-            keyUsageCritical = cb.readASN1Boolean(chatty && 'critical: %');
-            nextType = cb.readUint8();
+            keyUsageCritical = await cb.readASN1Boolean(chatty && 'critical: %');
+            nextType = await cb.readUint8();
           }
           if (nextType !== universalTypeOctetString) throw new Error(`Expected 0x${hexFromU8([universalTypeOctetString])}, got 0x${hexFromU8([nextType])}`);
           chatty && cb.comment('octet string');
-          const [endKeyUsageDer] = cb.expectASN1Length(chatty && 'DER document');
-          cb.expectUint8(universalTypeBitString, chatty && 'bit string');
-          const keyUsageBitStr = cb.readASN1BitString();
+          const [endKeyUsageDer] = await cb.expectASN1Length(chatty && 'DER document');
+          await cb.expectUint8(universalTypeBitString, chatty && 'bit string');
+          const keyUsageBitStr = await cb.readASN1BitString();
           const keyUsageBitmask = intFromBitString(keyUsageBitStr);
           const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & (1 << i)));
           chatty && cb.comment(`key usage: ${keyUsageBitmask} = ${[...keyUsageNames]}`);
           endKeyUsageDer();
-          this.keyUsage = {
+          cert.keyUsage = {
             critical: keyUsageCritical,
             usages: keyUsageNames,
           };
 
         } else if (extOID === '2.5.29.37') {  // extKeyUsage
-          this.extKeyUsage = {};
-          cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endExtKeyUsageDer] = cb.expectASN1Length(chatty && 'DER document');
-          cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-          const [endExtKeyUsage, extKeyUsageRemaining] = cb.expectASN1Length(chatty && 'key usage OIDs');
+          cert.extKeyUsage = {};
+          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
+          const [endExtKeyUsageDer] = await cb.expectASN1Length(chatty && 'DER document');
+          await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+          const [endExtKeyUsage, extKeyUsageRemaining] = await cb.expectASN1Length(chatty && 'key usage OIDs');
           while (extKeyUsageRemaining() > 0) {
-            cb.expectUint8(universalTypeOID, chatty && 'OID');
-            const extKeyUsageOID = cb.readASN1OID();
+            await cb.expectUint8(universalTypeOID, chatty && 'OID');
+            const extKeyUsageOID = await cb.readASN1OID();
             chatty && cb.comment(`${extKeyUsageOID} = ${extKeyUsageOIDMap[extKeyUsageOID]}`);
-            if (extKeyUsageOID === '1.3.6.1.5.5.7.3.1') this.extKeyUsage.serverTls = true;
-            if (extKeyUsageOID === '1.3.6.1.5.5.7.3.2') this.extKeyUsage.clientTls = true;
+            if (extKeyUsageOID === '1.3.6.1.5.5.7.3.1') cert.extKeyUsage.serverTls = true;
+            if (extKeyUsageOID === '1.3.6.1.5.5.7.3.2') cert.extKeyUsage.clientTls = true;
           }
           endExtKeyUsage();
           endExtKeyUsageDer();
 
         } else if (extOID === '2.5.29.35') {  // authorityKeyIdentifier
-          cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endAuthKeyIdDer] = cb.expectASN1Length(chatty && 'DER document');
-          cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-          const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
+          const [endAuthKeyIdDer] = await cb.expectASN1Length(chatty && 'DER document');
+          await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+          const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = await cb.expectASN1Length(chatty && 'sequence');
 
           while (authKeyIdSeqRemaining() > 0) {
-            const authKeyIdDatumType = cb.readUint8();
+            const authKeyIdDatumType = await cb.readUint8();
             if (authKeyIdDatumType === (contextSpecificType | 0)) {
               chatty && cb.comment('context-specific type: key identifier');
-              const [endAuthKeyId, authKeyIdRemaining] = cb.expectASN1Length(chatty && 'authority key identifier');
-              this.authorityKeyIdentifier = cb.readBytes(authKeyIdRemaining());
+              const [endAuthKeyId, authKeyIdRemaining] = await cb.expectASN1Length(chatty && 'authority key identifier');
+              cert.authorityKeyIdentifier = await cb.readBytes(authKeyIdRemaining());
               chatty && cb.comment('authority key identifier');
               endAuthKeyId();
 
             } else if (authKeyIdDatumType === (contextSpecificType | 1)) {
               chatty && cb.comment('context-specific type: authority cert issuer');
-              const [endAuthKeyIdCertIssuer, authKeyIdCertIssuerRemaining] = cb.expectASN1Length(chatty && 'authority cert issuer');
-              cb.skipRead(authKeyIdCertIssuerRemaining(), chatty && 'ignored');
+              const [endAuthKeyIdCertIssuer, authKeyIdCertIssuerRemaining] = await cb.expectASN1Length(chatty && 'authority cert issuer');
+              await cb.skipRead(authKeyIdCertIssuerRemaining(), chatty && 'ignored');
               endAuthKeyIdCertIssuer();
 
             } else if (authKeyIdDatumType === (contextSpecificType | 2)) {
               chatty && cb.comment('context-specific type: authority cert serial number');
-              const [endAuthKeyIdCertSerialNo, authKeyIdCertSerialNoRemaining] = cb.expectASN1Length(chatty && 'authority cert issuer or authority cert serial number');
-              cb.skipRead(authKeyIdCertSerialNoRemaining(), chatty && 'ignored');
+              const [endAuthKeyIdCertSerialNo, authKeyIdCertSerialNoRemaining] = await cb.expectASN1Length(chatty && 'authority cert issuer or authority cert serial number');
+              await cb.skipRead(authKeyIdCertSerialNoRemaining(), chatty && 'ignored');
               endAuthKeyIdCertSerialNo();
 
             } else if (authKeyIdDatumType === (contextSpecificType | 33)) {  // where is this documented?!
               chatty && cb.comment('context-specific type: DirName');
-              const [endDirName, dirNameRemaining] = cb.expectASN1Length(chatty && 'DirName');
-              cb.skipRead(dirNameRemaining(), chatty && 'ignored');
+              const [endDirName, dirNameRemaining] = await cb.expectASN1Length(chatty && 'DirName');
+              await cb.skipRead(dirNameRemaining(), chatty && 'ignored');
               chatty && console.log(cb.commentedString());
               endDirName();
 
@@ -297,43 +303,43 @@ export class Cert {
           endAuthKeyIdDer();
 
         } else if (extOID === '2.5.29.14') {  // subjectKeyIdentifier
-          cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endSubjectKeyIdDer] = cb.expectASN1Length(chatty && 'DER document');
-          cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endSubjectKeyId, subjectKeyIdRemaining] = cb.expectASN1Length(chatty && 'subject key identifier');
-          this.subjectKeyIdentifier = cb.readBytes(subjectKeyIdRemaining());
+          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
+          const [endSubjectKeyIdDer] = await cb.expectASN1Length(chatty && 'DER document');
+          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
+          const [endSubjectKeyId, subjectKeyIdRemaining] = await cb.expectASN1Length(chatty && 'subject key identifier');
+          cert.subjectKeyIdentifier = await cb.readBytes(subjectKeyIdRemaining());
           chatty && cb.comment('subject key identifier');
           endSubjectKeyId();
           endSubjectKeyIdDer();
 
         } else if (extOID === '2.5.29.19') {  // basicConstraints
           let basicConstraintsCritical;
-          let bcNextType = cb.readUint8();
+          let bcNextType = await cb.readUint8();
           if (bcNextType === universalTypeBoolean) {
             chatty && cb.comment('boolean');
-            basicConstraintsCritical = cb.readASN1Boolean(chatty && 'critical: %');
-            bcNextType = cb.readUint8();
+            basicConstraintsCritical = await cb.readASN1Boolean(chatty && 'critical: %');
+            bcNextType = await cb.readUint8();
           }
           if (bcNextType !== universalTypeOctetString) throw new Error('Unexpected type in certificate basic constraints');
           chatty && cb.comment('octet string');
-          const [endBasicConstraintsDer] = cb.expectASN1Length(chatty && 'DER document');
-          cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-          const [endConstraintsSeq, constraintsSeqRemaining] = cb.expectASN1Length();
+          const [endBasicConstraintsDer] = await cb.expectASN1Length(chatty && 'DER document');
+          await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+          const [endConstraintsSeq, constraintsSeqRemaining] = await cb.expectASN1Length();
 
           let basicConstraintsCa = undefined;
           if (constraintsSeqRemaining() > 0) {
-            cb.expectUint8(universalTypeBoolean, chatty && 'boolean');
-            basicConstraintsCa = cb.readASN1Boolean(chatty && 'certificate authority: %');
+            await cb.expectUint8(universalTypeBoolean, chatty && 'boolean');
+            basicConstraintsCa = await cb.readASN1Boolean(chatty && 'certificate authority: %');
           }
 
           let basicConstraintsPathLength;
           if (constraintsSeqRemaining() > 0) {
-            cb.expectUint8(universalTypeInteger, chatty && 'integer');
-            const maxPathLengthLength = cb.readASN1Length(chatty && 'max path length');
+            await cb.expectUint8(universalTypeInteger, chatty && 'integer');
+            const maxPathLengthLength = await cb.readASN1Length(chatty && 'max path length');
             basicConstraintsPathLength =
-              maxPathLengthLength === 1 ? cb.readUint8() :
-                maxPathLengthLength === 2 ? cb.readUint16() :
-                  maxPathLengthLength === 3 ? cb.readUint24() :
+              maxPathLengthLength === 1 ? await cb.readUint8() :
+                maxPathLengthLength === 2 ? await cb.readUint16() :
+                  maxPathLengthLength === 3 ? await cb.readUint24() :
                     undefined;
             if (basicConstraintsPathLength === undefined) throw new Error('Too many bytes in max path length in certificate basicConstraints');
             chatty && cb.comment('max path length');
@@ -342,30 +348,30 @@ export class Cert {
           endConstraintsSeq();
           endBasicConstraintsDer();
 
-          this.basicConstraints = {
+          cert.basicConstraints = {
             critical: basicConstraintsCritical,
             ca: basicConstraintsCa,
             pathLength: basicConstraintsPathLength,
           }
 
         } else if (chatty && extOID === '1.3.6.1.5.5.7.1.1') {  // authorityInfoAccess -- only parsed for annotation purposes
-          cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endAuthInfoAccessDER] = cb.expectASN1Length(chatty && 'DER document');
+          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
+          const [endAuthInfoAccessDER] = await cb.expectASN1Length(chatty && 'DER document');
 
-          cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-          const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+          await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+          const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = await cb.expectASN1Length(chatty && 'sequence');
 
           while (authInfoAccessSeqRemaining() > 0) {
-            cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-            const [endAuthInfoAccessInnerSeq] = cb.expectASN1Length(chatty && 'sequence');
+            await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+            const [endAuthInfoAccessInnerSeq] = await cb.expectASN1Length(chatty && 'sequence');
 
-            cb.expectUint8(universalTypeOID, chatty && 'OID');
-            const accessMethodOID = cb.readASN1OID();
+            await cb.expectUint8(universalTypeOID, chatty && 'OID');
+            const accessMethodOID = await cb.readASN1OID();
             chatty && cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? 'unknown method'} `)
 
-            cb.expectUint8(contextSpecificType | GeneralName.uniformResourceIdentifier, chatty && 'context-specific type: URI');
-            const [endMethodURI, methodURIRemaining] = cb.expectASN1Length(chatty && 'access location');
-            cb.readUTF8String(methodURIRemaining());
+            await cb.expectUint8(contextSpecificType | GeneralName.uniformResourceIdentifier, chatty && 'context-specific type: URI');
+            const [endMethodURI, methodURIRemaining] = await cb.expectASN1Length(chatty && 'access location');
+            await cb.readUTF8String(methodURIRemaining());
             endMethodURI();
 
             endAuthInfoAccessInnerSeq()
@@ -375,41 +381,41 @@ export class Cert {
           endAuthInfoAccessDER();
 
         } else if (chatty && extOID === '2.5.29.32') {  // certificatePolicies -- only parsed for annotation purposes
-          cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endCertPolDER] = cb.expectASN1Length(chatty && 'DER document');
+          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
+          const [endCertPolDER] = await cb.expectASN1Length(chatty && 'DER document');
 
-          cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (CertificatePolicies)');
-          const [endCertPolSeq, certPolSeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+          await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (CertificatePolicies)');
+          const [endCertPolSeq, certPolSeqRemaining] = await cb.expectASN1Length(chatty && 'sequence');
 
           while (certPolSeqRemaining() > 0) {
-            cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (PolicyInformation)');
-            const [endCertPolInnerSeq, certPolInnerSeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+            await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (PolicyInformation)');
+            const [endCertPolInnerSeq, certPolInnerSeqRemaining] = await cb.expectASN1Length(chatty && 'sequence');
 
-            cb.expectUint8(universalTypeOID, chatty && 'OID (CertPolicyID)');
-            const certPolOID = cb.readASN1OID();
+            await cb.expectUint8(universalTypeOID, chatty && 'OID (CertPolicyID)');
+            const certPolOID = await cb.readASN1OID();
             chatty && cb.comment(`${certPolOID} = policy: ${certPolOIDMap[certPolOID] ?? 'unknown policy'} `);
 
             while (certPolInnerSeqRemaining() > 0) {
-              cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-              const [endCertPolInner2Seq, certPolInner2SeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+              await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
+              const [endCertPolInner2Seq, certPolInner2SeqRemaining] = await cb.expectASN1Length(chatty && 'sequence');
 
               while (certPolInner2SeqRemaining() > 0) {
-                cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (PolicyQualifierInformation)');
-                const [endCertPolInner3Seq, certPolInner3SeqRemaining] = cb.expectASN1Length(chatty && 'sequence');
+                await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (PolicyQualifierInformation)');
+                const [endCertPolInner3Seq, certPolInner3SeqRemaining] = await cb.expectASN1Length(chatty && 'sequence');
 
-                cb.expectUint8(universalTypeOID, chatty && 'OID (policyQualifierId)');
-                const certPolQualOID = cb.readASN1OID();
+                await cb.expectUint8(universalTypeOID, chatty && 'OID (policyQualifierId)');
+                const certPolQualOID = await cb.readASN1OID();
                 chatty && cb.comment(`${certPolQualOID} = qualifier: ${certPolQualOIDMap[certPolQualOID] ?? 'unknown qualifier'} `)
 
-                const qualType = cb.readUint8();
+                const qualType = await cb.readUint8();
                 if (chatty && qualType === universalTypeIA5String) {
                   cb.comment('IA5String');
-                  const [endQualStr, qualStrRemaining] = cb.expectASN1Length('string');
-                  cb.readUTF8String(qualStrRemaining());
+                  const [endQualStr, qualStrRemaining] = await cb.expectASN1Length('string');
+                  await cb.readUTF8String(qualStrRemaining());
                   endQualStr();
 
                 } else {
-                  if (certPolInner3SeqRemaining()) cb.skipRead(certPolInner3SeqRemaining(), 'skipped policy qualifier data');
+                  if (certPolInner3SeqRemaining()) await cb.skipRead(certPolInner3SeqRemaining(), 'skipped policy qualifier data');
                 }
 
                 endCertPolInner3Seq();
@@ -441,7 +447,7 @@ export class Cert {
            * - Signed Certificate Timestamp (SCT) List
            */
           // TODO: check for criticality, throw if critical
-          cb.skipRead(extRemaining(), chatty && 'ignored extension data');
+          await cb.skipRead(extRemaining(), chatty && 'ignored extension data');
         }
 
         endExt();
@@ -453,56 +459,58 @@ export class Cert {
       endCertInfoSeq();
 
       // to-be-signed cert data: https://crypto.stackexchange.com/questions/42345/what-information-is-signed-by-a-certification-authority
-      this.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
+      cert.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
 
       // signature algorithm
-      cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (signature algorithm)');
-      const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length(chatty && 'signature algorithm sequence');
-      cb.expectUint8(universalTypeOID, chatty && 'OID');
-      const sigAlgoOID = cb.readASN1OID(chatty && '% (must be same as above)');
+      await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (signature algorithm)');
+      const [endSigAlgo, sigAlgoRemaining] = await cb.expectASN1Length(chatty && 'signature algorithm sequence');
+      await cb.expectUint8(universalTypeOID, chatty && 'OID');
+      const sigAlgoOID = await cb.readASN1OID(chatty && '% (must be same as above)');
       if (sigAlgoRemaining() > 0) {
-        cb.expectUint8(universalTypeNull, chatty && 'null');
-        cb.expectUint8(0x00, chatty && 'null length');
+        await cb.expectUint8(universalTypeNull, chatty && 'null');
+        await cb.expectUint8(0x00, chatty && 'null length');
       }
       endSigAlgo();
-      if (sigAlgoOID !== this.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${this.algorithm}) and out (${sigAlgoOID})`);
+      if (sigAlgoOID !== cert.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${cert.algorithm}) and out (${sigAlgoOID})`);
 
       // signature
-      cb.expectUint8(universalTypeBitString, chatty && 'bitstring (signature)');
-      this.signature = cb.readASN1BitString();
+      await cb.expectUint8(universalTypeBitString, chatty && 'bitstring (signature)');
+      cert.signature = await cb.readASN1BitString();
       chatty && cb.comment('signature');
 
       endCertSeq();
 
-      this.rawData = cb.data.subarray(certSeqStartOffset, cb.offset);
+      cert.rawData = cb.data.subarray(certSeqStartOffset, cb.offset);
 
     } else {
-      this.serialNumber = u8FromHex(certData.serialNumber);
-      this.algorithm = certData.algorithm;
-      this.issuer = certData.issuer;
-      this.validityPeriod = {
+      cert.serialNumber = u8FromHex(certData.serialNumber);
+      cert.algorithm = certData.algorithm;
+      cert.issuer = certData.issuer;
+      cert.validityPeriod = {
         notBefore: new Date(certData.validityPeriod.notBefore),
         notAfter: new Date(certData.validityPeriod.notAfter),
       };
-      this.subject = certData.subject;
-      this.publicKey = {
+      cert.subject = certData.subject;
+      cert.publicKey = {
         identifiers: certData.publicKey.identifiers,
         data: u8FromHex(certData.publicKey.data),
         all: u8FromHex(certData.publicKey.all),
       };
-      this.signature = u8FromHex(certData.signature);
-      this.keyUsage = {
+      cert.signature = u8FromHex(certData.signature);
+      cert.keyUsage = {
         critical: certData.keyUsage.critical,
         usages: new Set(certData.keyUsage.usages),
       };
-      this.subjectAltNames = certData.subjectAltNames;
-      this.extKeyUsage = certData.extKeyUsage;
-      if (certData.authorityKeyIdentifier) this.authorityKeyIdentifier = u8FromHex(certData.authorityKeyIdentifier);
-      if (certData.subjectKeyIdentifier) this.subjectKeyIdentifier = u8FromHex(certData.subjectKeyIdentifier);
-      this.basicConstraints = certData.basicConstraints;
-      this.signedData = u8FromHex(certData.signedData);
-      this.rawData = u8FromHex(certData.rawData);
+      cert.subjectAltNames = certData.subjectAltNames;
+      cert.extKeyUsage = certData.extKeyUsage;
+      if (certData.authorityKeyIdentifier) cert.authorityKeyIdentifier = u8FromHex(certData.authorityKeyIdentifier);
+      if (certData.subjectKeyIdentifier) cert.subjectKeyIdentifier = u8FromHex(certData.subjectKeyIdentifier);
+      cert.basicConstraints = certData.basicConstraints;
+      cert.signedData = u8FromHex(certData.signedData);
+      cert.rawData = u8FromHex(certData.rawData);
     }
+
+    return cert;
   }
 
   subjectAltNameMatchingHost(host: string) {
@@ -584,18 +592,18 @@ export class Cert {
   }
 
   static fromPEM(pem: string) {
-    return this.uint8ArraysFromPEM(pem).map(arr => new this(arr));
+    return Promise.all(this.uint8ArraysFromPEM(pem).map(arr => this.create(arr)));
   }
 }
 
 export class TrustedCert extends Cert {
-  static databaseFromPEM(pem: string): RootCertsDatabase {  // not efficient: if passing many certs, use saved results
+  static async databaseFromPEM(pem: string) {  // not efficient: if passing many certs, use saved results
     const certsData = this.uint8ArraysFromPEM(pem);
     const offsets = [0];
     const subjects: Record<string, number> = {};
     const growable = new GrowableData();
     for (const certData of certsData) {
-      const cert = new this(certData);
+      const cert = await this.create(certData);
       const offsetIndex = offsets.length - 1;
       if (cert.subjectKeyIdentifier) subjects[hexFromU8(cert.subjectKeyIdentifier)] = offsetIndex;
       subjects[this.stringFromDistinguishedName(cert.subject)] = offsetIndex;
@@ -603,10 +611,10 @@ export class TrustedCert extends Cert {
       offsets[offsets.length] = offsets[offsetIndex] + certData.length;
     }
     const data = growable.getData();
-    return { index: { offsets, subjects }, data };
+    return { index: { offsets, subjects }, data } as RootCertsDatabase;
   }
 
-  static findInDatabase(subjectOrSubjectKeyId: DistinguishedName | string, db: RootCertsDatabase) {
+  static async findInDatabase(subjectOrSubjectKeyId: DistinguishedName | string, db: RootCertsDatabase) {
     const { index: { subjects, offsets }, data } = db;
     const key = typeof subjectOrSubjectKeyId === 'string' ?
       subjectOrSubjectKeyId : Cert.stringFromDistinguishedName(subjectOrSubjectKeyId);
@@ -617,7 +625,7 @@ export class TrustedCert extends Cert {
     const start = offsets[offsetIndex];
     const end = offsets[offsetIndex + 1];
     const certData = data.subarray(start, end);
-    const cert = new this(certData);
+    const cert = await this.create(certData);
 
     return cert;
   }

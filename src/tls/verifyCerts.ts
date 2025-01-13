@@ -53,11 +53,11 @@ export async function verifyCerts(
 
     // first, see if any trusted root cert has a subjKeyId matching the authKeyId, or if there's no subjKeyId, an issuer matching the subject
     if (subjectAuthKeyId === undefined) {
-      signingCert = TrustedCert.findInDatabase(subjectCert.issuer, rootCertsDatabase);
+      signingCert = await TrustedCert.findInDatabase(subjectCert.issuer, rootCertsDatabase);
       chatty && signingCert && log('matched a trusted root cert on subject/issuer distinguished name: %s', Cert.stringFromDistinguishedName(signingCert.subject));
 
     } else {
-      signingCert = TrustedCert.findInDatabase(hexFromU8(subjectAuthKeyId), rootCertsDatabase);
+      signingCert = await TrustedCert.findInDatabase(hexFromU8(subjectAuthKeyId), rootCertsDatabase);
       chatty && signingCert && log('matched a trusted root cert on key id: %s', hexFromU8(subjectAuthKeyId, ' '));
     }
 

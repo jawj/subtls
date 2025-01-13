@@ -81,28 +81,19 @@ export class Bytes {
     this.resizeTo(newSize);
   }
 
-  xextend(newData: number | Uint8Array | (() => Uint8Array | undefined)) {
-    const data =
-      typeof newData === 'number' ? new Uint8Array(newData) :
-        typeof newData === 'function' ? newData() :
-          newData;
-
-    if (data == undefined) throw new Error('Attempted to extend Bytes, but data function returned undefined');
-    this.data = concat(this.data, data);
-    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
-  }
-
-  async subarrayForRead(length: number) {
-    // this advances the offset and returns a subarray for external reading
-    await this.ensureReadAvailable(length);
-    return this.data.subarray(this.offset, this.offset += length);
-  }
-
-  async skipRead(length: number, comment?: string) {
-    await this.ensureReadAvailable(length);
-    this.offset += length;
-    if (comment) this.comment(comment);
-    return this;
+  expectLength(length: number, indentDelta = 1) {
+    const startOffset = this.offset;
+    const endOffset = startOffset + length;
+    this.indent += indentDelta;
+    this.indents[startOffset] = this.indent;
+    return [
+      () => {
+        this.indent -= indentDelta;
+        this.indents[this.offset] = this.indent;
+        if (this.offset !== endOffset) throw new Error(`${length} bytes expected but ${this.offset - startOffset} advanced`);
+      },
+      () => endOffset - this.offset,
+    ] as const;
   }
 
   comment(s: string, offset = this.offset) {
@@ -121,6 +112,19 @@ export class Bytes {
 
   // reading
 
+  async subarrayForRead(length: number) {
+    // this advances the offset and returns a subarray for external reading
+    await this.ensureReadAvailable(length);
+    return this.data.subarray(this.offset, this.offset += length);
+  }
+
+  async skipRead(length: number, comment?: string) {
+    await this.ensureReadAvailable(length);
+    this.offset += length;
+    if (comment) this.comment(comment);
+    return this;
+  }
+
   async readBytes(length: number) {
     await this.ensureReadAvailable(length);
     return this.data.slice(this.offset, this.offset += length);
@@ -135,13 +139,15 @@ export class Bytes {
   }
 
   async readUTF8StringNullTerminated() {
-    let endOffset = this.offset;
-    while (this.data[endOffset] !== 0) {
-      await this.ensureReadAvailable(1);
-      endOffset++;
-    }
-    const str = this.readUTF8String(endOffset - this.offset);
-    this.expectUint8(0x00, 'end of string');
+    let i = 0;
+    while (true) {
+      await this.ensureReadAvailable(i + 1);
+      const charCode = this.data[this.offset + i];
+      if (charCode === 0) break;
+      i++;
+    };
+    const str = await this.readUTF8String(i);
+    await this.expectUint8(0x00, 'end of string');
     return str;
   }
 
@@ -209,68 +215,57 @@ export class Bytes {
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
 
-  async expectLength(length: number, indentDelta = 1) {
+  async expectReadLength(length: number, indentDelta = 1) {
     await this.ensureReadAvailable(length);
-    const startOffset = this.offset;
-    const endOffset = startOffset + length;
-    this.indent += indentDelta;
-    this.indents[startOffset] = this.indent;
-    return [
-      () => {
-        this.indent -= indentDelta;
-        this.indents[this.offset] = this.indent;
-        if (this.offset !== endOffset) throw new Error(`${length} bytes expected but ${this.offset - startOffset} read`);
-      },
-      () => endOffset - this.offset,
-    ] as const;
+    return this.expectLength(length, indentDelta);
   }
 
   async expectLengthUint8(comment?: string) {
     const length = await this.readUint8();
     chatty && this.comment(this.lengthComment(length, comment));
-    return this.expectLength(length);
+    return this.expectReadLength(length);
   }
 
   async expectLengthUint16(comment?: string) {
     const length = await this.readUint16();
     chatty && this.comment(this.lengthComment(length, comment));
-    return this.expectLength(length);
+    return this.expectReadLength(length);
   }
 
   async expectLengthUint24(comment?: string) {
     const length = await this.readUint24();
     chatty && this.comment(this.lengthComment(length, comment));
-    return this.expectLength(length);
+    return this.expectReadLength(length);
   }
 
   async expectLengthUint32(comment?: string) {
     const length = await this.readUint32();
     chatty && this.comment(this.lengthComment(length, comment));
-    return this.expectLength(length);
+    return this.expectReadLength(length);
   }
 
   async expectLengthUint8Incl(comment?: string) {
     const length = await this.readUint8();
     chatty && this.comment(this.lengthComment(length, comment, true));
-    return this.expectLength(length - 1);
+    return this.expectReadLength(length - 1);
   }
 
   async expectLengthUint16Incl(comment?: string) {
     const length = await this.readUint16();
     chatty && this.comment(this.lengthComment(length, comment, true));
-    return this.expectLength(length - 2);
+    return this.expectReadLength(length - 2);
   }
 
   async expectLengthUint24Incl(comment?: string) {
     const length = await this.readUint24();
     chatty && this.comment(this.lengthComment(length, comment, true));
-    return this.expectLength(length - 3);
+    return this.expectReadLength(length - 3);
   }
 
   async expectLengthUint32Incl(comment?: string) {
     const length = await this.readUint32();
     chatty && this.comment(this.lengthComment(length, comment, true));
-    return this.expectLength(length - 4);
+    return this.expectReadLength(length - 4);
   }
 
   // writing
@@ -396,6 +391,11 @@ export class Bytes {
 
   writeLengthUint32Incl(comment?: string) {
     return this._writeLengthGeneric(4, true, comment);
+  }
+
+  expectWriteLength(length: number, indentDelta = 1) {
+    this.ensureWriteAvailable(length);
+    return this.expectLength(length, indentDelta);
   }
 
   // output

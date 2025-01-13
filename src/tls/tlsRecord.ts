@@ -1,11 +1,13 @@
 import { Crypter } from './aesgcm';
 import { Bytes } from '../util/bytes';
+import { ASN1Bytes } from '../util/asn1bytes';
 import { concat } from '../util/array';
 import { parseSessionTicket } from './sessionTicket';
 import { LogColours } from '../presentation/appearance';
 import { highlightBytes } from '../presentation/highlights';
 import { log } from '../presentation/log';
 import { hexFromU8 } from '../util/hex';
+import { LazyReadFunctionReadQueue } from '../util/readQueue';
 
 export enum RecordType {
   ChangeCipherSpec = 0x14,
@@ -29,13 +31,6 @@ const maxCiphertextRecordLength = maxPlaintextRecordLength + 1 /* record type */
 export async function readTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, expectedType?: RecordType, maxLength = maxPlaintextRecordLength) {
   const record = new Bytes(read);
 
-  // const headerLength = 5;
-  // const headerData = await read(headerLength);
-  // if (headerData === undefined) return;
-  // if (headerData.length < headerLength) throw new Error('TLS record header truncated');
-
-  // const header = new Bytes(headerData);
-
   const type = await record.readUint8() as keyof typeof RecordTypeName;
   if (type < 0x14 || type > 0x18) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
@@ -49,22 +44,30 @@ export async function readTlsRecord(read: (length: number) => Promise<Uint8Array
 
   chatty && log(...highlightBytes(record.commentedString(), LogColours.server));
 
-  const content = await record.readBytes(length);
-  return { type, length, content };
+  const rawHeader = record.array();
+  const content = await record.subarrayForRead(length);
+  return { type, length, content, rawHeader };
+}
+
+export function bytesFromTlsRecords(read: (length: number) => Promise<Uint8Array | undefined>, expectedType?: RecordType) {
+  const readQueue = new LazyReadFunctionReadQueue(async () => {
+    const record = await readTlsRecord(read, expectedType);
+    return record.content;
+  });
+  const bytes = new ASN1Bytes(readQueue.read.bind(readQueue), 1);
+  return bytes;
 }
 
 export async function readEncryptedTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, decrypter: Crypter, expectedType?: RecordType): Promise<Uint8Array | undefined> {
   const encryptedRecord = await readTlsRecord(read, RecordType.Application, maxCiphertextRecordLength);
   if (encryptedRecord === undefined) return;
 
-  const encryptedBytes = new Bytes(encryptedRecord.content);
-  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.readRemaining());
-  encryptedBytes.skipRead(encryptedRecord.length - 16, chatty && 'encrypted payload');
-  encryptedBytes.skipRead(16, chatty && 'auth tag');
-  endEncrypted();
-  chatty && log(...highlightBytes(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), LogColours.server));
+  const encryptedBytes = new Bytes(encryptedRecord.content, 1);
+  await encryptedBytes.skipRead(encryptedRecord.length - 16, chatty && 'encrypted payload');
+  await encryptedBytes.skipRead(16, chatty && 'auth tag');
+  chatty && log(...highlightBytes(encryptedBytes.commentedString(), LogColours.server));
 
-  const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
+  const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.rawHeader);
 
   // strip zero-padding at end
   let recordTypeIndex = decryptedRecord.length - 1;
@@ -83,13 +86,23 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   chatty && log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, '0'), `color: ${LogColours.server}`, `actual decrypted record type: ${(RecordTypeName as any)[type]}`);
 
   if (type === RecordType.Handshake && record[0] === 0x04) {  // new session ticket message: always ignore these
-    parseSessionTicket(record);
-    return readEncryptedTlsRecord(read, decrypter, expectedType);
+    await parseSessionTicket(record);
+    return new Uint8Array(0);
+    // return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
 
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
 
   return record;
+}
+
+export function bytesFromEncryptedTlsRecords(read: (length: number) => Promise<Uint8Array | undefined>, decrypter: Crypter, expectedType?: RecordType) {
+  const readQueue = new LazyReadFunctionReadQueue(async () => {
+    const record = await readEncryptedTlsRecord(read, decrypter, expectedType);
+    return record;
+  });
+  const bytes = new ASN1Bytes(readQueue.read.bind(readQueue));
+  return bytes;
 }
 
 async function makeEncryptedTlsRecord(plaintext: Uint8Array, encrypter: Crypter, type: RecordType) {
@@ -104,7 +117,7 @@ async function makeEncryptedTlsRecord(plaintext: Uint8Array, encrypter: Crypter,
   encryptedRecord.writeUint16(0x0303, chatty && 'TLS version 1.2 (middlebox compatibility)');
   encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
 
-  const [endEncryptedRecord] = encryptedRecord.expectLength(payloadLength);  // unusual (but still useful) when writing
+  const [endEncryptedRecord] = encryptedRecord.expectWriteLength(payloadLength);
 
   const header = encryptedRecord.array();
   const encryptedData = await encrypter.process(data, 16, header);

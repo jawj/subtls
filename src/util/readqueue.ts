@@ -86,8 +86,6 @@ export abstract class ReadQueue {
       this.dequeue();
     });
   }
-
-  boundRead = this.read.bind(this);
 }
 
 export class WebSocketReadQueue extends ReadQueue {
@@ -123,7 +121,7 @@ export class SocketReadQueue extends ReadQueue {
 export class LazyReadFunctionReadQueue extends ReadQueue {
   protected dataIsExhausted = false;
 
-  constructor(protected readFn: () => Promise<Uint8Array> | undefined) {
+  constructor(protected readFn: () => Promise<Uint8Array | undefined>) {
     super();
   }
 
@@ -134,7 +132,7 @@ export class LazyReadFunctionReadQueue extends ReadQueue {
         this.dataIsExhausted = true;
         break;
       }
-      this.enqueue(data);
+      if (data.length > 0) this.enqueue(data);
     }
     return super.read(bytes);
   }
