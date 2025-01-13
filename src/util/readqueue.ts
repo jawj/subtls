@@ -86,12 +86,13 @@ export abstract class ReadQueue {
       this.dequeue();
     });
   }
-}
 
+  boundRead = this.read.bind(this);
+}
 
 export class WebSocketReadQueue extends ReadQueue {
 
-  constructor(private socket: WebSocket) {
+  constructor(protected socket: WebSocket) {
     super();
     socket.addEventListener('message', (msg: any) => this.enqueue(new Uint8Array(msg.data)));
     socket.addEventListener('close', () => this.dequeue());
@@ -106,7 +107,7 @@ export class WebSocketReadQueue extends ReadQueue {
 
 export class SocketReadQueue extends ReadQueue {
 
-  constructor(private socket: Socket) {
+  constructor(protected socket: Socket) {
     super();
     socket.on('data', (data: Buffer) => this.enqueue(new Uint8Array(data)));
     socket.on('close', () => this.dequeue());
@@ -116,5 +117,29 @@ export class SocketReadQueue extends ReadQueue {
     const { socket } = this;
     const { readyState } = socket;
     return readyState === 'opening' || readyState === 'open';
+  }
+}
+
+export class LazyReadFunctionReadQueue extends ReadQueue {
+  protected dataIsExhausted = false;
+
+  constructor(protected readFn: () => Promise<Uint8Array> | undefined) {
+    super();
+  }
+
+  override async read(bytes: number) {
+    while (this.bytesInQueue() < bytes) {
+      const data = await this.readFn();
+      if (data === undefined) {
+        this.dataIsExhausted = true;
+        break;
+      }
+      this.enqueue(data);
+    }
+    return super.read(bytes);
+  }
+
+  socketIsNotClosed(): boolean {
+    return !this.dataIsExhausted;
   }
 }

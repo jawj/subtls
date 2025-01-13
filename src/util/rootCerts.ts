@@ -5,7 +5,6 @@ async function getFile(name: string) {
     // when in browser, using http
     const response = await fetch(name);
     const buf = await response.arrayBuffer();
-    console.log(buf);
     return buf;
   } catch {
     // when in Node, using filesystem

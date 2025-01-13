@@ -92,7 +92,7 @@ export async function readEncryptedHandshake(
   extEnd();
   eeMessageEnd();
 
-  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());  // e.g. Vercel sends certs in a separate record
+  if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());  // e.g. Vercel sends certs in a separate record
 
   let clientCertRequested = false;
 
@@ -108,12 +108,12 @@ export async function readEncryptedHandshake(
     hs.expectUint8(0x00, chatty && 'length of certificate request context');
 
     const [endCertReqExts, certReqExtsRemaining] = hs.expectLengthUint16('certificate request extensions');
-    hs.skip(certReqExtsRemaining(), chatty && 'certificate request extensions (ignored)');
+    hs.skipRead(certReqExtsRemaining(), chatty && 'certificate request extensions (ignored)');
     endCertReqExts();
 
     endCertReq();
 
-    if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+    if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());
     certMsgType = hs.readUint8();
   }
 
@@ -133,7 +133,7 @@ export async function readEncryptedHandshake(
     endCert();
 
     const [endCertExt, certExtRemaining] = hs.expectLengthUint16('certificate extensions');
-    hs.skip(certExtRemaining());
+    hs.skipRead(certExtRemaining());
     endCertExt();
   }
   endCerts();
@@ -149,7 +149,7 @@ export async function readEncryptedHandshake(
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
   const certVerifySignedData = concat(txtEnc.encode(' '.repeat(64) + 'TLS 1.3, server CertificateVerify'), [0x00], certVerifyHash);
 
-  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+  if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());
 
   hs.expectUint8(0x0f, chatty && 'handshake message type: certificate verify ([RFC 8446 §4.4.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.3))');
   const [endCertVerifyPayload] = hs.expectLengthUint24(chatty && 'handshake message data');
@@ -165,7 +165,7 @@ export async function readEncryptedHandshake(
   } else if (sigType === 0x0804) {
     chatty && hs.comment('signature type RSA-PSS-RSAE-SHA256');
     const [endSignature, signatureRemaining] = hs.expectLengthUint16();
-    const signature = hs.subarray(signatureRemaining());
+    const signature = hs.subarrayForRead(signatureRemaining());
     chatty && hs.comment('signature');
     endSignature();
 
@@ -199,7 +199,7 @@ export async function readEncryptedHandshake(
   const correctVerifyHashBuffer = await cs.sign('HMAC', hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
 
-  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+  if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());
 
   hs.expectUint8(0x14, chatty && 'handshake message type: finished ([RFC 8446 §4.4.4](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.4))');
   const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24(chatty && 'verify hash');
@@ -207,7 +207,7 @@ export async function readEncryptedHandshake(
   chatty && hs.comment('verify hash');
   endHsFinishedPayload();
 
-  if (hs.remaining() !== 0) throw new Error('Unexpected extra bytes in server handshake');
+  if (hs.readRemaining() !== 0) throw new Error('Unexpected extra bytes in server handshake');
 
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true) throw new Error('Invalid server verify hash');

@@ -350,39 +350,90 @@ var GrowableData = class {
 var indentChars = "\xB7\xB7 ";
 
 // src/util/bytes.ts
+var initialSize = 1024;
+var growthFactor = 2;
 var txtEnc = new TextEncoder();
 var txtDec = new TextDecoder();
 var emptyArray = new Uint8Array(0);
-var emptyView = new DataView(emptyArray.buffer);
 var Bytes = class {
-  constructor(data) {
+  /**
+   * @param data 
+   * * If data is a `Uint8Array`, this is the initial data
+   * * If data is a `number`, this is the initial size in bytes (all zeroes)
+   * * If data is a `function`, this function is called to retrieve data when required
+   */
+  constructor(data, indent = 0) {
+    this.indent = indent;
+    __publicField(this, "fetchFn");
+    __publicField(this, "endOfReadableData");
+    // how much data exists to read (not used for writing)
     __publicField(this, "offset");
+    // current read/write cursor
     __publicField(this, "dataView");
     __publicField(this, "data");
     __publicField(this, "comments");
     __publicField(this, "indents");
-    __publicField(this, "indent");
-    this.offset = 0;
-    this.data = emptyArray;
-    this.dataView = emptyView;
+    this.endOfReadableData = this.offset = 0;
     this.comments = {};
-    this.indents = {};
-    this.indent = 0;
-    this.extend(data);
+    this.indents = { 0: indent };
+    if (typeof data === "number") {
+      this.data = new Uint8Array(data);
+    } else if (data === void 0 || typeof data === "function") {
+      this.data = emptyArray;
+      this.fetchFn = data;
+    } else {
+      this.data = data;
+      this.endOfReadableData = data.length;
+    }
+    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
-  extend(newData) {
+  readRemaining() {
+    return this.endOfReadableData - this.offset;
+  }
+  resizeTo(newSize) {
+    const newData = new Uint8Array(newSize);
+    newData.set(this.data);
+    this.data = newData;
+    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
+  }
+  async ensureReadAvailable(bytes) {
+    if (bytes <= this.readRemaining()) return;
+    if (this.fetchFn === void 0) throw new Error("Not enough data and no read function supplied");
+    const freeSpace = this.data.length - this.endOfReadableData;
+    if (bytes > freeSpace) {
+      const newSize = Math.max(
+        initialSize,
+        this.data.length * growthFactor,
+        this.endOfReadableData + bytes
+      );
+      this.resizeTo(newSize);
+    }
+    const newData = await this.fetchFn(bytes);
+    if (newData === void 0 || newData.length < bytes) throw new Error("Not enough data even after calling read function");
+    this.data.set(newData, this.endOfReadableData);
+    this.endOfReadableData += newData.length;
+  }
+  ensureWriteAvailable(bytes) {
+    if (this.offset + bytes < this.data.length) return;
+    const newSize = Math.max(
+      initialSize,
+      this.data.length * growthFactor,
+      this.offset + bytes
+    );
+    this.resizeTo(newSize);
+  }
+  xextend(newData) {
     const data = typeof newData === "number" ? new Uint8Array(newData) : typeof newData === "function" ? newData() : newData;
     if (data == void 0) throw new Error("Attempted to extend Bytes, but data function returned undefined");
     this.data = concat(this.data, data);
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
-  remaining() {
-    return this.data.length - this.offset;
-  }
-  subarray(length) {
+  async subarrayForRead(length) {
+    await this.ensureReadAvailable(length);
     return this.data.subarray(this.offset, this.offset += length);
   }
-  skip(length, comment) {
+  async skipRead(length, comment) {
+    await this.ensureReadAvailable(length);
     this.offset += length;
     if (comment) this.comment(comment);
     return this;
@@ -398,76 +449,86 @@ var Bytes = class {
     return length === 1 ? `${length} byte${comment ? ` of ${comment}` : ""} ${inclusive ? "starts here" : "follows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : ""} ${inclusive ? "start here" : "follow"}`;
   }
   // reading
-  readBytes(length) {
+  async readBytes(length) {
+    await this.ensureReadAvailable(length);
     return this.data.slice(this.offset, this.offset += length);
   }
-  readUTF8String(length) {
-    const bytes = this.subarray(length);
+  async readUTF8String(length) {
+    await this.ensureReadAvailable(length);
+    const bytes = await this.subarrayForRead(length);
     const s = txtDec.decode(bytes);
     this.comment('"' + s.replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"');
     return s;
   }
-  readUTF8StringNullTerminated() {
+  async readUTF8StringNullTerminated() {
     let endOffset = this.offset;
-    while (this.data[endOffset] !== 0) endOffset++;
+    while (this.data[endOffset] !== 0) {
+      await this.ensureReadAvailable(1);
+      endOffset++;
+    }
     const str = this.readUTF8String(endOffset - this.offset);
     this.expectUint8(0, "end of string");
     return str;
   }
-  readUint8(comment) {
+  async readUint8(comment) {
+    await this.ensureReadAvailable(1);
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
     if (comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
-  readUint16(comment) {
+  async readUint16(comment) {
+    await this.ensureReadAvailable(2);
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
     if (comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
-  readUint24(comment) {
-    const msb = this.readUint8();
-    const lsbs = this.readUint16();
+  async readUint24(comment) {
+    await this.ensureReadAvailable(3);
+    const msb = await this.readUint8();
+    const lsbs = await this.readUint16();
     const result = (msb << 16) + lsbs;
     if (comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
-  readUint32(comment) {
+  async readUint32(comment) {
+    await this.ensureReadAvailable(4);
     const result = this.dataView.getUint32(this.offset);
     this.offset += 4;
     if (comment) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
-  expectBytes(expected, comment) {
-    const actual = this.readBytes(expected.length);
+  async expectBytes(expected, comment) {
+    await this.ensureReadAvailable(expected.length);
+    const actual = await this.readBytes(expected.length);
     if (comment) this.comment(comment);
     if (!equal(actual, expected)) throw new Error(`Unexpected bytes`);
   }
-  expectUint8(expectedValue, comment) {
-    const actualValue = this.readUint8();
+  async expectUint8(expectedValue, comment) {
+    const actualValue = await this.readUint8();
     if (comment) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
-  expectUint16(expectedValue, comment) {
-    const actualValue = this.readUint16();
+  async expectUint16(expectedValue, comment) {
+    const actualValue = await this.readUint16();
     if (comment) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
-  expectUint24(expectedValue, comment) {
-    const actualValue = this.readUint24();
+  async expectUint24(expectedValue, comment) {
+    const actualValue = await this.readUint24();
     if (comment) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
-  expectUint32(expectedValue, comment) {
-    const actualValue = this.readUint32();
+  async expectUint32(expectedValue, comment) {
+    const actualValue = await this.readUint32();
     if (comment) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
-  expectLength(length, indentDelta = 1) {
+  async expectLength(length, indentDelta = 1) {
+    await this.ensureReadAvailable(length);
     const startOffset = this.offset;
     const endOffset = startOffset + length;
-    if (endOffset > this.data.length) throw new Error("Expected length exceeds remaining data length");
     this.indent += indentDelta;
     this.indents[startOffset] = this.indent;
     return [
@@ -479,48 +540,59 @@ var Bytes = class {
       () => endOffset - this.offset
     ];
   }
-  expectLengthUint8(comment) {
-    const length = this.readUint8();
+  async expectLengthUint8(comment) {
+    const length = await this.readUint8();
     this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
-  expectLengthUint16(comment) {
-    const length = this.readUint16();
+  async expectLengthUint16(comment) {
+    const length = await this.readUint16();
     this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
-  expectLengthUint24(comment) {
-    const length = this.readUint24();
+  async expectLengthUint24(comment) {
+    const length = await this.readUint24();
     this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
-  expectLengthUint32(comment) {
-    const length = this.readUint32();
+  async expectLengthUint32(comment) {
+    const length = await this.readUint32();
     this.comment(this.lengthComment(length, comment));
     return this.expectLength(length);
   }
-  expectLengthUint8Incl(comment) {
-    const length = this.readUint8();
+  async expectLengthUint8Incl(comment) {
+    const length = await this.readUint8();
     this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 1);
   }
-  expectLengthUint16Incl(comment) {
-    const length = this.readUint16();
+  async expectLengthUint16Incl(comment) {
+    const length = await this.readUint16();
     this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 2);
   }
-  expectLengthUint24Incl(comment) {
-    const length = this.readUint24();
+  async expectLengthUint24Incl(comment) {
+    const length = await this.readUint24();
     this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 3);
   }
-  expectLengthUint32Incl(comment) {
-    const length = this.readUint32();
+  async expectLengthUint32Incl(comment) {
+    const length = await this.readUint32();
     this.comment(this.lengthComment(length, comment, true));
     return this.expectLength(length - 4);
   }
   // writing
+  subarrayForWrite(length) {
+    this.ensureWriteAvailable(length);
+    return this.data.subarray(this.offset, this.offset += length);
+  }
+  skipWrite(length, comment) {
+    this.ensureWriteAvailable(length);
+    this.offset += length;
+    if (comment) this.comment(comment);
+    return this;
+  }
   writeBytes(bytes) {
+    this.ensureWriteAvailable(bytes.length);
     this.data.set(bytes, this.offset);
     this.offset += bytes.length;
     return this;
@@ -540,12 +612,14 @@ var Bytes = class {
     return this;
   }
   writeUint8(value, comment) {
+    this.ensureWriteAvailable(1);
     this.dataView.setUint8(this.offset, value);
     this.offset += 1;
     if (comment) this.comment(comment);
     return this;
   }
   writeUint16(value, comment) {
+    this.ensureWriteAvailable(2);
     this.dataView.setUint16(this.offset, value);
     this.offset += 2;
     if (comment) this.comment(comment);
@@ -557,6 +631,7 @@ var Bytes = class {
     return this;
   }
   writeUint32(value, comment) {
+    this.ensureWriteAvailable(4);
     this.dataView.setUint32(this.offset, value);
     this.offset += 4;
     if (comment) this.comment(comment);
@@ -564,6 +639,7 @@ var Bytes = class {
   }
   // forward-looking lengths
   _writeLengthGeneric(lengthBytes, inclusive, comment) {
+    this.ensureWriteAvailable(lengthBytes);
     const startOffset = this.offset;
     this.offset += lengthBytes;
     const endOffset = this.offset;
@@ -612,15 +688,18 @@ var Bytes = class {
     return this.data.subarray(0, this.offset);
   }
   commentedString(all = false) {
-    let s = this.indents[0] !== void 0 ? indentChars.repeat(this.indents[0]) : "";
     let indent = this.indents[0] ?? 0;
+    let s = indentChars.repeat(indent);
     const len = all ? this.data.length : this.offset;
     for (let i = 0; i < len; i++) {
       s += this.data[i].toString(16).padStart(2, "0") + " ";
       const comment = this.comments[i + 1];
-      if (this.indents[i + 1] !== void 0) indent = this.indents[i + 1];
-      if (comment) s += ` ${comment}
+      indent = this.indents[i + 1] ?? indent;
+      if (comment) {
+        s += ` ${comment}`;
+        if (i < len - 1) s += `
 ${indentChars.repeat(indent)}`;
+      }
     }
     return s;
   }
@@ -729,14 +808,14 @@ async function getRandomValues(...args) {
 
 // src/tls/makeClientHello.ts
 async function makeClientHello(host, publicKey, sessionId, useSNI = true) {
-  const h = new Bytes(1024);
+  const h = new Bytes();
   h.writeUint8(22, "record type: handshake");
   h.writeUint16(769, "TLS legacy record version 1.0 ([RFC 8446 \xA75.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))");
   const endRecordHeader = h.writeLengthUint16("TLS record");
   h.writeUint8(1, "handshake type: client hello");
   const endHandshakeHeader = h.writeLengthUint24();
   h.writeUint16(771, "TLS version 1.2 (middlebox compatibility: see [blog.cloudflare.com](https://blog.cloudflare.com/why-tls-1-3-isnt-in-browsers-yet))");
-  await getRandomValues(h.subarray(32));
+  await getRandomValues(h.subarrayForWrite(32));
   h.comment("client random");
   const endSessionId = h.writeLengthUint8("session ID");
   h.writeBytes(sessionId);
@@ -817,14 +896,13 @@ function hexFromU8(u8, spacer = "") {
 }
 
 // src/tls/parseServerHello.ts
-function parseServerHello(h, sessionId) {
+async function parseServerHello(h, sessionId) {
   let serverPublicKey;
   let tlsVersionSpecified;
-  const [endServerHelloMessage] = h.expectLength(h.remaining());
-  h.expectUint8(2, "handshake type: server hello");
-  const [endServerHello] = h.expectLengthUint24("server hello");
-  h.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
-  const serverRandom = h.readBytes(32);
+  await h.expectUint8(2, "handshake type: server hello");
+  const [endServerHello] = await h.expectLengthUint24("server hello");
+  await h.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
+  const serverRandom = await h.readBytes(32);
   if (equal(serverRandom, [
     // SHA-256 of "HelloRetryRequest", https://datatracker.ietf.org/doc/html/rfc8446#page-32
     // see also: echo -n "HelloRetryRequest" | openssl dgst -sha256 -hex
@@ -862,34 +940,34 @@ function parseServerHello(h, sessionId) {
     156
   ])) throw new Error("Unexpected HelloRetryRequest");
   h.comment('server random \u2014 [not SHA256("HelloRetryRequest")](https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.3)');
-  h.expectUint8(sessionId.length, "session ID length (matches client session ID)");
-  h.expectBytes(sessionId, "session ID (matches client session ID)");
-  h.expectUint16(4865, "cipher (matches client hello)");
-  h.expectUint8(0, "no compression");
-  const [endExtensions, extensionsRemaining] = h.expectLengthUint16("extensions");
+  await h.expectUint8(sessionId.length, "session ID length (matches client session ID)");
+  await h.expectBytes(sessionId, "session ID (matches client session ID)");
+  await h.expectUint16(4865, "cipher (matches client hello)");
+  await h.expectUint8(0, "no compression");
+  const [endExtensions, extensionsRemaining] = await h.expectLengthUint16("extensions");
   while (extensionsRemaining() > 0) {
-    const extensionType = h.readUint16("extension type:");
+    const extensionType = await h.readUint16("extension type:");
     h.comment(
       extensionType === 43 ? "TLS version" : extensionType === 51 ? "key share" : "unknown"
     );
-    const [endExtension] = h.expectLengthUint16("extension");
+    const [endExtension] = await h.expectLengthUint16("extension");
     if (extensionType === 43) {
-      h.expectUint16(772, "TLS version: 1.3");
+      await h.expectUint16(772, "TLS version: 1.3");
       tlsVersionSpecified = true;
     } else if (extensionType === 51) {
-      h.expectUint16(23, "key share type: secp256r1 (NIST P-256)");
-      const [endKeyShare, keyShareRemaining] = h.expectLengthUint16("key share");
+      await h.expectUint16(23, "key share type: secp256r1 (NIST P-256)");
+      const [endKeyShare, keyShareRemaining] = await h.expectLengthUint16("key share");
       const keyShareLength = keyShareRemaining();
       if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
       if (1) {
-        h.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
-        const x = h.readBytes(32);
+        await h.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
+        const x = await h.readBytes(32);
         h.comment("x coordinate");
-        const y = h.readBytes(32);
+        const y = await h.readBytes(32);
         h.comment("y coordinate");
         serverPublicKey = concat([4], x, y);
       } else {
-        serverPublicKey = h.readBytes(keyShareLength);
+        serverPublicKey = await h.readBytes(keyShareLength);
       }
       endKeyShare();
     } else {
@@ -899,7 +977,6 @@ function parseServerHello(h, sessionId) {
   }
   endExtensions();
   endServerHello();
-  endServerHelloMessage();
   if (tlsVersionSpecified !== true) throw new Error("No TLS version provided");
   if (serverPublicKey === void 0) throw new Error("No key provided");
   return serverPublicKey;
@@ -944,30 +1021,26 @@ var RecordTypeName = {
 var maxPlaintextRecordLength = 1 << 14;
 var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
 async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordLength) {
-  const headerLength = 5;
-  const headerData = await read(headerLength);
-  if (headerData === void 0) return;
-  if (headerData.length < headerLength) throw new Error("TLS record header truncated");
-  const header = new Bytes(headerData);
-  const type = header.readUint8();
+  const record = new Bytes(read);
+  const type = await record.readUint8();
   if (type < 20 || type > 24) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
-  header.comment(`record type: ${RecordTypeName[type]}`);
-  header.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
-  const length = header.readUint16();
-  header.comment(`${length === 0 ? "no" : length} byte${length === 1 ? "" : "s"} of TLS record follow${length === 1 ? "s" : ""}`);
+  record.comment(`record type: ${RecordTypeName[type]}`);
+  await record.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
+  const length = await record.readUint16();
+  record.comment(`${length === 0 ? "no" : length} byte${length === 1 ? "" : "s"} of TLS record follow${length === 1 ? "s" : ""}`);
   if (length > maxLength) throw new Error(`Record too long: ${length} bytes`);
-  const content = await read(length);
-  if (content === void 0 || content.length < length) throw new Error("TLS record content truncated");
-  return { headerData, header, type, length, content };
+  log(...highlightBytes(record.commentedString(), "#88c" /* server */));
+  const content = await record.readBytes(length);
+  return { type, length, content };
 }
 async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   const encryptedRecord = await readTlsRecord(read, 23 /* Application */, maxCiphertextRecordLength);
   if (encryptedRecord === void 0) return;
   const encryptedBytes = new Bytes(encryptedRecord.content);
-  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remaining());
-  encryptedBytes.skip(encryptedRecord.length - 16, "encrypted payload");
-  encryptedBytes.skip(16, "auth tag");
+  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.readRemaining());
+  encryptedBytes.skipRead(encryptedRecord.length - 16, "encrypted payload");
+  encryptedBytes.skipRead(16, "auth tag");
   endEncrypted();
   log(...highlightBytes(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), "#88c" /* server */));
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
@@ -1662,7 +1735,7 @@ var Cert = class _Cert {
       cb.expectBytes([160, 3, 2, 1, 2], "certificate version 3");
       cb.expectUint8(universalTypeInteger, "integer");
       const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length("serial number");
-      this.serialNumber = cb.subarray(serialNumberRemaining());
+      this.serialNumber = cb.subarrayForRead(serialNumberRemaining());
       cb.comment("serial number");
       endSerialNumber();
       cb.expectUint8(constructedUniversalTypeSequence, "sequence (algorithm)");
@@ -1795,17 +1868,17 @@ var Cert = class _Cert {
             } else if (authKeyIdDatumType === (contextSpecificType | 1)) {
               cb.comment("context-specific type: authority cert issuer");
               const [endAuthKeyIdCertIssuer, authKeyIdCertIssuerRemaining] = cb.expectASN1Length("authority cert issuer");
-              cb.skip(authKeyIdCertIssuerRemaining(), "ignored");
+              cb.skipRead(authKeyIdCertIssuerRemaining(), "ignored");
               endAuthKeyIdCertIssuer();
             } else if (authKeyIdDatumType === (contextSpecificType | 2)) {
               cb.comment("context-specific type: authority cert serial number");
               const [endAuthKeyIdCertSerialNo, authKeyIdCertSerialNoRemaining] = cb.expectASN1Length("authority cert issuer or authority cert serial number");
-              cb.skip(authKeyIdCertSerialNoRemaining(), "ignored");
+              cb.skipRead(authKeyIdCertSerialNoRemaining(), "ignored");
               endAuthKeyIdCertSerialNo();
             } else if (authKeyIdDatumType === (contextSpecificType | 33)) {
               cb.comment("context-specific type: DirName");
               const [endDirName, dirNameRemaining] = cb.expectASN1Length("DirName");
-              cb.skip(dirNameRemaining(), "ignored");
+              cb.skipRead(dirNameRemaining(), "ignored");
               console.log(cb.commentedString());
               endDirName();
             } else {
@@ -1902,7 +1975,7 @@ var Cert = class _Cert {
                   cb.readUTF8String(qualStrRemaining());
                   endQualStr();
                 } else {
-                  if (certPolInner3SeqRemaining()) cb.skip(certPolInner3SeqRemaining(), "skipped policy qualifier data");
+                  if (certPolInner3SeqRemaining()) cb.skipRead(certPolInner3SeqRemaining(), "skipped policy qualifier data");
                 }
                 endCertPolInner3Seq();
               }
@@ -1913,7 +1986,7 @@ var Cert = class _Cert {
           endCertPolSeq();
           endCertPolDER();
         } else {
-          cb.skip(extRemaining(), "ignored extension data");
+          cb.skipRead(extRemaining(), "ignored extension data");
         }
         endExt();
       }
@@ -2226,7 +2299,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   }
   extEnd();
   eeMessageEnd();
-  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+  if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());
   let clientCertRequested = false;
   let certMsgType = hs.readUint8();
   if (certMsgType === 13) {
@@ -2235,10 +2308,10 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     const [endCertReq] = hs.expectLengthUint24("certificate request data");
     hs.expectUint8(0, "length of certificate request context");
     const [endCertReqExts, certReqExtsRemaining] = hs.expectLengthUint16("certificate request extensions");
-    hs.skip(certReqExtsRemaining(), "certificate request extensions (ignored)");
+    hs.skipRead(certReqExtsRemaining(), "certificate request extensions (ignored)");
     endCertReqExts();
     endCertReq();
-    if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+    if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());
     certMsgType = hs.readUint8();
   }
   if (certMsgType !== 11) throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
@@ -2253,7 +2326,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
     certs.push(cert);
     endCert();
     const [endCertExt, certExtRemaining] = hs.expectLengthUint16("certificate extensions");
-    hs.skip(certExtRemaining());
+    hs.skipRead(certExtRemaining());
     endCertExt();
   }
   endCerts();
@@ -2265,7 +2338,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const certVerifyHashBuffer = await cryptoProxy_default.digest("SHA-256", certVerifyData);
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
   const certVerifySignedData = concat(txtEnc3.encode(" ".repeat(64) + "TLS 1.3, server CertificateVerify"), [0], certVerifyHash);
-  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+  if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());
   hs.expectUint8(15, "handshake message type: certificate verify ([RFC 8446 \xA74.4.3](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.3))");
   const [endCertVerifyPayload] = hs.expectLengthUint24("handshake message data");
   const sigType = hs.readUint16();
@@ -2278,7 +2351,7 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   } else if (sigType === 2052) {
     hs.comment("signature type RSA-PSS-RSAE-SHA256");
     const [endSignature, signatureRemaining] = hs.expectLengthUint16();
-    const signature = hs.subarray(signatureRemaining());
+    const signature = hs.subarrayForRead(signatureRemaining());
     hs.comment("signature");
     endSignature();
     const signatureKey = await cryptoProxy_default.importKey("spki", userCert.publicKey.all, { name: "RSA-PSS", hash: "SHA-256" }, false, ["verify"]);
@@ -2300,13 +2373,13 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const hmacKey = await cryptoProxy_default.importKey("raw", finishedKey, { name: "HMAC", hash: { name: `SHA-256` } }, false, ["sign"]);
   const correctVerifyHashBuffer = await cryptoProxy_default.sign("HMAC", hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
-  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
+  if (hs.readRemaining() === 0) hs.extend(await readHandshakeRecord());
   hs.expectUint8(20, "handshake message type: finished ([RFC 8446 \xA74.4.4](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.4))");
   const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24("verify hash");
   const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
   hs.comment("verify hash");
   endHsFinishedPayload();
-  if (hs.remaining() !== 0) throw new Error("Unexpected extra bytes in server handshake");
+  if (hs.readRemaining() !== 0) throw new Error("Unexpected extra bytes in server handshake");
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true) throw new Error("Invalid server verify hash");
   log("Decrypted using the server handshake key, the server\u2019s handshake messages are parsed as follows ([source](https://github.com/jawj/subtls/blob/main/src/tls/readEncryptedHandshake.ts)). This is a long section, since X.509 certificates are quite complex and there will be several of them:");
@@ -2315,6 +2388,102 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   if (!verifiedToTrustedRoot) throw new Error("Validated certificate chain did not end in a trusted root");
   return { handshakeData: hs.data, clientCertRequested, userCert };
 }
+
+// src/util/readQueue.ts
+var ReadQueue = class {
+  constructor() {
+    __publicField(this, "queue");
+    __publicField(this, "outstandingRequest");
+    __publicField(this, "boundRead", this.read.bind(this));
+    this.queue = [];
+  }
+  enqueue(data) {
+    this.queue.push(data);
+    this.dequeue();
+  }
+  dequeue() {
+    if (this.outstandingRequest === void 0) return;
+    let { resolve, bytes } = this.outstandingRequest;
+    const bytesInQueue = this.bytesInQueue();
+    if (bytesInQueue < bytes && this.socketIsNotClosed()) return;
+    bytes = Math.min(bytes, bytesInQueue);
+    if (bytes === 0) return resolve(void 0);
+    this.outstandingRequest = void 0;
+    const firstItem = this.queue[0];
+    const firstItemLength = firstItem.length;
+    if (firstItemLength === bytes) {
+      this.queue.shift();
+      return resolve(firstItem);
+    } else if (firstItemLength > bytes) {
+      this.queue[0] = firstItem.subarray(bytes);
+      return resolve(firstItem.subarray(0, bytes));
+    } else {
+      const result = new Uint8Array(bytes);
+      let outstandingBytes = bytes;
+      let offset = 0;
+      while (outstandingBytes > 0) {
+        const nextItem = this.queue[0];
+        const nextItemLength = nextItem.length;
+        if (nextItemLength <= outstandingBytes) {
+          this.queue.shift();
+          result.set(nextItem, offset);
+          offset += nextItemLength;
+          outstandingBytes -= nextItemLength;
+        } else {
+          this.queue[0] = nextItem.subarray(outstandingBytes);
+          result.set(nextItem.subarray(0, outstandingBytes), offset);
+          outstandingBytes -= outstandingBytes;
+          offset += outstandingBytes;
+        }
+      }
+      return resolve(result);
+    }
+  }
+  bytesInQueue() {
+    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
+  }
+  async read(bytes) {
+    if (this.outstandingRequest !== void 0) throw new Error("Can\u2019t read while already awaiting read");
+    return new Promise((resolve) => {
+      this.outstandingRequest = { resolve, bytes };
+      this.dequeue();
+    });
+  }
+};
+var WebSocketReadQueue = class extends ReadQueue {
+  constructor(socket) {
+    super();
+    this.socket = socket;
+    socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+    socket.addEventListener("close", () => this.dequeue());
+  }
+  socketIsNotClosed() {
+    const { socket } = this;
+    const { readyState } = socket;
+    return readyState <= 1 /* OPEN */;
+  }
+};
+var LazyReadFunctionReadQueue = class extends ReadQueue {
+  constructor(readFn) {
+    super();
+    this.readFn = readFn;
+    __publicField(this, "dataIsExhausted", false);
+  }
+  async read(bytes) {
+    while (this.bytesInQueue() < bytes) {
+      const data = await this.readFn();
+      if (data === void 0) {
+        this.dataIsExhausted = true;
+        break;
+      }
+      this.enqueue(data);
+    }
+    return super.read(bytes);
+  }
+  socketIsNotClosed() {
+    return !this.dataIsExhausted;
+  }
+};
 
 // src/tls/startTls.ts
 async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { useSNI, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData } = {}) {
@@ -2347,23 +2516,19 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
     if (!receivedPreData || !equal(receivedPreData, expectPreData)) throw new Error("Pre data did not match expectation");
     log(...highlightBytes(hexFromU8(receivedPreData) + "  " + commentPreData, "#88c" /* server */));
   }
-  const serverHelloRecord = await readTlsRecord(networkRead, 22 /* Handshake */);
-  if (serverHelloRecord === void 0) throw new Error("Connection closed while awaiting server hello");
-  const serverHello = new Bytes(serverHelloRecord.content);
-  const serverPublicKey = parseServerHello(serverHello, sessionId);
-  log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), "#88c" /* server */));
-  const changeCipherRecord = await readTlsRecord(networkRead, 20 /* ChangeCipherSpec */);
-  if (changeCipherRecord === void 0) throw new Error("Connection closed awaiting server cipher change");
-  const ccipher = new Bytes(changeCipherRecord.content);
-  const [endCipherPayload] = ccipher.expectLength(1);
-  ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
-  endCipherPayload();
+  const serverHelloReadQueue = new LazyReadFunctionReadQueue(async () => (await readTlsRecord(networkRead, 22 /* Handshake */)).content);
+  const serverHello = new Bytes(serverHelloReadQueue.boundRead, 1);
+  const serverPublicKey = await parseServerHello(serverHello, sessionId);
+  log(...highlightBytes(serverHello.commentedString(false), "#88c" /* server */));
   log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends us a meaningless cipher change record:");
-  log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), "#88c" /* server */));
+  const changeCipherRecordReadQueue = new LazyReadFunctionReadQueue(async () => (await readTlsRecord(networkRead, 20 /* ChangeCipherSpec */)).content);
+  const ccipher = new Bytes(changeCipherRecordReadQueue.boundRead, 1);
+  await ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
+  log(...highlightBytes(ccipher.commentedString(false), "#88c" /* server */));
   log("Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:");
   log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))");
   const clientHelloContent = clientHelloData.subarray(5);
-  const serverHelloContent = serverHelloRecord.content;
+  const serverHelloContent = serverHello.array();
   const hellos = concat(clientHelloContent, serverHelloContent);
   const handshakeKeys = await getHandshakeKeys(serverPublicKey, ecdhKeys.privateKey, hellos, 256, 16);
   const serverHandshakeKey = await cryptoProxy_default.importKey("raw", handshakeKeys.serverHandshakeKey, { name: "AES-GCM" }, false, ["decrypt"]);
@@ -2463,7 +2628,6 @@ async function getFile(name) {
   try {
     const response = await fetch(name);
     const buf = await response.arrayBuffer();
-    console.log(buf);
     return buf;
   } catch {
     const fs = await import("fs/promises");
@@ -2706,7 +2870,6 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     log("The server responds with a base64-encoded ServerSignature (v):");
     const authSaslFinalResponse = await read();
     const authSaslFinalBytes = new Bytes(authSaslFinalResponse);
-    console.log(new TextDecoder().decode(authSaslFinalResponse));
     authSaslFinalBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
     const [endAuthSaslFinal, authSaslFinalRemaining] = authSaslFinalBytes.expectLengthUint32Incl("message");
     authSaslFinalBytes.expectUint32(12, "= AuthenticationSASLFinal");
@@ -2747,7 +2910,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   const [endAuthOK] = postAuthBytes.expectLengthUint32Incl("authentication result");
   postAuthBytes.expectUint32(0, "[AuthenticationOk](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)");
   endAuthOK();
-  while (postAuthBytes.remaining() > 0) {
+  while (postAuthBytes.readRemaining() > 0) {
     const msgType = postAuthBytes.readUTF8String(1);
     if (msgType === "S") {
       postAuthBytes.comment("= [ParameterStatus](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PARAMETERSTATUS)");
@@ -2804,7 +2967,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   }
   endRowDescription();
   let lastColumnData;
-  while (queryResultBytes.remaining() > 0) {
+  while (queryResultBytes.readRemaining() > 0) {
     const msgType = queryResultBytes.readUTF8String(1);
     if (msgType === "D") {
       queryResultBytes.comment("= [DataRow](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-DATAROW)");
@@ -2886,80 +3049,6 @@ Connection: close\r
   } while (responseData);
   return response;
 }
-
-// src/util/readQueue.ts
-var ReadQueue = class {
-  constructor() {
-    __publicField(this, "queue");
-    __publicField(this, "outstandingRequest");
-    this.queue = [];
-  }
-  enqueue(data) {
-    this.queue.push(data);
-    this.dequeue();
-  }
-  dequeue() {
-    if (this.outstandingRequest === void 0) return;
-    let { resolve, bytes } = this.outstandingRequest;
-    const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.socketIsNotClosed()) return;
-    bytes = Math.min(bytes, bytesInQueue);
-    if (bytes === 0) return resolve(void 0);
-    this.outstandingRequest = void 0;
-    const firstItem = this.queue[0];
-    const firstItemLength = firstItem.length;
-    if (firstItemLength === bytes) {
-      this.queue.shift();
-      return resolve(firstItem);
-    } else if (firstItemLength > bytes) {
-      this.queue[0] = firstItem.subarray(bytes);
-      return resolve(firstItem.subarray(0, bytes));
-    } else {
-      const result = new Uint8Array(bytes);
-      let outstandingBytes = bytes;
-      let offset = 0;
-      while (outstandingBytes > 0) {
-        const nextItem = this.queue[0];
-        const nextItemLength = nextItem.length;
-        if (nextItemLength <= outstandingBytes) {
-          this.queue.shift();
-          result.set(nextItem, offset);
-          offset += nextItemLength;
-          outstandingBytes -= nextItemLength;
-        } else {
-          this.queue[0] = nextItem.subarray(outstandingBytes);
-          result.set(nextItem.subarray(0, outstandingBytes), offset);
-          outstandingBytes -= outstandingBytes;
-          offset += outstandingBytes;
-        }
-      }
-      return resolve(result);
-    }
-  }
-  bytesInQueue() {
-    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
-  }
-  async read(bytes) {
-    if (this.outstandingRequest !== void 0) throw new Error("Can\u2019t read while already awaiting read");
-    return new Promise((resolve) => {
-      this.outstandingRequest = { resolve, bytes };
-      this.dequeue();
-    });
-  }
-};
-var WebSocketReadQueue = class extends ReadQueue {
-  constructor(socket) {
-    super();
-    this.socket = socket;
-    socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
-    socket.addEventListener("close", () => this.dequeue());
-  }
-  socketIsNotClosed() {
-    const { socket } = this;
-    const { readyState } = socket;
-    return readyState <= 1 /* OPEN */;
-  }
-};
 
 // src/util/wsTransport.ts
 async function wsTransport(host, port, close = () => {

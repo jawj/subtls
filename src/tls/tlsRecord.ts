@@ -27,28 +27,30 @@ const maxPlaintextRecordLength = 1 << 14;
 const maxCiphertextRecordLength = maxPlaintextRecordLength + 1 /* record type */ + 255 /* max aead */;
 
 export async function readTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, expectedType?: RecordType, maxLength = maxPlaintextRecordLength) {
-  const headerLength = 5;
-  const headerData = await read(headerLength);
-  if (headerData === undefined) return;
-  if (headerData.length < headerLength) throw new Error('TLS record header truncated');
+  const record = new Bytes(read);
 
-  const header = new Bytes(headerData);
+  // const headerLength = 5;
+  // const headerData = await read(headerLength);
+  // if (headerData === undefined) return;
+  // if (headerData.length < headerLength) throw new Error('TLS record header truncated');
 
-  const type = header.readUint8() as keyof typeof RecordTypeName;
+  // const header = new Bytes(headerData);
+
+  const type = await record.readUint8() as keyof typeof RecordTypeName;
   if (type < 0x14 || type > 0x18) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
-  chatty && header.comment(`record type: ${RecordTypeName[type]}`);
+  chatty && record.comment(`record type: ${RecordTypeName[type]}`);
 
-  header.expectUint16(0x0303, 'TLS record version 1.2 (middlebox compatibility)');
+  await record.expectUint16(0x0303, 'TLS record version 1.2 (middlebox compatibility)');
 
-  const length = header.readUint16();
-  chatty && header.comment(`${length === 0 ? 'no' : length} byte${length === 1 ? '' : 's'} of TLS record follow${length === 1 ? 's' : ''}`)
+  const length = await record.readUint16();
+  chatty && record.comment(`${length === 0 ? 'no' : length} byte${length === 1 ? '' : 's'} of TLS record follow${length === 1 ? 's' : ''}`)
   if (length > maxLength) throw new Error(`Record too long: ${length} bytes`)
 
-  const content = await read(length);
-  if (content === undefined || content.length < length) throw new Error('TLS record content truncated');
+  chatty && log(...highlightBytes(record.commentedString(), LogColours.server));
 
-  return { headerData, header, type, length, content };
+  const content = await record.readBytes(length);
+  return { type, length, content };
 }
 
 export async function readEncryptedTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, decrypter: Crypter, expectedType?: RecordType): Promise<Uint8Array | undefined> {
@@ -56,9 +58,9 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   if (encryptedRecord === undefined) return;
 
   const encryptedBytes = new Bytes(encryptedRecord.content);
-  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remaining());
-  encryptedBytes.skip(encryptedRecord.length - 16, chatty && 'encrypted payload');
-  encryptedBytes.skip(16, chatty && 'auth tag');
+  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.readRemaining());
+  encryptedBytes.skipRead(encryptedRecord.length - 16, chatty && 'encrypted payload');
+  encryptedBytes.skipRead(16, chatty && 'auth tag');
   endEncrypted();
   chatty && log(...highlightBytes(encryptedRecord.header.commentedString() + encryptedBytes.commentedString(), LogColours.server));
 

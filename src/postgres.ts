@@ -324,8 +324,6 @@ export async function postgres(
     const authSaslFinalResponse = await read();
     const authSaslFinalBytes = new Bytes(authSaslFinalResponse!);
 
-    console.log(new TextDecoder().decode(authSaslFinalResponse));
-
     authSaslFinalBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
     const [endAuthSaslFinal, authSaslFinalRemaining] = authSaslFinalBytes.expectLengthUint32Incl(chatty && 'message');
     authSaslFinalBytes.expectUint32(12, chatty && '= AuthenticationSASLFinal');
@@ -378,7 +376,7 @@ export async function postgres(
   postAuthBytes.expectUint32(0, chatty && '[AuthenticationOk](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)');
   endAuthOK();
 
-  while (postAuthBytes.remaining() > 0) {
+  while (postAuthBytes.readRemaining() > 0) {
     const msgType = postAuthBytes.readUTF8String(1);
     if (msgType === 'S') {
       chatty && postAuthBytes.comment('= [ParameterStatus](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PARAMETERSTATUS)');
@@ -442,7 +440,7 @@ export async function postgres(
   endRowDescription();
 
   let lastColumnData;
-  while (queryResultBytes.remaining() > 0) {
+  while (queryResultBytes.readRemaining() > 0) {
     const msgType = queryResultBytes.readUTF8String(1);
     if (msgType === 'D') {
       chatty && queryResultBytes.comment('= [DataRow](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-DATAROW)');

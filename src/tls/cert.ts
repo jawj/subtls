@@ -110,7 +110,7 @@ export class Cert {
       // serial number
       cb.expectUint8(universalTypeInteger, chatty && 'integer');
       const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length(chatty && 'serial number');
-      this.serialNumber = cb.subarray(serialNumberRemaining());
+      this.serialNumber = cb.subarrayForRead(serialNumberRemaining());
       chatty && cb.comment('serial number');
       endSerialNumber();
 
@@ -272,19 +272,19 @@ export class Cert {
             } else if (authKeyIdDatumType === (contextSpecificType | 1)) {
               chatty && cb.comment('context-specific type: authority cert issuer');
               const [endAuthKeyIdCertIssuer, authKeyIdCertIssuerRemaining] = cb.expectASN1Length(chatty && 'authority cert issuer');
-              cb.skip(authKeyIdCertIssuerRemaining(), chatty && 'ignored');
+              cb.skipRead(authKeyIdCertIssuerRemaining(), chatty && 'ignored');
               endAuthKeyIdCertIssuer();
 
             } else if (authKeyIdDatumType === (contextSpecificType | 2)) {
               chatty && cb.comment('context-specific type: authority cert serial number');
               const [endAuthKeyIdCertSerialNo, authKeyIdCertSerialNoRemaining] = cb.expectASN1Length(chatty && 'authority cert issuer or authority cert serial number');
-              cb.skip(authKeyIdCertSerialNoRemaining(), chatty && 'ignored');
+              cb.skipRead(authKeyIdCertSerialNoRemaining(), chatty && 'ignored');
               endAuthKeyIdCertSerialNo();
 
             } else if (authKeyIdDatumType === (contextSpecificType | 33)) {  // where is this documented?!
               chatty && cb.comment('context-specific type: DirName');
               const [endDirName, dirNameRemaining] = cb.expectASN1Length(chatty && 'DirName');
-              cb.skip(dirNameRemaining(), chatty && 'ignored');
+              cb.skipRead(dirNameRemaining(), chatty && 'ignored');
               chatty && console.log(cb.commentedString());
               endDirName();
 
@@ -409,7 +409,7 @@ export class Cert {
                   endQualStr();
 
                 } else {
-                  if (certPolInner3SeqRemaining()) cb.skip(certPolInner3SeqRemaining(), 'skipped policy qualifier data');
+                  if (certPolInner3SeqRemaining()) cb.skipRead(certPolInner3SeqRemaining(), 'skipped policy qualifier data');
                 }
 
                 endCertPolInner3Seq();
@@ -441,7 +441,7 @@ export class Cert {
            * - Signed Certificate Timestamp (SCT) List
            */
           // TODO: check for criticality, throw if critical
-          cb.skip(extRemaining(), chatty && 'ignored extension data');
+          cb.skipRead(extRemaining(), chatty && 'ignored extension data');
         }
 
         endExt();

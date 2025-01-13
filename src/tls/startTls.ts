@@ -15,6 +15,7 @@ import { log } from '../presentation/log';
 import { TrustedCert, type RootCertsDatabase } from './cert';
 import cs from '../util/cryptoProxy';
 import { getRandomValues } from '../util/cryptoRandom';
+import { LazyReadFunctionReadQueue } from '../util/readQueue';
 
 export async function startTls(
   host: string,
@@ -69,29 +70,27 @@ export async function startTls(
   }
 
   // parse server hello
-  const serverHelloRecord = await readTlsRecord(networkRead, RecordType.Handshake);
-  if (serverHelloRecord === undefined) throw new Error('Connection closed while awaiting server hello');
-
-  const serverHello = new Bytes(serverHelloRecord.content);
-  const serverPublicKey = parseServerHello(serverHello, sessionId);
-  chatty && log(...highlightBytes(serverHelloRecord.header.commentedString() + serverHello.commentedString(), LogColours.server));
+  const serverHelloReadQueue = new LazyReadFunctionReadQueue(async () => (await readTlsRecord(networkRead, RecordType.Handshake)).content);
+  const serverHello = new Bytes(serverHelloReadQueue.boundRead, 1);
+  const serverPublicKey = await parseServerHello(serverHello, sessionId);
+  chatty && log(...highlightBytes(serverHello.commentedString(false), LogColours.server));
 
   // parse dummy cipher change
-  const changeCipherRecord = await readTlsRecord(networkRead, RecordType.ChangeCipherSpec);
-  if (changeCipherRecord === undefined) throw new Error('Connection closed awaiting server cipher change');
-
-  const ccipher = new Bytes(changeCipherRecord.content);
-  const [endCipherPayload] = ccipher.expectLength(1);
-  ccipher.expectUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
-  endCipherPayload();
   chatty && log('For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends us a meaningless cipher change record:');
-  chatty && log(...highlightBytes(changeCipherRecord.header.commentedString() + ccipher.commentedString(), LogColours.server));
+  const changeCipherRecordReadQueue = new LazyReadFunctionReadQueue(async () => (await readTlsRecord(networkRead, RecordType.ChangeCipherSpec)).content);
+
+  // const changeCipherRecord = await readTlsRecord(networkRead, RecordType.ChangeCipherSpec);
+  // if (changeCipherRecord === undefined) throw new Error('Connection closed awaiting server cipher change');
+
+  const ccipher = new Bytes(changeCipherRecordReadQueue.boundRead, 1);
+  await ccipher.expectUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
+  chatty && log(...highlightBytes(ccipher.commentedString(false), LogColours.server));
 
   // handshake keys, encryption/decryption instances
   chatty && log('Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:');
   chatty && log('%c%s', `color: ${LogColours.header}`, 'handshake key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))');
   const clientHelloContent = clientHelloData.subarray(5);  // cut off the 5-byte record header
-  const serverHelloContent = serverHelloRecord.content;    // 5-byte record header is already excluded
+  const serverHelloContent = serverHello.array();    // 5-byte record header is already excluded
   const hellos = concat(clientHelloContent, serverHelloContent);
   const handshakeKeys = await getHandshakeKeys(serverPublicKey, ecdhKeys.privateKey, hellos, 256, 16);  // would be 384, 32 for AES256_SHA384
   const serverHandshakeKey = await cs.importKey('raw', handshakeKeys.serverHandshakeKey, { name: 'AES-GCM' }, false, ['decrypt']);
