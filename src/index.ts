@@ -4,6 +4,7 @@ import wsTransport from './util/wsTransport';
 
 const urlStr = location.hash.slice(1);
 const pg = urlStr && urlStr.startsWith('postgres');
+const web = urlStr && urlStr.startsWith('https');
 const goBtn = document.getElementById('go')! as HTMLButtonElement;
 const heading = document.getElementById('heading')! as HTMLHeadingElement;
 
@@ -13,6 +14,7 @@ if (pg) {
 }
 
 goBtn.addEventListener('click', () => {
+  document.querySelector('#logs')?.replaceChildren();  // clear logs
   if (pg) postgres(urlStr, wsTransport, false);
-  else https('https://bytebybyte.dev', 'GET', wsTransport);
+  else https(web ? urlStr : 'https://bytebybyte.dev', 'GET', wsTransport);
 });

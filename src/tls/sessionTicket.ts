@@ -6,7 +6,7 @@ import { LogColours } from '../presentation/appearance';
 export async function parseSessionTicket(record: Uint8Array) {
   if (chatty) {
     const ticket = new Bytes(record);
-    await ticket.expectUint8(0x04, 'session ticket message ([RFC 8846 §4.6.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.1))');
+    await ticket.expectUint8(0x04, 'session ticket message, per [RFC 8846 §4.6.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.1) (we do nothing with these)');
 
     const [endTicketRecord] = await ticket.expectLengthUint24('session ticket message');
 

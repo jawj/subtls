@@ -66,7 +66,16 @@ export class Bytes {
       this.resizeTo(newSize);
     }
     const newData = await this.fetchFn(bytes);
-    if (newData === undefined || newData.length < bytes) throw new Error('Not enough data even after calling read function');
+    if (newData === undefined || newData.length < bytes) {
+      const e = new Error(`Not enough data returned by read function. 
+  data.length:       ${this.data.length}
+  endOfReadableData: ${this.endOfReadableData}
+  offset:            ${this.offset}
+  bytes requested:   ${bytes}
+  bytes returned:    ${newData && newData.length}`);
+      (e as any)._bytes_error_reason = 'EOF';
+      throw e;
+    }
     this.data.set(newData, this.endOfReadableData);
     this.endOfReadableData += newData.length;
   }

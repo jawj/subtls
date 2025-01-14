@@ -26,7 +26,7 @@ export async function https(urlStr: string, method: string, transportFactory: ty
 
   chatty && log('Here’s a GET request:');
   const request = new Bytes();
-  request.writeUTF8String(`${method} ${reqPath} HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`);
+  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r\nHost: ${host}\r\n\r\n`);
   chatty && log(...highlightBytes(request.commentedString(), LogColours.client));
   chatty && log('Which goes to the server encrypted like so:');
   await write(request.array());

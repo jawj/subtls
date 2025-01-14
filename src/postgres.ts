@@ -113,7 +113,6 @@ export async function postgres(
 
   chatty && log('Postgres now responds with a request for authentication. Encrypted, as received:');
 
-  // const preAuthResponse = await read();
   const preAuthBytes = new Bytes(read);
 
   await preAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
@@ -184,7 +183,7 @@ export async function postgres(
     await write(saslInitResponse.array());
 
     chatty && log('The server responds with an AuthenticationSASLContinue SASL challenge message. This carries the SCRAM server-first-message, made up of our random nonce extended by another 24 bytes (r), a salt (s), and an iteration count (i).');
-    // const serverSaslContinueResponse = await read();
+
     const serverSaslContinueBytes = new Bytes(read);
     await serverSaslContinueBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
     const [endServerSaslContinue, serverSaslContinueRemaining] = await serverSaslContinueBytes.expectLengthUint32Incl();
@@ -328,9 +327,8 @@ export async function postgres(
     await write(saslResponse.array());
 
     chatty && log('The server responds with a base64-encoded ServerSignature (v):');
-    //const authSaslFinalResponse = await read();
-    const authSaslFinalBytes = new Bytes(read);
 
+    const authSaslFinalBytes = new Bytes(read);
     await authSaslFinalBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
     const [endAuthSaslFinal, authSaslFinalRemaining] = await authSaslFinalBytes.expectLengthUint32Incl(chatty && 'message');
     await authSaslFinalBytes.expectUint32(12, chatty && '= AuthenticationSASLFinal');
@@ -375,9 +373,7 @@ export async function postgres(
 
   chatty && log('Now the server tells us we’re in, and provides some other useful data. Encrypted, that’s:');
 
-  // const postAuthResponse = await read();
   const postAuthBytes = new Bytes(read);
-
   await postAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
   const [endAuthOK] = await postAuthBytes.expectLengthUint32Incl(chatty && 'authentication result');
   await postAuthBytes.expectUint32(0, chatty && '[AuthenticationOk](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)');
@@ -431,9 +427,8 @@ export async function postgres(
   }
 
   chatty && log('Postgres returns our query result. Encrypted:');
-  // const queryResult = await read();
-  const queryResultBytes = new Bytes(read);
 
+  const queryResultBytes = new Bytes(read);
   await queryResultBytes.expectUint8('T'.charCodeAt(0), chatty && '"T" = [RowDescription](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-ROWDESCRIPTION)');
   const [endRowDescription] = await queryResultBytes.expectLengthUint32Incl();
   const fieldsPerRow = await queryResultBytes.readUint16(chatty && 'fields per row');

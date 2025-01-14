@@ -2,7 +2,8 @@ import { WebSocketReadQueue } from "./readQueue";
 
 export default async function wsTransport(host: string, port: string | number, close = () => { }) {
   const ws = await new Promise<WebSocket>(resolve => {
-    const ws = new WebSocket(`wss://subtls-wsproxy.jawj.workers.dev/?address=${host}:${port}`);
+    const wsURL = location.hostname === 'localhost' ? 'ws://localhost:6544' : 'wss://subtls-wsproxy.jawj.workers.dev';
+    const ws = new WebSocket(`${wsURL}/?address=${host}:${port}`);
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('error', (err) => { console.log('ws error:', err); });

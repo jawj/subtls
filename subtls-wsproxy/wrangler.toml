@@ -5,3 +5,9 @@ main = "worker.js"
 
 [vars]
 ADDRESS_REGEXP = "^[-.a-zA-Z0-9]+[.]neon[.]tech:5432$|^bytebybyte[.]dev:443$"
+
+[dev]
+port = 6544
+
+[env.local.vars]
+ADDRESS_REGEXP = ".*"

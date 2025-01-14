@@ -3,10 +3,7 @@ import { Bytes } from '../util/bytes';
 import { hexFromU8 } from '../util/hex';
 
 export default async function parseServerHello(h: Bytes, sessionId: Uint8Array) {
-  let serverPublicKey;
-  let tlsVersionSpecified;
-
-  //const [endServerHelloMessage] = await h.expectLength(h.readRemaining());
+  let serverPublicKey, tlsVersionSpecified;
 
   await h.expectUint8(0x02, chatty && 'handshake type: server hello');
   const [endServerHello] = await h.expectLengthUint24(chatty && 'server hello');
@@ -72,7 +69,6 @@ export default async function parseServerHello(h: Bytes, sessionId: Uint8Array) 
 
   endExtensions();
   endServerHello();
-  //endServerHelloMessage();
 
   if (tlsVersionSpecified !== true) throw new Error('No TLS version provided');
   if (serverPublicKey === undefined) throw new Error('No key provided');

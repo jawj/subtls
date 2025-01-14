@@ -15,7 +15,8 @@
     "build": "esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --external:fs/promises --external:crypto --loader:.pem=text --outfile=docs/index.js",
     "_watch": "esbuild --define:chatty=1 src/index.ts --bundle --format=esm --target=es2020 --external:fs/promises --external:crypto --loader:.pem=text --outfile=docs/index.js --watch",
     "_serve": "serve docs -p 6543 --no-clipboard",
-    "start": "npm-run-all --parallel --race _watch _serve",
+    "_wsProxy": "cd subtls-wsproxy && wrangler dev --env=local",
+    "start": "npm-run-all --parallel --race _wsProxy _watch _serve",
     "== these run an https GET in Node.js ==": "",
     "nodeChatty": "esbuild --define:chatty=1 src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text | node --input-type=module",
     "nodeQuiet": "esbuild --define:chatty=0 src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws --loader:.pem=text | node --input-type=module",
@@ -39,6 +40,7 @@
     "npm-run-all": "^4.1.5",
     "serve": "^14.2.4",
     "typescript": "^5.0.4",
+    "wrangler": "^3.101.0",
     "ws": "^8.13.0"
   },
   "keywords": [

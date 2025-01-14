@@ -409,7 +409,16 @@ var Bytes = class {
       this.resizeTo(newSize);
     }
     const newData = await this.fetchFn(bytes);
-    if (newData === void 0 || newData.length < bytes) throw new Error("Not enough data even after calling read function");
+    if (newData === void 0 || newData.length < bytes) {
+      const e = new Error(`Not enough data returned by read function. 
+  data.length:       ${this.data.length}
+  endOfReadableData: ${this.endOfReadableData}
+  offset:            ${this.offset}
+  bytes requested:   ${bytes}
+  bytes returned:    ${newData && newData.length}`);
+      e._bytes_error_reason = "EOF";
+      throw e;
+    }
     this.data.set(newData, this.endOfReadableData);
     this.endOfReadableData += newData.length;
   }
@@ -901,8 +910,7 @@ function hexFromU8(u8, spacer = "") {
 
 // src/tls/parseServerHello.ts
 async function parseServerHello(h, sessionId) {
-  let serverPublicKey;
-  let tlsVersionSpecified;
+  let serverPublicKey, tlsVersionSpecified;
   await h.expectUint8(2, "handshake type: server hello");
   const [endServerHello] = await h.expectLengthUint24("server hello");
   await h.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
@@ -1085,7 +1093,7 @@ var ASN1Bytes = class extends Bytes {
 async function parseSessionTicket(record) {
   if (1) {
     const ticket = new Bytes(record);
-    await ticket.expectUint8(4, "session ticket message ([RFC 8846 \xA74.6.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.1))");
+    await ticket.expectUint8(4, "session ticket message, per [RFC 8846 \xA74.6.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.1) (we do nothing with these)");
     const [endTicketRecord] = await ticket.expectLengthUint24("session ticket message");
     const ticketSeconds = await ticket.readUint32();
     ticket.comment(`ticket lifetime in seconds: ${ticketSeconds} = ${ticketSeconds / 3600} hours`);
@@ -1212,19 +1220,67 @@ var RecordTypeName = {
   [23 /* Application */]: "Application",
   [24 /* Heartbeat */]: "Heartbeat"
 };
+var AlertRecordLevelName = {
+  1: "warning",
+  2: "fatal"
+};
+var AlertRecordDescName = {
+  0: "close_notify",
+  10: "unexpected_message",
+  20: "bad_record_mac",
+  22: "record_overflow",
+  40: "handshake_failure",
+  42: "bad_certificate",
+  43: "unsupported_certificate",
+  44: "certificate_revoked",
+  45: "certificate_expired",
+  46: "certificate_unknown",
+  47: "illegal_parameter",
+  48: "unknown_ca",
+  49: "access_denied",
+  50: "decode_error",
+  51: "decrypt_error",
+  70: "protocol_version",
+  71: "insufficient_security",
+  80: "internal_error",
+  86: "inappropriate_fallback",
+  90: "user_canceled",
+  109: "missing_extension",
+  110: "unsupported_extension",
+  112: "unrecognized_name",
+  113: "bad_certificate_status_response",
+  115: "unknown_psk_identity",
+  116: "certificate_required",
+  120: "no_application_protocol"
+};
 var maxPlaintextRecordLength = 1 << 14;
 var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
 async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordLength) {
   const record = new Bytes(read);
-  const type = await record.readUint8();
-  if (type < 20 || type > 24) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
-  if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
+  let type;
+  try {
+    type = await record.readUint8();
+  } catch (e) {
+    if (e._bytes_error_reason === "EOF") return void 0;
+    throw e;
+  }
   record.comment(`record type: ${RecordTypeName[type]}`);
+  if (type < 20 || type > 24) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   await record.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
-  const length = await record.readUint16();
-  record.comment(`${length === 0 ? "no" : length} byte${length === 1 ? "" : "s"} of TLS record follow${length === 1 ? "s" : ""}`);
+  const [, recordRemaining] = await record.expectLengthUint16("TLS record");
+  const length = recordRemaining();
   if (length > maxLength) throw new Error(`Record too long: ${length} bytes`);
-  log(...highlightBytes(record.commentedString(), "#88c" /* server */));
+  let alertLevel;
+  if (type === 21 /* Alert */) {
+    alertLevel = await record.readUint8("alert level:");
+    record.comment(AlertRecordLevelName[alertLevel] ?? "unknown");
+    const desc = await record.readUint8("alert description:");
+    record.comment(AlertRecordDescName[desc] ?? "unknown");
+  }
+  log(...highlightBytes(record.commentedString(), type === 21 /* Alert */ ? "#c88" /* header */ : "#88c" /* server */));
+  if (alertLevel === 2) throw new Error("Unexpected fatal alert");
+  else if (alertLevel === 1) return readTlsRecord(read, expectedType, maxLength);
+  if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   const rawHeader = record.array();
   const content = await record.subarrayForRead(length);
   return { type, length, content, rawHeader };
@@ -1232,7 +1288,7 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
 function bytesFromTlsRecords(read, expectedType) {
   const readQueue = new LazyReadFunctionReadQueue(async () => {
     const record = await readTlsRecord(read, expectedType);
-    return record.content;
+    return record?.content;
   });
   const bytes = new ASN1Bytes(readQueue.read.bind(readQueue), 1);
   return bytes;
@@ -1262,7 +1318,7 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
   if (type === 22 /* Handshake */ && record[0] === 4) {
     await parseSessionTicket(record);
-    return new Uint8Array(0);
+    return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   return record;
@@ -3044,9 +3100,8 @@ async function https(urlStr2, method, transportFactory) {
   const { read, write } = await startTls(host, rootCerts, transport.read, transport.write);
   log("Here\u2019s a GET request:");
   const request = new Bytes();
-  request.writeUTF8String(`${method} ${reqPath} HTTP/1.1\r
+  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
 Host: ${host}\r
-Connection: close\r
 \r
 `);
   log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
@@ -3070,7 +3125,8 @@ Connection: close\r
 async function wsTransport(host, port, close = () => {
 }) {
   const ws = await new Promise((resolve) => {
-    const ws2 = new WebSocket(`wss://subtls-wsproxy.jawj.workers.dev/?address=${host}:${port}`);
+    const wsURL = location.hostname === "localhost" ? "ws://localhost:6544" : "wss://subtls-wsproxy.jawj.workers.dev";
+    const ws2 = new WebSocket(`${wsURL}/?address=${host}:${port}`);
     ws2.binaryType = "arraybuffer";
     ws2.addEventListener("open", () => resolve(ws2));
     ws2.addEventListener("error", (err) => {
@@ -3087,6 +3143,7 @@ async function wsTransport(host, port, close = () => {
 // src/index.ts
 var urlStr = location.hash.slice(1);
 var pg = urlStr && urlStr.startsWith("postgres");
+var web = urlStr && urlStr.startsWith("https");
 var goBtn = document.getElementById("go");
 var heading = document.getElementById("heading");
 if (pg) {
@@ -3094,6 +3151,7 @@ if (pg) {
   heading.textContent = "Postgres + TLS, byte-by-byte, LIVE!";
 }
 goBtn.addEventListener("click", () => {
+  document.querySelector("#logs")?.replaceChildren();
   if (pg) postgres(urlStr, wsTransport, false);
-  else https("https://bytebybyte.dev", "GET", wsTransport);
+  else https(web ? urlStr : "https://bytebybyte.dev", "GET", wsTransport);
 });
