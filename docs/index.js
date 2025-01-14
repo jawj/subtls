@@ -357,7 +357,7 @@ var txtDec = new TextDecoder();
 var emptyArray = new Uint8Array(0);
 var Bytes = class {
   /**
-   * @param data 
+   * @param data -
    * * If data is a `Uint8Array`, this is the initial data
    * * If data is a `number`, this is the initial size in bytes (all zeroes)
    * * If data is a `function`, this function is called to retrieve data when required
@@ -798,14 +798,22 @@ function htmlFromLogArgs(...args) {
   return result;
 }
 var c = 0;
+var appendLog = Symbol("append");
 function log(...args) {
+  const append = args[0] === appendLog;
+  if (append) args = args.slice(1);
   console.log(...args, "\n");
   if (typeof document === "undefined") return;
   const docEl = document.documentElement;
   const fullyScrolled = docEl.scrollTop >= docEl.scrollHeight - docEl.clientHeight - 1 || // the -1 makes this work in Edge
   docEl.clientHeight >= docEl.scrollHeight;
   const element = document.querySelector("#logs");
-  element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
+  if (append) {
+    const sections = element.querySelectorAll(".section");
+    sections[sections.length - 1].insertAdjacentHTML("beforeend", htmlFromLogArgs("\n" + args[0], ...args.slice(1)));
+  } else {
+    element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
+  }
   if (fullyScrolled) window.scrollTo({ top: 99999, behavior: "auto" });
 }
 
@@ -1299,7 +1307,7 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   const encryptedBytes = new Bytes(encryptedRecord.content, 1);
   await encryptedBytes.skipRead(encryptedRecord.length - 16, "encrypted payload");
   await encryptedBytes.skipRead(16, "auth tag");
-  log(...highlightBytes(encryptedBytes.commentedString(), "#88c" /* server */));
+  log(appendLog, ...highlightBytes(encryptedBytes.commentedString(), "#88c" /* server */));
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.rawHeader);
   let recordTypeIndex = decryptedRecord.length - 1;
   while (decryptedRecord[recordTypeIndex] === 0) recordTypeIndex -= 1;
@@ -2592,11 +2600,11 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   }
   const serverHello = bytesFromTlsRecords(networkRead, 22 /* Handshake */);
   const serverPublicKey = await parseServerHello(serverHello, sessionId);
-  log(...highlightBytes(serverHello.commentedString(false), "#88c" /* server */));
+  log(appendLog, ...highlightBytes(serverHello.commentedString(false), "#88c" /* server */));
   log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends us a meaningless cipher change record:");
   const ccipher = bytesFromTlsRecords(networkRead, 20 /* ChangeCipherSpec */);
   await ccipher.expectUint8(1, "dummy ChangeCipherSpec payload (middlebox compatibility)");
-  log(...highlightBytes(ccipher.commentedString(false), "#88c" /* server */));
+  log(appendLog, ...highlightBytes(ccipher.commentedString(false), "#88c" /* server */));
   log("Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:");
   log("%c%s", `color: ${"#c88" /* header */}`, "handshake key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))");
   const clientHelloContent = clientHelloData.subarray(5);

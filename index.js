@@ -525,43 +525,101 @@ var GrowableData = class {
 var indentChars = "\xB7\xB7 ";
 
 // src/util/bytes.ts
+var initialSize = 1024;
+var growthFactor = 2;
 var txtEnc = new TextEncoder();
 var txtDec = new TextDecoder();
 var emptyArray = new Uint8Array(0);
-var emptyView = new DataView(emptyArray.buffer);
 var Bytes = class {
-  constructor(data) {
+  /**
+   * @param data -
+   * * If data is a `Uint8Array`, this is the initial data
+   * * If data is a `number`, this is the initial size in bytes (all zeroes)
+   * * If data is a `function`, this function is called to retrieve data when required
+   */
+  constructor(data, indent = 0) {
+    this.indent = indent;
+    __publicField(this, "fetchFn");
+    __publicField(this, "endOfReadableData");
+    // how much data exists to read (not used for writing)
     __publicField(this, "offset");
+    // current read/write cursor
     __publicField(this, "dataView");
     __publicField(this, "data");
     __publicField(this, "comments");
     __publicField(this, "indents");
-    __publicField(this, "indent");
-    this.offset = 0;
-    this.data = emptyArray;
-    this.dataView = emptyView;
+    this.endOfReadableData = this.offset = 0;
     this.comments = {};
-    this.indents = {};
-    this.indent = 0;
-    this.extend(data);
-  }
-  extend(newData) {
-    const data = typeof newData === "number" ? new Uint8Array(newData) : typeof newData === "function" ? newData() :
-    newData;
-    if (data == void 0) throw new Error("Attempted to extend Bytes, but data function returned undefined");
-    this.data = concat(this.data, data);
+    this.indents = { 0: indent };
+    if (typeof data === "number") {
+      this.data = new Uint8Array(data);
+    } else if (data === void 0 || typeof data === "function") {
+      this.data = emptyArray;
+      this.fetchFn = data;
+    } else {
+      this.data = data;
+      this.endOfReadableData = data.length;
+    }
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
-  remaining() {
-    return this.data.length - this.offset;
+  readRemaining() {
+    return this.endOfReadableData - this.offset;
   }
-  subarray(length) {
-    return this.data.subarray(this.offset, this.offset += length);
+  resizeTo(newSize) {
+    const newData = new Uint8Array(newSize);
+    newData.set(this.data);
+    this.data = newData;
+    this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
-  skip(length, comment) {
-    this.offset += length;
-    if (comment) this.comment(comment);
-    return this;
+  async ensureReadAvailable(bytes) {
+    if (bytes <= this.readRemaining()) return;
+    if (this.fetchFn === void 0) throw new Error("Not enough data and no read function supplied");
+    const freeSpace = this.data.length - this.endOfReadableData;
+    if (bytes > freeSpace) {
+      const newSize = Math.max(
+        initialSize,
+        this.data.length * growthFactor,
+        this.endOfReadableData + bytes
+      );
+      this.resizeTo(newSize);
+    }
+    const newData = await this.fetchFn(bytes);
+    if (newData === void 0 || newData.length < bytes) {
+      const e = new Error(`Not enough data returned by read function. 
+  data.length:       ${this.data.length}
+  endOfReadableData: ${this.endOfReadableData}
+  offset:            ${this.offset}
+  bytes requested:   ${bytes}
+  bytes returned:    ${newData && newData.length}`);
+      e._bytes_error_reason = "EOF";
+      throw e;
+    }
+    this.data.set(newData, this.endOfReadableData);
+    this.endOfReadableData += newData.length;
+  }
+  ensureWriteAvailable(bytes) {
+    if (this.offset + bytes < this.data.length) return;
+    const newSize = Math.max(
+      initialSize,
+      this.data.length * growthFactor,
+      this.offset + bytes
+    );
+    this.resizeTo(newSize);
+  }
+  expectLength(length, indentDelta = 1) {
+    const startOffset = this.offset;
+    const endOffset = startOffset + length;
+    this.indent += indentDelta;
+    this.indents[startOffset] = this.indent;
+    return [
+      () => {
+        this.indent -= indentDelta;
+        this.indents[this.offset] = this.indent;
+        if (this.offset !== endOffset) throw new Error(`${length} bytes expected but ${this.offset - startOffset}\
+ advanced`);
+      },
+      () => endOffset - this.offset
+    ];
   }
   comment(s, offset = this.offset) {
     if (true) throw new Error("No comments should be emitted outside of chatty mode");
@@ -576,121 +634,143 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
     "follow"}`;
   }
   // reading
-  readBytes(length) {
+  async subarrayForRead(length) {
+    await this.ensureReadAvailable(length);
+    return this.data.subarray(this.offset, this.offset += length);
+  }
+  async skipRead(length, comment) {
+    await this.ensureReadAvailable(length);
+    this.offset += length;
+    if (comment) this.comment(comment);
+    return this;
+  }
+  async readBytes(length) {
+    await this.ensureReadAvailable(length);
     return this.data.slice(this.offset, this.offset += length);
   }
-  readUTF8String(length) {
-    const bytes = this.subarray(length);
+  async readUTF8String(length) {
+    await this.ensureReadAvailable(length);
+    const bytes = await this.subarrayForRead(length);
     const s = txtDec.decode(bytes);
     return s;
   }
-  readUTF8StringNullTerminated() {
-    let endOffset = this.offset;
-    while (this.data[endOffset] !== 0) endOffset++;
-    const str = this.readUTF8String(endOffset - this.offset);
-    this.expectUint8(0, "end of string");
+  async readUTF8StringNullTerminated() {
+    let i = 0;
+    while (true) {
+      await this.ensureReadAvailable(i + 1);
+      const charCode = this.data[this.offset + i];
+      if (charCode === 0) break;
+      i++;
+    }
+    ;
+    const str = await this.readUTF8String(i);
+    await this.expectUint8(0, "end of string");
     return str;
   }
-  readUint8(comment) {
+  async readUint8(comment) {
+    await this.ensureReadAvailable(1);
     const result = this.dataView.getUint8(this.offset);
     this.offset += 1;
     if (0) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
-  readUint16(comment) {
+  async readUint16(comment) {
+    await this.ensureReadAvailable(2);
     const result = this.dataView.getUint16(this.offset);
     this.offset += 2;
     if (0) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
-  readUint24(comment) {
-    const msb = this.readUint8();
-    const lsbs = this.readUint16();
+  async readUint24(comment) {
+    await this.ensureReadAvailable(3);
+    const msb = await this.readUint8();
+    const lsbs = await this.readUint16();
     const result = (msb << 16) + lsbs;
     if (0) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
-  readUint32(comment) {
+  async readUint32(comment) {
+    await this.ensureReadAvailable(4);
     const result = this.dataView.getUint32(this.offset);
     this.offset += 4;
     if (0) this.comment(comment.replace(/%/g, String(result)));
     return result;
   }
-  expectBytes(expected, comment) {
-    const actual = this.readBytes(expected.length);
+  async expectBytes(expected, comment) {
+    await this.ensureReadAvailable(expected.length);
+    const actual = await this.readBytes(expected.length);
     if (0) this.comment(comment);
     if (!equal(actual, expected)) throw new Error(`Unexpected bytes`);
   }
-  expectUint8(expectedValue, comment) {
-    const actualValue = this.readUint8();
+  async expectUint8(expectedValue, comment) {
+    const actualValue = await this.readUint8();
     if (0) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
-  expectUint16(expectedValue, comment) {
-    const actualValue = this.readUint16();
+  async expectUint16(expectedValue, comment) {
+    const actualValue = await this.readUint16();
     if (0) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
-  expectUint24(expectedValue, comment) {
-    const actualValue = this.readUint24();
+  async expectUint24(expectedValue, comment) {
+    const actualValue = await this.readUint24();
     if (0) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
-  expectUint32(expectedValue, comment) {
-    const actualValue = this.readUint32();
+  async expectUint32(expectedValue, comment) {
+    const actualValue = await this.readUint32();
     if (0) this.comment(comment);
     if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
   }
-  expectLength(length, indentDelta = 1) {
-    const startOffset = this.offset;
-    const endOffset = startOffset + length;
-    if (endOffset > this.data.length) throw new Error("Expected length exceeds remaining data length");
-    this.indent += indentDelta;
-    this.indents[startOffset] = this.indent;
-    return [
-      () => {
-        this.indent -= indentDelta;
-        this.indents[this.offset] = this.indent;
-        if (this.offset !== endOffset) throw new Error(`${length} bytes expected but ${this.offset - startOffset}\
- read`);
-      },
-      () => endOffset - this.offset
-    ];
+  async expectReadLength(length, indentDelta = 1) {
+    await this.ensureReadAvailable(length);
+    return this.expectLength(length, indentDelta);
   }
-  expectLengthUint8(comment) {
-    const length = this.readUint8();
-    return this.expectLength(length);
+  async expectLengthUint8(comment) {
+    const length = await this.readUint8();
+    return this.expectReadLength(length);
   }
-  expectLengthUint16(comment) {
-    const length = this.readUint16();
-    return this.expectLength(length);
+  async expectLengthUint16(comment) {
+    const length = await this.readUint16();
+    return this.expectReadLength(length);
   }
-  expectLengthUint24(comment) {
-    const length = this.readUint24();
-    return this.expectLength(length);
+  async expectLengthUint24(comment) {
+    const length = await this.readUint24();
+    return this.expectReadLength(length);
   }
-  expectLengthUint32(comment) {
-    const length = this.readUint32();
-    return this.expectLength(length);
+  async expectLengthUint32(comment) {
+    const length = await this.readUint32();
+    return this.expectReadLength(length);
   }
-  expectLengthUint8Incl(comment) {
-    const length = this.readUint8();
-    return this.expectLength(length - 1);
+  async expectLengthUint8Incl(comment) {
+    const length = await this.readUint8();
+    return this.expectReadLength(length - 1);
   }
-  expectLengthUint16Incl(comment) {
-    const length = this.readUint16();
-    return this.expectLength(length - 2);
+  async expectLengthUint16Incl(comment) {
+    const length = await this.readUint16();
+    return this.expectReadLength(length - 2);
   }
-  expectLengthUint24Incl(comment) {
-    const length = this.readUint24();
-    return this.expectLength(length - 3);
+  async expectLengthUint24Incl(comment) {
+    const length = await this.readUint24();
+    return this.expectReadLength(length - 3);
   }
-  expectLengthUint32Incl(comment) {
-    const length = this.readUint32();
-    return this.expectLength(length - 4);
+  async expectLengthUint32Incl(comment) {
+    const length = await this.readUint32();
+    return this.expectReadLength(length - 4);
   }
   // writing
+  subarrayForWrite(length) {
+    this.ensureWriteAvailable(length);
+    return this.data.subarray(this.offset, this.offset += length);
+  }
+  skipWrite(length, comment) {
+    this.ensureWriteAvailable(length);
+    this.offset += length;
+    if (comment) this.comment(comment);
+    return this;
+  }
   writeBytes(bytes) {
+    this.ensureWriteAvailable(bytes.length);
     this.data.set(bytes, this.offset);
     this.offset += bytes.length;
     return this;
@@ -707,12 +787,14 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
     return this;
   }
   writeUint8(value, comment) {
+    this.ensureWriteAvailable(1);
     this.dataView.setUint8(this.offset, value);
     this.offset += 1;
     if (0) this.comment(comment);
     return this;
   }
   writeUint16(value, comment) {
+    this.ensureWriteAvailable(2);
     this.dataView.setUint16(this.offset, value);
     this.offset += 2;
     if (0) this.comment(comment);
@@ -724,6 +806,7 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
     return this;
   }
   writeUint32(value, comment) {
+    this.ensureWriteAvailable(4);
     this.dataView.setUint32(this.offset, value);
     this.offset += 4;
     if (0) this.comment(comment);
@@ -731,6 +814,7 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
   }
   // forward-looking lengths
   _writeLengthGeneric(lengthBytes, inclusive, comment) {
+    this.ensureWriteAvailable(lengthBytes);
     const startOffset = this.offset;
     this.offset += lengthBytes;
     const endOffset = this.offset;
@@ -773,20 +857,27 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
   writeLengthUint32Incl(comment) {
     return this._writeLengthGeneric(4, true, comment);
   }
+  expectWriteLength(length, indentDelta = 1) {
+    this.ensureWriteAvailable(length);
+    return this.expectLength(length, indentDelta);
+  }
   // output
   array() {
     return this.data.subarray(0, this.offset);
   }
   commentedString(all = false) {
-    let s = this.indents[0] !== void 0 ? indentChars.repeat(this.indents[0]) : "";
     let indent = this.indents[0] ?? 0;
+    let s = indentChars.repeat(indent);
     const len = all ? this.data.length : this.offset;
     for (let i = 0; i < len; i++) {
       s += this.data[i].toString(16).padStart(2, "0") + " ";
       const comment = this.comments[i + 1];
-      if (this.indents[i + 1] !== void 0) indent = this.indents[i + 1];
-      if (comment) s += ` ${comment}
+      indent = this.indents[i + 1] ?? indent;
+      if (comment) {
+        s += ` ${comment}`;
+        if (i < len - 1) s += `
 ${indentChars.repeat(indent)}`;
+      }
     }
     return s;
   }
@@ -804,14 +895,14 @@ async function getRandomValues(...args) {
 
 // src/tls/makeClientHello.ts
 async function makeClientHello(host, publicKey, sessionId, useSNI = true) {
-  const h = new Bytes(1024);
+  const h = new Bytes();
   h.writeUint8(22, 0);
   h.writeUint16(769, 0);
   const endRecordHeader = h.writeLengthUint16("TLS record");
   h.writeUint8(1, 0);
   const endHandshakeHeader = h.writeLengthUint24();
   h.writeUint16(771, 0);
-  await getRandomValues(h.subarray(32));
+  await getRandomValues(h.subarrayForWrite(32));
   const endSessionId = h.writeLengthUint8(0);
   h.writeBytes(sessionId);
   endSessionId();
@@ -892,14 +983,12 @@ function hexFromU8(u8, spacer = "") {
 }
 
 // src/tls/parseServerHello.ts
-function parseServerHello(h, sessionId) {
-  let serverPublicKey;
-  let tlsVersionSpecified;
-  const [endServerHelloMessage] = h.expectLength(h.remaining());
-  h.expectUint8(2, 0);
-  const [endServerHello] = h.expectLengthUint24(0);
-  h.expectUint16(771, 0);
-  const serverRandom = h.readBytes(32);
+async function parseServerHello(h, sessionId) {
+  let serverPublicKey, tlsVersionSpecified;
+  await h.expectUint8(2, 0);
+  const [endServerHello] = await h.expectLengthUint24(0);
+  await h.expectUint16(771, 0);
+  const serverRandom = await h.readBytes(32);
   if (equal(serverRandom, [
     // SHA-256 of "HelloRetryRequest", https://datatracker.ietf.org/doc/html/rfc8446#page-32
     // see also: echo -n "HelloRetryRequest" | openssl dgst -sha256 -hex
@@ -936,33 +1025,33 @@ function parseServerHello(h, sessionId) {
     51,
     156
   ])) throw new Error("Unexpected HelloRetryRequest");
-  h.expectUint8(sessionId.length, 0);
-  h.expectBytes(sessionId, 0);
-  h.expectUint16(4865, 0);
-  h.expectUint8(0, 0);
-  const [endExtensions, extensionsRemaining] = h.expectLengthUint16(0);
+  await h.expectUint8(sessionId.length, 0);
+  await h.expectBytes(sessionId, 0);
+  await h.expectUint16(4865, 0);
+  await h.expectUint8(0, 0);
+  const [endExtensions, extensionsRemaining] = await h.expectLengthUint16(0);
   while (extensionsRemaining() > 0) {
-    const extensionType = h.readUint16(0);
-    const [endExtension] = h.expectLengthUint16(0);
+    const extensionType = await h.readUint16(0);
+    const [endExtension] = await h.expectLengthUint16(0);
     if (extensionType === 43) {
-      h.expectUint16(772, 0);
+      await h.expectUint16(772, 0);
       tlsVersionSpecified = true;
     } else if (extensionType === 51) {
-      h.expectUint16(23, 0);
-      const [endKeyShare, keyShareRemaining] = h.expectLengthUint16("key share");
+      await h.expectUint16(23, 0);
+      const [endKeyShare, keyShareRemaining] = await h.expectLengthUint16("key share");
       const keyShareLength = keyShareRemaining();
       if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
       if (0) {
-        h.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https:/\
-/datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc\
-/html/rfc8422#section-5.4.1))");
-        const x = h.readBytes(32);
+        await h.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](h\
+ttps://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.o\
+rg/doc/html/rfc8422#section-5.4.1))");
+        const x = await h.readBytes(32);
         h.comment("x coordinate");
-        const y = h.readBytes(32);
+        const y = await h.readBytes(32);
         h.comment("y coordinate");
-        serverPublicKey = concat2([4], x, y);
+        serverPublicKey = concat3([4], x, y);
       } else {
-        serverPublicKey = h.readBytes(keyShareLength);
+        serverPublicKey = await h.readBytes(keyShareLength);
       }
       endKeyShare();
     } else {
@@ -972,36 +1061,132 @@ function parseServerHello(h, sessionId) {
   }
   endExtensions();
   endServerHello();
-  endServerHelloMessage();
   if (tlsVersionSpecified !== true) throw new Error("No TLS version provided");
   if (serverPublicKey === void 0) throw new Error("No key provided");
   return serverPublicKey;
 }
 
+// src/util/asn1bytes.ts
+var ASN1Bytes = class extends Bytes {
+  async readASN1Length(comment) {
+    const byte1 = await this.readUint8();
+    if (byte1 < 128) {
+      return byte1;
+    }
+    const lengthBytes = byte1 & 127;
+    const fullComment = 0;
+    if (lengthBytes === 1) return this.readUint8(fullComment);
+    if (lengthBytes === 2) return this.readUint16(fullComment);
+    if (lengthBytes === 3) return this.readUint24(fullComment);
+    if (lengthBytes === 4) return this.readUint32(fullComment);
+    throw new Error(`ASN.1 length fields are only supported up to 4 bytes (this one is ${lengthBytes} bytes)`);
+  }
+  async expectASN1Length(comment) {
+    const length = await this.readASN1Length(comment);
+    return this.expectReadLength(length);
+  }
+  async readASN1OID(comment) {
+    const [endOID, OIDRemaining] = await this.expectASN1Length(0);
+    const byte1 = await this.readUint8();
+    let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
+    while (OIDRemaining() > 0) {
+      let value = 0;
+      while (true) {
+        const nextByte = await this.readUint8();
+        value <<= 7;
+        value += nextByte & 127;
+        if (nextByte < 128) break;
+      }
+      oid += `.${value}`;
+    }
+    if (0) this.comment(comment.replace(/%/g, oid));
+    endOID();
+    return oid;
+  }
+  async readASN1Boolean(comment) {
+    const [endBoolean, booleanRemaining] = await this.expectASN1Length(0);
+    const length = booleanRemaining();
+    if (length !== 1) throw new Error(`Boolean has weird length: ${length}`);
+    const byte = await this.readUint8();
+    let result;
+    if (byte === 255) result = true;
+    else if (byte === 0) result = false;
+    else throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
+    if (0) this.comment(comment.replace(/%/g, String(result)));
+    endBoolean();
+    return result;
+  }
+  async readASN1UTCTime() {
+    const [endTime, timeRemaining] = await this.expectASN1Length(0);
+    const timeStr = await this.readUTF8String(timeRemaining());
+    const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
+    if (!parts) throw new Error("Unrecognised ASN.1 UTC time format");
+    const [, yr2dstr, mth, dy, hr, min, sec] = parts;
+    const yr2d = parseInt(yr2dstr, 10);
+    const yr = yr2d + (yr2d >= 50 ? 1900 : 2e3);
+    const time = /* @__PURE__ */ new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);
+    endTime();
+    return time;
+  }
+  async readASN1GeneralizedTime() {
+    const [endTime, timeRemaining] = await this.expectASN1Length(0);
+    const timeStr = await this.readUTF8String(timeRemaining());
+    const parts = timeStr.match(/^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})?([0-9]{2})?([.][0-9]+)?(Z)?([-+][0-9]+)?$/);
+    if (!parts) throw new Error("Unrecognised ASN.1 generalized time format");
+    const [, yr, mth, dy, hr, min, sec, fracsec, z, tz] = parts;
+    if (sec === void 0 && fracsec !== void 0) throw new Error("Invalid ASN.1 generalized time format (fraction\
+ without seconds)");
+    if (z !== void 0 && tz !== void 0) throw new Error("Invalid ASN.1 generalized time format (Z and timezone)");
+    const time = /* @__PURE__ */ new Date(`${yr}-${mth}-${dy}T${hr}:${min ?? "00"}:${sec ?? "00"}${fracsec ?? ""}${tz ??
+    "Z"}`);
+    endTime();
+    return time;
+  }
+  async readASN1BitString() {
+    const [endBitString, bitStringRemaining] = await this.expectASN1Length(0);
+    const rightPadBits = await this.readUint8(0);
+    const bytesLength = bitStringRemaining();
+    const bitString = await this.readBytes(bytesLength);
+    if (rightPadBits > 7) throw new Error(`Invalid right pad value: ${rightPadBits}`);
+    if (rightPadBits > 0) {
+      const leftPadNext = 8 - rightPadBits;
+      for (let i = bytesLength - 1; i > 0; i--) {
+        bitString[i] = 255 & bitString[i - 1] << leftPadNext | bitString[i] >>> rightPadBits;
+      }
+      bitString[0] = bitString[0] >>> rightPadBits;
+    }
+    endBitString();
+    return bitString;
+  }
+};
+
+// src/presentation/log.ts
+var appendLog = Symbol("append");
+
 // src/presentation/highlights.ts
 var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
 
 // src/tls/sessionTicket.ts
-function parseSessionTicket(record) {
+async function parseSessionTicket(record) {
   if (0) {
     const ticket = new Bytes2(record);
-    ticket.expectUint8(4, "session ticket message ([RFC 8846 \xA74.6.1](https://datatracker.ietf.org/doc/html/rfc\
-8446#section-4.6.1))");
-    const [endTicketRecord] = ticket.expectLengthUint24("session ticket message");
-    const ticketSeconds = ticket.readUint32();
+    await ticket.expectUint8(4, "session ticket message, per [RFC 8846 \xA74.6.1](https://datatracker.ietf.org/do\
+c/html/rfc8446#section-4.6.1) (we do nothing with these)");
+    const [endTicketRecord] = await ticket.expectLengthUint24("session ticket message");
+    const ticketSeconds = await ticket.readUint32();
     ticket.comment(`ticket lifetime in seconds: ${ticketSeconds} = ${ticketSeconds / 3600} hours`);
-    ticket.readUint32("ticket age add");
-    const [endTicketNonce, ticketNonceRemaining] = ticket.expectLengthUint8("ticket nonce");
-    ticket.readBytes(ticketNonceRemaining());
+    await ticket.readUint32("ticket age add");
+    const [endTicketNonce, ticketNonceRemaining] = await ticket.expectLengthUint8("ticket nonce");
+    await ticket.readBytes(ticketNonceRemaining());
     ticket.comment("ticket nonce");
     endTicketNonce();
-    const [endTicket, ticketRemaining] = ticket.expectLengthUint16("ticket");
-    ticket.readBytes(ticketRemaining());
+    const [endTicket, ticketRemaining] = await ticket.expectLengthUint16("ticket");
+    await ticket.readBytes(ticketRemaining());
     ticket.comment("ticket");
     endTicket();
-    const [endTicketExts, ticketExtsRemaining] = ticket.expectLengthUint16("ticket extensions");
+    const [endTicketExts, ticketExtsRemaining] = await ticket.expectLengthUint16("ticket extensions");
     if (ticketExtsRemaining() > 0) {
-      ticket.readBytes(ticketExtsRemaining());
+      await ticket.readBytes(ticketExtsRemaining());
       ticket.comment("ticket extensions (ignored)");
     }
     endTicketExts();
@@ -1010,35 +1195,159 @@ function parseSessionTicket(record) {
   }
 }
 
+// src/util/readQueue.ts
+var ReadQueue = class {
+  constructor() {
+    __publicField(this, "queue");
+    __publicField(this, "outstandingRequest");
+    this.queue = [];
+  }
+  enqueue(data) {
+    this.queue.push(data);
+    this.dequeue();
+  }
+  dequeue() {
+    if (this.outstandingRequest === void 0) return;
+    let { resolve, bytes } = this.outstandingRequest;
+    const bytesInQueue = this.bytesInQueue();
+    if (bytesInQueue < bytes && this.socketIsNotClosed()) return;
+    bytes = Math.min(bytes, bytesInQueue);
+    if (bytes === 0) return resolve(void 0);
+    this.outstandingRequest = void 0;
+    const firstItem = this.queue[0];
+    const firstItemLength = firstItem.length;
+    if (firstItemLength === bytes) {
+      this.queue.shift();
+      return resolve(firstItem);
+    } else if (firstItemLength > bytes) {
+      this.queue[0] = firstItem.subarray(bytes);
+      return resolve(firstItem.subarray(0, bytes));
+    } else {
+      const result = new Uint8Array(bytes);
+      let outstandingBytes = bytes;
+      let offset = 0;
+      while (outstandingBytes > 0) {
+        const nextItem = this.queue[0];
+        const nextItemLength = nextItem.length;
+        if (nextItemLength <= outstandingBytes) {
+          this.queue.shift();
+          result.set(nextItem, offset);
+          offset += nextItemLength;
+          outstandingBytes -= nextItemLength;
+        } else {
+          this.queue[0] = nextItem.subarray(outstandingBytes);
+          result.set(nextItem.subarray(0, outstandingBytes), offset);
+          outstandingBytes -= outstandingBytes;
+          offset += outstandingBytes;
+        }
+      }
+      return resolve(result);
+    }
+  }
+  bytesInQueue() {
+    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
+  }
+  async read(bytes) {
+    if (this.outstandingRequest !== void 0) throw new Error("Can\u2019t read while already awaiting read");
+    return new Promise((resolve) => {
+      this.outstandingRequest = { resolve, bytes };
+      this.dequeue();
+    });
+  }
+};
+var WebSocketReadQueue = class extends ReadQueue {
+  constructor(socket) {
+    super();
+    this.socket = socket;
+    socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
+    socket.addEventListener("close", () => this.dequeue());
+  }
+  socketIsNotClosed() {
+    const { socket } = this;
+    const { readyState } = socket;
+    return readyState <= 1 /* OPEN */;
+  }
+};
+var SocketReadQueue = class extends ReadQueue {
+  constructor(socket) {
+    super();
+    this.socket = socket;
+    socket.on("data", (data) => this.enqueue(new Uint8Array(data)));
+    socket.on("close", () => this.dequeue());
+  }
+  socketIsNotClosed() {
+    const { socket } = this;
+    const { readyState } = socket;
+    return readyState === "opening" || readyState === "open";
+  }
+};
+var LazyReadFunctionReadQueue = class extends ReadQueue {
+  constructor(readFn) {
+    super();
+    this.readFn = readFn;
+    __publicField(this, "dataIsExhausted", false);
+  }
+  async read(bytes) {
+    while (this.bytesInQueue() < bytes) {
+      const data = await this.readFn();
+      if (data === void 0) {
+        this.dataIsExhausted = true;
+        break;
+      }
+      if (data.length > 0) this.enqueue(data);
+    }
+    return super.read(bytes);
+  }
+  socketIsNotClosed() {
+    return !this.dataIsExhausted;
+  }
+};
+
 // src/tls/tlsRecord.ts
 var maxPlaintextRecordLength = 1 << 14;
 var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
 async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordLength) {
-  const headerLength = 5;
-  const headerData = await read(headerLength);
-  if (headerData === void 0) return;
-  if (headerData.length < headerLength) throw new Error("TLS record header truncated");
-  const header = new Bytes(headerData);
-  const type = header.readUint8();
+  const record = new Bytes(read);
+  let type;
+  try {
+    type = await record.readUint8();
+  } catch (e) {
+    if (e._bytes_error_reason === "EOF") return void 0;
+    throw e;
+  }
   if (type < 20 || type > 24) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
+  await record.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
+  const [, recordRemaining] = await record.expectLengthUint16("TLS record");
+  const length = recordRemaining();
+  if (length > maxLength) throw new Error(`Record too long: ${length} bytes`);
+  let alertLevel;
+  if (type === 21 /* Alert */) {
+    alertLevel = await record.readUint8(0);
+    const desc = await record.readUint8(0);
+  }
+  if (alertLevel === 2) throw new Error("Unexpected fatal alert");
+  else if (alertLevel === 1) return readTlsRecord(read, expectedType, maxLength);
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(
   16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
-  header.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
-  const length = header.readUint16();
-  if (length > maxLength) throw new Error(`Record too long: ${length} bytes`);
-  const content = await read(length);
-  if (content === void 0 || content.length < length) throw new Error("TLS record content truncated");
-  return { headerData, header, type, length, content };
+  const rawHeader = record.array();
+  const content = await record.subarrayForRead(length);
+  return { type, length, content, rawHeader };
+}
+function bytesFromTlsRecords(read, expectedType) {
+  const readQueue = new LazyReadFunctionReadQueue(async () => {
+    const record = await readTlsRecord(read, expectedType);
+    return record?.content;
+  });
+  const bytes = new ASN1Bytes(readQueue.read.bind(readQueue), 1);
+  return bytes;
 }
 async function readEncryptedTlsRecord(read, decrypter, expectedType) {
   const encryptedRecord = await readTlsRecord(read, 23 /* Application */, maxCiphertextRecordLength);
   if (encryptedRecord === void 0) return;
-  const encryptedBytes = new Bytes(encryptedRecord.content);
-  const [endEncrypted] = encryptedBytes.expectLength(encryptedBytes.remaining());
-  encryptedBytes.skip(encryptedRecord.length - 16, 0);
-  encryptedBytes.skip(16, 0);
-  endEncrypted();
-  const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.headerData);
+  const encryptedBytes = new Bytes(encryptedRecord.content, 1);
+  await encryptedBytes.skipRead(encryptedRecord.length - 16, 0);
+  await encryptedBytes.skipRead(16, 0);
+  const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.rawHeader);
   let recordTypeIndex = decryptedRecord.length - 1;
   while (decryptedRecord[recordTypeIndex] === 0) recordTypeIndex -= 1;
   if (recordTypeIndex < 0) throw new Error("Decrypted message has no record type indicator (all zeroes)");
@@ -1053,12 +1362,20 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
     if (closeNotify) return void 0;
   }
   if (type === 22 /* Handshake */ && record[0] === 4) {
-    parseSessionTicket(record);
+    await parseSessionTicket(record);
     return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(
   16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   return record;
+}
+function bytesFromEncryptedTlsRecords(read, decrypter, expectedType) {
+  const readQueue = new LazyReadFunctionReadQueue(async () => {
+    const record = await readEncryptedTlsRecord(read, decrypter, expectedType);
+    return record;
+  });
+  const bytes = new ASN1Bytes(readQueue.read.bind(readQueue));
+  return bytes;
 }
 async function makeEncryptedTlsRecord(plaintext, encrypter, type) {
   const data = concat(plaintext, [type]);
@@ -1070,7 +1387,7 @@ async function makeEncryptedTlsRecord(plaintext, encrypter, type) {
   encryptedRecord.writeUint8(23, 0);
   encryptedRecord.writeUint16(771, 0);
   encryptedRecord.writeUint16(payloadLength, `${payloadLength} bytes follow`);
-  const [endEncryptedRecord] = encryptedRecord.expectLength(payloadLength);
+  const [endEncryptedRecord] = encryptedRecord.expectWriteLength(payloadLength);
   const header = encryptedRecord.array();
   const encryptedData = await encrypter.process(data, 16, header);
   encryptedRecord.writeBytes(encryptedData.subarray(0, encryptedData.length - 16));
@@ -1222,100 +1539,6 @@ var Crypter = class {
   }
 };
 
-// src/util/asn1bytes.ts
-var ASN1Bytes = class extends Bytes {
-  readASN1Length(comment) {
-    const byte1 = this.readUint8();
-    if (byte1 < 128) {
-      return byte1;
-    }
-    const lengthBytes = byte1 & 127;
-    const fullComment = 0;
-    if (lengthBytes === 1) return this.readUint8(fullComment);
-    if (lengthBytes === 2) return this.readUint16(fullComment);
-    if (lengthBytes === 3) return this.readUint24(fullComment);
-    if (lengthBytes === 4) return this.readUint32(fullComment);
-    throw new Error(`ASN.1 length fields are only supported up to 4 bytes (this one is ${lengthBytes} bytes)`);
-  }
-  expectASN1Length(comment) {
-    const length = this.readASN1Length(comment);
-    return this.expectLength(length);
-  }
-  readASN1OID(comment) {
-    const [endOID, OIDRemaining] = this.expectASN1Length(0);
-    const byte1 = this.readUint8();
-    let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
-    while (OIDRemaining() > 0) {
-      let value = 0;
-      while (true) {
-        const nextByte = this.readUint8();
-        value <<= 7;
-        value += nextByte & 127;
-        if (nextByte < 128) break;
-      }
-      oid += `.${value}`;
-    }
-    if (0) this.comment(comment.replace(/%/g, oid));
-    endOID();
-    return oid;
-  }
-  readASN1Boolean(comment) {
-    const [endBoolean, booleanRemaining] = this.expectASN1Length(0);
-    const length = booleanRemaining();
-    if (length !== 1) throw new Error(`Boolean has weird length: ${length}`);
-    const byte = this.readUint8();
-    let result;
-    if (byte === 255) result = true;
-    else if (byte === 0) result = false;
-    else throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
-    if (0) this.comment(comment.replace(/%/g, String(result)));
-    endBoolean();
-    return result;
-  }
-  readASN1UTCTime() {
-    const [endTime, timeRemaining] = this.expectASN1Length(0);
-    const timeStr = this.readUTF8String(timeRemaining());
-    const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
-    if (!parts) throw new Error("Unrecognised ASN.1 UTC time format");
-    const [, yr2dstr, mth, dy, hr, min, sec] = parts;
-    const yr2d = parseInt(yr2dstr, 10);
-    const yr = yr2d + (yr2d >= 50 ? 1900 : 2e3);
-    const time = /* @__PURE__ */ new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);
-    endTime();
-    return time;
-  }
-  readASN1GeneralizedTime() {
-    const [endTime, timeRemaining] = this.expectASN1Length(0);
-    const timeStr = this.readUTF8String(timeRemaining());
-    const parts = timeStr.match(/^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})?([0-9]{2})?([.][0-9]+)?(Z)?([-+][0-9]+)?$/);
-    if (!parts) throw new Error("Unrecognised ASN.1 generalized time format");
-    const [, yr, mth, dy, hr, min, sec, fracsec, z, tz] = parts;
-    if (sec === void 0 && fracsec !== void 0) throw new Error("Invalid ASN.1 generalized time format (fraction\
- without seconds)");
-    if (z !== void 0 && tz !== void 0) throw new Error("Invalid ASN.1 generalized time format (Z and timezone)");
-    const time = /* @__PURE__ */ new Date(`${yr}-${mth}-${dy}T${hr}:${min ?? "00"}:${sec ?? "00"}${fracsec ?? ""}${tz ??
-    "Z"}`);
-    endTime();
-    return time;
-  }
-  readASN1BitString() {
-    const [endBitString, bitStringRemaining] = this.expectASN1Length(0);
-    const rightPadBits = this.readUint8(0);
-    const bytesLength = bitStringRemaining();
-    const bitString = this.readBytes(bytesLength);
-    if (rightPadBits > 7) throw new Error(`Invalid right pad value: ${rightPadBits}`);
-    if (rightPadBits > 0) {
-      const leftPadNext = 8 - rightPadBits;
-      for (let i = bytesLength - 1; i > 0; i--) {
-        bitString[i] = 255 & bitString[i - 1] << leftPadNext | bitString[i] >>> rightPadBits;
-      }
-      bitString[0] = bitString[0] >>> rightPadBits;
-    }
-    endBitString();
-    return bitString;
-  }
-};
-
 // src/tls/certUtils.ts
 var universalTypeBoolean = 1;
 var universalTypeInteger = 2;
@@ -1368,19 +1591,19 @@ function intFromBitString(bs) {
   }
   return result;
 }
-function readSeqOfSetOfSeq(cb, seqType) {
+async function readSeqOfSetOfSeq(cb, seqType) {
   const result = {};
-  cb.expectUint8(constructedUniversalTypeSequence, 0);
-  const [endSeq, seqRemaining] = cb.expectASN1Length(0);
+  await cb.expectUint8(constructedUniversalTypeSequence, 0);
+  const [endSeq, seqRemaining] = await cb.expectASN1Length(0);
   while (seqRemaining() > 0) {
-    cb.expectUint8(constructedUniversalTypeSet, 0);
-    const [endItemSet] = cb.expectASN1Length(0);
-    cb.expectUint8(constructedUniversalTypeSequence, 0);
-    const [endItemSeq] = cb.expectASN1Length(0);
-    cb.expectUint8(universalTypeOID, 0);
-    const itemOID = cb.readASN1OID();
+    await cb.expectUint8(constructedUniversalTypeSet, 0);
+    const [endItemSet] = await cb.expectASN1Length(0);
+    await cb.expectUint8(constructedUniversalTypeSequence, 0);
+    const [endItemSeq] = await cb.expectASN1Length(0);
+    await cb.expectUint8(universalTypeOID, 0);
+    const itemOID = await cb.readASN1OID();
     const itemName = DNOIDMap[itemOID] ?? itemOID;
-    const valueType = cb.readUint8();
+    const valueType = await cb.readUint8();
     if (valueType === universalTypePrintableString) {
     } else if (valueType === universalTypeUTF8String) {
     } else if (valueType === universalTypeIA5String) {
@@ -1388,8 +1611,8 @@ function readSeqOfSetOfSeq(cb, seqType) {
     } else {
       throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
     }
-    const [endItemString, itemStringRemaining] = cb.expectASN1Length(0);
-    const itemValue = cb.readUTF8String(itemStringRemaining());
+    const [endItemString, itemStringRemaining] = await cb.expectASN1Length(0);
+    const itemValue = await cb.readUTF8String(itemStringRemaining());
     endItemString();
     endItemSeq();
     endItemSet();
@@ -1401,17 +1624,17 @@ function readSeqOfSetOfSeq(cb, seqType) {
   endSeq();
   return result;
 }
-function readNamesSeq(cb, typeUnionBits = 0) {
+async function readNamesSeq(cb, typeUnionBits = 0) {
   const names = [];
-  const [endNamesSeq, namesSeqRemaining] = cb.expectASN1Length(0);
+  const [endNamesSeq, namesSeqRemaining] = await cb.expectASN1Length(0);
   while (namesSeqRemaining() > 0) {
-    const type = cb.readUint8(0);
-    const [endName, nameRemaining] = cb.expectASN1Length(0);
+    const type = await cb.readUint8(0);
+    const [endName, nameRemaining] = await cb.expectASN1Length(0);
     let name;
     if (type === (typeUnionBits | 2 /* dNSName */)) {
-      name = cb.readUTF8String(nameRemaining());
+      name = await cb.readUTF8String(nameRemaining());
     } else {
-      name = cb.readBytes(nameRemaining());
+      name = await cb.readBytes(nameRemaining());
     }
     names.push({ name, type });
     endName();
@@ -1640,7 +1863,7 @@ var allKeyUsages = [
   // (8)
 ];
 var Cert = class _Cert {
-  constructor(certData) {
+  constructor() {
     __publicField(this, "serialNumber");
     __publicField(this, "algorithm");
     __publicField(this, "issuer");
@@ -1657,144 +1880,157 @@ var Cert = class _Cert {
     // nameConstraints?: { critical?: boolean; permitted?: string[]; excluded?: string[] };
     __publicField(this, "signedData");
     __publicField(this, "rawData");
+    throw new Error("Use `await Cert.create(...)`, not `new Cert(...)`");
+  }
+  static distinguishedNamesAreEqual(dn1, dn2) {
+    return this.stringFromDistinguishedName(dn1) === this.stringFromDistinguishedName(dn2);
+  }
+  static stringFromDistinguishedName(dn) {
+    return Object.entries(dn).map(
+      ([k, vs]) => typeof vs === "string" ? `${k}=${vs.trim().replace(/[\\,]/g, "\\$&")}` : vs.map((v) => `${k}\
+=${v.trim().replace(/[\\,]/g, "\\$&")}`).join(", ")
+    ).join(", ");
+  }
+  static async create(certData) {
+    const cert = Object.create(this.prototype);
     if (certData instanceof ASN1Bytes || certData instanceof Uint8Array) {
       const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
       const certSeqStartOffset = cb.offset;
-      cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endCertSeq] = cb.expectASN1Length(0);
+      await cb.expectUint8(constructedUniversalTypeSequence, 0);
+      const [endCertSeq] = await cb.expectASN1Length(0);
       const tbsCertStartOffset = cb.offset;
-      cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endCertInfoSeq] = cb.expectASN1Length(0);
-      cb.expectBytes([160, 3, 2, 1, 2], 0);
-      cb.expectUint8(universalTypeInteger, 0);
-      const [endSerialNumber, serialNumberRemaining] = cb.expectASN1Length(0);
-      this.serialNumber = cb.subarray(serialNumberRemaining());
+      await cb.expectUint8(constructedUniversalTypeSequence, 0);
+      const [endCertInfoSeq] = await cb.expectASN1Length(0);
+      await cb.expectBytes([160, 3, 2, 1, 2], 0);
+      await cb.expectUint8(universalTypeInteger, 0);
+      const [endSerialNumber, serialNumberRemaining] = await cb.expectASN1Length(0);
+      cert.serialNumber = await cb.subarrayForRead(serialNumberRemaining());
       endSerialNumber();
-      cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endAlgo, algoRemaining] = cb.expectASN1Length(0);
-      cb.expectUint8(universalTypeOID, 0);
-      this.algorithm = cb.readASN1OID();
+      await cb.expectUint8(constructedUniversalTypeSequence, 0);
+      const [endAlgo, algoRemaining] = await cb.expectASN1Length(0);
+      await cb.expectUint8(universalTypeOID, 0);
+      cert.algorithm = await cb.readASN1OID();
       if (algoRemaining() > 0) {
-        cb.expectUint8(universalTypeNull, 0);
-        cb.expectUint8(0, 0);
+        await cb.expectUint8(universalTypeNull, 0);
+        await cb.expectUint8(0, 0);
       }
       endAlgo();
-      this.issuer = readSeqOfSetOfSeq(cb, "issuer");
+      cert.issuer = await readSeqOfSetOfSeq(cb, "issuer");
       let notBefore, notAfter;
-      cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endValiditySeq] = cb.expectASN1Length(0);
-      const startTimeType = cb.readUint8();
+      await cb.expectUint8(constructedUniversalTypeSequence, 0);
+      const [endValiditySeq] = await cb.expectASN1Length(0);
+      const startTimeType = await cb.readUint8();
       if (startTimeType === universalTypeUTCTime) {
-        notBefore = cb.readASN1UTCTime();
+        notBefore = await cb.readASN1UTCTime();
       } else if (startTimeType === universalTypeGeneralizedTime) {
-        notBefore = cb.readASN1GeneralizedTime();
+        notBefore = await cb.readASN1GeneralizedTime();
       } else {
         throw new Error(`Unexpected validity start type 0x${hexFromU8([startTimeType])}`);
       }
-      const endTimeType = cb.readUint8();
+      const endTimeType = await cb.readUint8();
       if (endTimeType === universalTypeUTCTime) {
-        notAfter = cb.readASN1UTCTime();
+        notAfter = await cb.readASN1UTCTime();
       } else if (endTimeType === universalTypeGeneralizedTime) {
-        notAfter = cb.readASN1GeneralizedTime();
+        notAfter = await cb.readASN1GeneralizedTime();
       } else {
         throw new Error(`Unexpected validity end type 0x${hexFromU8([endTimeType])}`);
       }
-      this.validityPeriod = { notBefore, notAfter };
+      cert.validityPeriod = { notBefore, notAfter };
       endValiditySeq();
-      this.subject = readSeqOfSetOfSeq(cb, "subject");
+      cert.subject = await readSeqOfSetOfSeq(cb, "subject");
       const publicKeyStartOffset = cb.offset;
-      cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endPublicKeySeq] = cb.expectASN1Length(0);
-      cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endKeyOID, keyOIDRemaining] = cb.expectASN1Length(0);
+      await cb.expectUint8(constructedUniversalTypeSequence, 0);
+      const [endPublicKeySeq] = await cb.expectASN1Length(0);
+      await cb.expectUint8(constructedUniversalTypeSequence, 0);
+      const [endKeyOID, keyOIDRemaining] = await cb.expectASN1Length(0);
       const publicKeyOIDs = [];
       while (keyOIDRemaining() > 0) {
-        const keyParamRecordType = cb.readUint8();
+        const keyParamRecordType = await cb.readUint8();
         if (keyParamRecordType === universalTypeOID) {
-          const keyOID = cb.readASN1OID();
+          const keyOID = await cb.readASN1OID();
           publicKeyOIDs.push(keyOID);
         } else if (keyParamRecordType === universalTypeNull) {
-          cb.expectUint8(0, 0);
+          await cb.expectUint8(0, 0);
         }
       }
       endKeyOID();
-      cb.expectUint8(universalTypeBitString, 0);
-      const publicKeyData = cb.readASN1BitString();
-      this.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.data.subarray(publicKeyStartOffset,
+      await cb.expectUint8(universalTypeBitString, 0);
+      const publicKeyData = await cb.readASN1BitString();
+      cert.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.data.subarray(publicKeyStartOffset,
       cb.offset) };
       endPublicKeySeq();
-      cb.expectUint8(constructedContextSpecificType, 0);
-      const [endExtsData] = cb.expectASN1Length();
-      cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endExts, extsRemaining] = cb.expectASN1Length(0);
+      await cb.expectUint8(constructedContextSpecificType, 0);
+      const [endExtsData] = await cb.expectASN1Length();
+      await cb.expectUint8(constructedUniversalTypeSequence, 0);
+      const [endExts, extsRemaining] = await cb.expectASN1Length(0);
       while (extsRemaining() > 0) {
-        cb.expectUint8(constructedUniversalTypeSequence, 0);
-        const [endExt, extRemaining] = cb.expectASN1Length();
-        cb.expectUint8(universalTypeOID, 0);
-        const extOID = cb.readASN1OID();
+        await cb.expectUint8(constructedUniversalTypeSequence, 0);
+        const [endExt, extRemaining] = await cb.expectASN1Length();
+        await cb.expectUint8(universalTypeOID, 0);
+        const extOID = await cb.readASN1OID();
         if (extOID === "2.5.29.17") {
-          cb.expectUint8(universalTypeOctetString, 0);
-          const [endSanDerDoc] = cb.expectASN1Length(0);
-          cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const allSubjectAltNames = readNamesSeq(cb, contextSpecificType);
-          this.subjectAltNames = allSubjectAltNames.filter((san) => san.type === (2 /* dNSName */ | contextSpecificType)).
+          await cb.expectUint8(universalTypeOctetString, 0);
+          const [endSanDerDoc] = await cb.expectASN1Length(0);
+          await cb.expectUint8(constructedUniversalTypeSequence, 0);
+          const allSubjectAltNames = await readNamesSeq(cb, contextSpecificType);
+          cert.subjectAltNames = allSubjectAltNames.filter((san) => san.type === (2 /* dNSName */ | contextSpecificType)).
           map((san) => san.name);
           endSanDerDoc();
         } else if (extOID === "2.5.29.15") {
           let keyUsageCritical;
-          let nextType = cb.readUint8();
+          let nextType = await cb.readUint8();
           if (nextType === universalTypeBoolean) {
-            keyUsageCritical = cb.readASN1Boolean(0);
-            nextType = cb.readUint8();
+            keyUsageCritical = await cb.readASN1Boolean(0);
+            nextType = await cb.readUint8();
           }
           if (nextType !== universalTypeOctetString) throw new Error(`Expected 0x${hexFromU8([universalTypeOctetString])}\
 , got 0x${hexFromU8([nextType])}`);
-          const [endKeyUsageDer] = cb.expectASN1Length(0);
-          cb.expectUint8(universalTypeBitString, 0);
-          const keyUsageBitStr = cb.readASN1BitString();
+          const [endKeyUsageDer] = await cb.expectASN1Length(0);
+          await cb.expectUint8(universalTypeBitString, 0);
+          const keyUsageBitStr = await cb.readASN1BitString();
           const keyUsageBitmask = intFromBitString(keyUsageBitStr);
           const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & 1 << i));
           endKeyUsageDer();
-          this.keyUsage = {
+          cert.keyUsage = {
             critical: keyUsageCritical,
             usages: keyUsageNames
           };
         } else if (extOID === "2.5.29.37") {
-          this.extKeyUsage = {};
-          cb.expectUint8(universalTypeOctetString, 0);
-          const [endExtKeyUsageDer] = cb.expectASN1Length(0);
-          cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const [endExtKeyUsage, extKeyUsageRemaining] = cb.expectASN1Length(0);
+          cert.extKeyUsage = {};
+          await cb.expectUint8(universalTypeOctetString, 0);
+          const [endExtKeyUsageDer] = await cb.expectASN1Length(0);
+          await cb.expectUint8(constructedUniversalTypeSequence, 0);
+          const [endExtKeyUsage, extKeyUsageRemaining] = await cb.expectASN1Length(0);
           while (extKeyUsageRemaining() > 0) {
-            cb.expectUint8(universalTypeOID, 0);
-            const extKeyUsageOID = cb.readASN1OID();
-            if (extKeyUsageOID === "1.3.6.1.5.5.7.3.1") this.extKeyUsage.serverTls = true;
-            if (extKeyUsageOID === "1.3.6.1.5.5.7.3.2") this.extKeyUsage.clientTls = true;
+            await cb.expectUint8(universalTypeOID, 0);
+            const extKeyUsageOID = await cb.readASN1OID();
+            if (extKeyUsageOID === "1.3.6.1.5.5.7.3.1") cert.extKeyUsage.serverTls = true;
+            if (extKeyUsageOID === "1.3.6.1.5.5.7.3.2") cert.extKeyUsage.clientTls = true;
           }
           endExtKeyUsage();
           endExtKeyUsageDer();
         } else if (extOID === "2.5.29.35") {
-          cb.expectUint8(universalTypeOctetString, 0);
-          const [endAuthKeyIdDer] = cb.expectASN1Length(0);
-          cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = cb.expectASN1Length(0);
+          await cb.expectUint8(universalTypeOctetString, 0);
+          const [endAuthKeyIdDer] = await cb.expectASN1Length(0);
+          await cb.expectUint8(constructedUniversalTypeSequence, 0);
+          const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = await cb.expectASN1Length(0);
           while (authKeyIdSeqRemaining() > 0) {
-            const authKeyIdDatumType = cb.readUint8();
+            const authKeyIdDatumType = await cb.readUint8();
             if (authKeyIdDatumType === (contextSpecificType | 0)) {
-              const [endAuthKeyId, authKeyIdRemaining] = cb.expectASN1Length(0);
-              this.authorityKeyIdentifier = cb.readBytes(authKeyIdRemaining());
+              const [endAuthKeyId, authKeyIdRemaining] = await cb.expectASN1Length(0);
+              cert.authorityKeyIdentifier = await cb.readBytes(authKeyIdRemaining());
               endAuthKeyId();
             } else if (authKeyIdDatumType === (contextSpecificType | 1)) {
-              const [endAuthKeyIdCertIssuer, authKeyIdCertIssuerRemaining] = cb.expectASN1Length(0);
-              cb.skip(authKeyIdCertIssuerRemaining(), 0);
+              const [endAuthKeyIdCertIssuer, authKeyIdCertIssuerRemaining] = await cb.expectASN1Length(0);
+              await cb.skipRead(authKeyIdCertIssuerRemaining(), 0);
               endAuthKeyIdCertIssuer();
             } else if (authKeyIdDatumType === (contextSpecificType | 2)) {
-              const [endAuthKeyIdCertSerialNo, authKeyIdCertSerialNoRemaining] = cb.expectASN1Length(0);
-              cb.skip(authKeyIdCertSerialNoRemaining(), 0);
+              const [endAuthKeyIdCertSerialNo, authKeyIdCertSerialNoRemaining] = await cb.expectASN1Length(0);
+              await cb.skipRead(authKeyIdCertSerialNoRemaining(), 0);
               endAuthKeyIdCertSerialNo();
             } else if (authKeyIdDatumType === (contextSpecificType | 33)) {
-              const [endDirName, dirNameRemaining] = cb.expectASN1Length(0);
-              cb.skip(dirNameRemaining(), 0);
+              const [endDirName, dirNameRemaining] = await cb.expectASN1Length(0);
+              await cb.skipRead(dirNameRemaining(), 0);
               endDirName();
             } else {
               throw new Error(`Unexpected data type ${authKeyIdDatumType} in authorityKeyIdentifier certificat\
@@ -1804,91 +2040,91 @@ e extension`);
           endAuthKeyIdSeq();
           endAuthKeyIdDer();
         } else if (extOID === "2.5.29.14") {
-          cb.expectUint8(universalTypeOctetString, 0);
-          const [endSubjectKeyIdDer] = cb.expectASN1Length(0);
-          cb.expectUint8(universalTypeOctetString, 0);
-          const [endSubjectKeyId, subjectKeyIdRemaining] = cb.expectASN1Length(0);
-          this.subjectKeyIdentifier = cb.readBytes(subjectKeyIdRemaining());
+          await cb.expectUint8(universalTypeOctetString, 0);
+          const [endSubjectKeyIdDer] = await cb.expectASN1Length(0);
+          await cb.expectUint8(universalTypeOctetString, 0);
+          const [endSubjectKeyId, subjectKeyIdRemaining] = await cb.expectASN1Length(0);
+          cert.subjectKeyIdentifier = await cb.readBytes(subjectKeyIdRemaining());
           endSubjectKeyId();
           endSubjectKeyIdDer();
         } else if (extOID === "2.5.29.19") {
           let basicConstraintsCritical;
-          let bcNextType = cb.readUint8();
+          let bcNextType = await cb.readUint8();
           if (bcNextType === universalTypeBoolean) {
-            basicConstraintsCritical = cb.readASN1Boolean(0);
-            bcNextType = cb.readUint8();
+            basicConstraintsCritical = await cb.readASN1Boolean(0);
+            bcNextType = await cb.readUint8();
           }
           if (bcNextType !== universalTypeOctetString) throw new Error("Unexpected type in certificate basic c\
 onstraints");
-          const [endBasicConstraintsDer] = cb.expectASN1Length(0);
-          cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const [endConstraintsSeq, constraintsSeqRemaining] = cb.expectASN1Length();
+          const [endBasicConstraintsDer] = await cb.expectASN1Length(0);
+          await cb.expectUint8(constructedUniversalTypeSequence, 0);
+          const [endConstraintsSeq, constraintsSeqRemaining] = await cb.expectASN1Length();
           let basicConstraintsCa = void 0;
           if (constraintsSeqRemaining() > 0) {
-            cb.expectUint8(universalTypeBoolean, 0);
-            basicConstraintsCa = cb.readASN1Boolean(0);
+            await cb.expectUint8(universalTypeBoolean, 0);
+            basicConstraintsCa = await cb.readASN1Boolean(0);
           }
           let basicConstraintsPathLength;
           if (constraintsSeqRemaining() > 0) {
-            cb.expectUint8(universalTypeInteger, 0);
-            const maxPathLengthLength = cb.readASN1Length(0);
-            basicConstraintsPathLength = maxPathLengthLength === 1 ? cb.readUint8() : maxPathLengthLength === 2 ?
-            cb.readUint16() : maxPathLengthLength === 3 ? cb.readUint24() : void 0;
+            await cb.expectUint8(universalTypeInteger, 0);
+            const maxPathLengthLength = await cb.readASN1Length(0);
+            basicConstraintsPathLength = maxPathLengthLength === 1 ? await cb.readUint8() : maxPathLengthLength ===
+            2 ? await cb.readUint16() : maxPathLengthLength === 3 ? await cb.readUint24() : void 0;
             if (basicConstraintsPathLength === void 0) throw new Error("Too many bytes in max path length in c\
 ertificate basicConstraints");
           }
           endConstraintsSeq();
           endBasicConstraintsDer();
-          this.basicConstraints = {
+          cert.basicConstraints = {
             critical: basicConstraintsCritical,
             ca: basicConstraintsCa,
             pathLength: basicConstraintsPathLength
           };
         } else if (0) {
-          cb.expectUint8(universalTypeOctetString, 0);
-          const [endAuthInfoAccessDER] = cb.expectASN1Length(0);
-          cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = cb.expectASN1Length(0);
+          await cb.expectUint8(universalTypeOctetString, 0);
+          const [endAuthInfoAccessDER] = await cb.expectASN1Length(0);
+          await cb.expectUint8(constructedUniversalTypeSequence, 0);
+          const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = await cb.expectASN1Length(0);
           while (authInfoAccessSeqRemaining() > 0) {
-            cb.expectUint8(constructedUniversalTypeSequence, 0);
-            const [endAuthInfoAccessInnerSeq] = cb.expectASN1Length(0);
-            cb.expectUint8(universalTypeOID, 0);
-            const accessMethodOID = cb.readASN1OID();
-            cb.expectUint8(contextSpecificType | 6 /* uniformResourceIdentifier */, 0);
-            const [endMethodURI, methodURIRemaining] = cb.expectASN1Length(0);
-            cb.readUTF8String(methodURIRemaining());
+            await cb.expectUint8(constructedUniversalTypeSequence, 0);
+            const [endAuthInfoAccessInnerSeq] = await cb.expectASN1Length(0);
+            await cb.expectUint8(universalTypeOID, 0);
+            const accessMethodOID = await cb.readASN1OID();
+            await cb.expectUint8(contextSpecificType | 6 /* uniformResourceIdentifier */, 0);
+            const [endMethodURI, methodURIRemaining] = await cb.expectASN1Length(0);
+            await cb.readUTF8String(methodURIRemaining());
             endMethodURI();
             endAuthInfoAccessInnerSeq();
           }
           endAuthInfoAccessSeq();
           endAuthInfoAccessDER();
         } else if (0) {
-          cb.expectUint8(universalTypeOctetString, 0);
-          const [endCertPolDER] = cb.expectASN1Length(0);
-          cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const [endCertPolSeq, certPolSeqRemaining] = cb.expectASN1Length(0);
+          await cb.expectUint8(universalTypeOctetString, 0);
+          const [endCertPolDER] = await cb.expectASN1Length(0);
+          await cb.expectUint8(constructedUniversalTypeSequence, 0);
+          const [endCertPolSeq, certPolSeqRemaining] = await cb.expectASN1Length(0);
           while (certPolSeqRemaining() > 0) {
-            cb.expectUint8(constructedUniversalTypeSequence, 0);
-            const [endCertPolInnerSeq, certPolInnerSeqRemaining] = cb.expectASN1Length(0);
-            cb.expectUint8(universalTypeOID, 0);
-            const certPolOID = cb.readASN1OID();
+            await cb.expectUint8(constructedUniversalTypeSequence, 0);
+            const [endCertPolInnerSeq, certPolInnerSeqRemaining] = await cb.expectASN1Length(0);
+            await cb.expectUint8(universalTypeOID, 0);
+            const certPolOID = await cb.readASN1OID();
             while (certPolInnerSeqRemaining() > 0) {
-              cb.expectUint8(constructedUniversalTypeSequence, 0);
-              const [endCertPolInner2Seq, certPolInner2SeqRemaining] = cb.expectASN1Length(0);
+              await cb.expectUint8(constructedUniversalTypeSequence, 0);
+              const [endCertPolInner2Seq, certPolInner2SeqRemaining] = await cb.expectASN1Length(0);
               while (certPolInner2SeqRemaining() > 0) {
-                cb.expectUint8(constructedUniversalTypeSequence, 0);
-                const [endCertPolInner3Seq, certPolInner3SeqRemaining] = cb.expectASN1Length(0);
-                cb.expectUint8(universalTypeOID, 0);
-                const certPolQualOID = cb.readASN1OID();
-                const qualType = cb.readUint8();
+                await cb.expectUint8(constructedUniversalTypeSequence, 0);
+                const [endCertPolInner3Seq, certPolInner3SeqRemaining] = await cb.expectASN1Length(0);
+                await cb.expectUint8(universalTypeOID, 0);
+                const certPolQualOID = await cb.readASN1OID();
+                const qualType = await cb.readUint8();
                 if (0) {
                   cb.comment("IA5String");
-                  const [endQualStr, qualStrRemaining] = cb.expectASN1Length("string");
-                  cb.readUTF8String(qualStrRemaining());
+                  const [endQualStr, qualStrRemaining] = await cb.expectASN1Length("string");
+                  await cb.readUTF8String(qualStrRemaining());
                   endQualStr();
                 } else {
-                  if (certPolInner3SeqRemaining()) cb.skip(certPolInner3SeqRemaining(), "skipped policy qualif\
-ier data");
+                  if (certPolInner3SeqRemaining()) await cb.skipRead(certPolInner3SeqRemaining(), "skipped pol\
+icy qualifier data");
                 }
                 endCertPolInner3Seq();
               }
@@ -1899,65 +2135,57 @@ ier data");
           endCertPolSeq();
           endCertPolDER();
         } else {
-          cb.skip(extRemaining(), 0);
+          await cb.skipRead(extRemaining(), 0);
         }
         endExt();
       }
       endExts();
       endExtsData();
       endCertInfoSeq();
-      this.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
-      cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endSigAlgo, sigAlgoRemaining] = cb.expectASN1Length(0);
-      cb.expectUint8(universalTypeOID, 0);
-      const sigAlgoOID = cb.readASN1OID(0);
+      cert.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
+      await cb.expectUint8(constructedUniversalTypeSequence, 0);
+      const [endSigAlgo, sigAlgoRemaining] = await cb.expectASN1Length(0);
+      await cb.expectUint8(universalTypeOID, 0);
+      const sigAlgoOID = await cb.readASN1OID(0);
       if (sigAlgoRemaining() > 0) {
-        cb.expectUint8(universalTypeNull, 0);
-        cb.expectUint8(0, 0);
+        await cb.expectUint8(universalTypeNull, 0);
+        await cb.expectUint8(0, 0);
       }
       endSigAlgo();
-      if (sigAlgoOID !== this.algorithm) throw new Error(`Certificate specifies different signature algorithms\
- inside (${this.algorithm}) and out (${sigAlgoOID})`);
-      cb.expectUint8(universalTypeBitString, 0);
-      this.signature = cb.readASN1BitString();
+      if (sigAlgoOID !== cert.algorithm) throw new Error(`Certificate specifies different signature algorithms\
+ inside (${cert.algorithm}) and out (${sigAlgoOID})`);
+      await cb.expectUint8(universalTypeBitString, 0);
+      cert.signature = await cb.readASN1BitString();
       endCertSeq();
-      this.rawData = cb.data.subarray(certSeqStartOffset, cb.offset);
+      cert.rawData = cb.data.subarray(certSeqStartOffset, cb.offset);
     } else {
-      this.serialNumber = u8FromHex(certData.serialNumber);
-      this.algorithm = certData.algorithm;
-      this.issuer = certData.issuer;
-      this.validityPeriod = {
+      cert.serialNumber = u8FromHex(certData.serialNumber);
+      cert.algorithm = certData.algorithm;
+      cert.issuer = certData.issuer;
+      cert.validityPeriod = {
         notBefore: new Date(certData.validityPeriod.notBefore),
         notAfter: new Date(certData.validityPeriod.notAfter)
       };
-      this.subject = certData.subject;
-      this.publicKey = {
+      cert.subject = certData.subject;
+      cert.publicKey = {
         identifiers: certData.publicKey.identifiers,
         data: u8FromHex(certData.publicKey.data),
         all: u8FromHex(certData.publicKey.all)
       };
-      this.signature = u8FromHex(certData.signature);
-      this.keyUsage = {
+      cert.signature = u8FromHex(certData.signature);
+      cert.keyUsage = {
         critical: certData.keyUsage.critical,
         usages: new Set(certData.keyUsage.usages)
       };
-      this.subjectAltNames = certData.subjectAltNames;
-      this.extKeyUsage = certData.extKeyUsage;
-      if (certData.authorityKeyIdentifier) this.authorityKeyIdentifier = u8FromHex(certData.authorityKeyIdentifier);
-      if (certData.subjectKeyIdentifier) this.subjectKeyIdentifier = u8FromHex(certData.subjectKeyIdentifier);
-      this.basicConstraints = certData.basicConstraints;
-      this.signedData = u8FromHex(certData.signedData);
-      this.rawData = u8FromHex(certData.rawData);
+      cert.subjectAltNames = certData.subjectAltNames;
+      cert.extKeyUsage = certData.extKeyUsage;
+      if (certData.authorityKeyIdentifier) cert.authorityKeyIdentifier = u8FromHex(certData.authorityKeyIdentifier);
+      if (certData.subjectKeyIdentifier) cert.subjectKeyIdentifier = u8FromHex(certData.subjectKeyIdentifier);
+      cert.basicConstraints = certData.basicConstraints;
+      cert.signedData = u8FromHex(certData.signedData);
+      cert.rawData = u8FromHex(certData.rawData);
     }
-  }
-  static distinguishedNamesAreEqual(dn1, dn2) {
-    return this.stringFromDistinguishedName(dn1) === this.stringFromDistinguishedName(dn2);
-  }
-  static stringFromDistinguishedName(dn) {
-    return Object.entries(dn).map(
-      ([k, vs]) => typeof vs === "string" ? `${k}=${vs.trim().replace(/[\\,]/g, "\\$&")}` : vs.map((v) => `${k}\
-=${v.trim().replace(/[\\,]/g, "\\$&")}`).join(", ")
-    ).join(", ");
+    return cert;
   }
   subjectAltNameMatchingHost(host) {
     const twoDotRegex = /[.][^.]+[.][^.]+$/;
@@ -2032,17 +2260,17 @@ basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical
     return res;
   }
   static fromPEM(pem) {
-    return this.uint8ArraysFromPEM(pem).map((arr) => new this(arr));
+    return Promise.all(this.uint8ArraysFromPEM(pem).map((arr) => this.create(arr)));
   }
 };
 var TrustedCert = class extends Cert {
-  static databaseFromPEM(pem) {
+  static async databaseFromPEM(pem) {
     const certsData = this.uint8ArraysFromPEM(pem);
     const offsets = [0];
     const subjects = {};
     const growable = new GrowableData();
     for (const certData of certsData) {
-      const cert = new this(certData);
+      const cert = await this.create(certData);
       const offsetIndex = offsets.length - 1;
       if (cert.subjectKeyIdentifier) subjects[hexFromU8(cert.subjectKeyIdentifier)] = offsetIndex;
       subjects[this.stringFromDistinguishedName(cert.subject)] = offsetIndex;
@@ -2052,7 +2280,7 @@ var TrustedCert = class extends Cert {
     const data = growable.getData();
     return { index: { offsets, subjects }, data };
   }
-  static findInDatabase(subjectOrSubjectKeyId, db) {
+  static async findInDatabase(subjectOrSubjectKeyId, db) {
     const { index: { subjects, offsets }, data } = db;
     const key = typeof subjectOrSubjectKeyId === "string" ? subjectOrSubjectKeyId : Cert.stringFromDistinguishedName(
     subjectOrSubjectKeyId);
@@ -2061,22 +2289,22 @@ var TrustedCert = class extends Cert {
     const start = offsets[offsetIndex];
     const end = offsets[offsetIndex + 1];
     const certData = data.subarray(start, end);
-    const cert = new this(certData);
+    const cert = await this.create(certData);
     return cert;
   }
 };
 
 // src/tls/ecdsa.ts
 async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
-  sb.expectUint8(constructedUniversalTypeSequence, 0);
-  const [endSigDer] = sb.expectASN1Length(0);
-  sb.expectUint8(universalTypeInteger, 0);
-  const [endSigRBytes, sigRBytesRemaining] = sb.expectASN1Length(0);
-  let sigR = sb.readBytes(sigRBytesRemaining());
+  await sb.expectUint8(constructedUniversalTypeSequence, 0);
+  const [endSigDer] = await sb.expectASN1Length(0);
+  await sb.expectUint8(universalTypeInteger, 0);
+  const [endSigRBytes, sigRBytesRemaining] = await sb.expectASN1Length(0);
+  let sigR = await sb.readBytes(sigRBytesRemaining());
   endSigRBytes();
-  sb.expectUint8(universalTypeInteger, 0);
-  const [endSigSBytes, sigSBytesRemaining] = sb.expectASN1Length(0);
-  let sigS = sb.readBytes(sigSBytesRemaining());
+  await sb.expectUint8(universalTypeInteger, 0);
+  const [endSigSBytes, sigSBytesRemaining] = await sb.expectASN1Length(0);
+  let sigS = await sb.readBytes(sigSBytesRemaining());
   endSigSBytes();
   endSigDer();
   const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : (
@@ -2111,9 +2339,9 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
     const subjectAuthKeyId = subjectCert.authorityKeyIdentifier;
     let signingCert;
     if (subjectAuthKeyId === void 0) {
-      signingCert = TrustedCert.findInDatabase(subjectCert.issuer, rootCertsDatabase);
+      signingCert = await TrustedCert.findInDatabase(subjectCert.issuer, rootCertsDatabase);
     } else {
-      signingCert = TrustedCert.findInDatabase(hexFromU8(subjectAuthKeyId), rootCertsDatabase);
+      signingCert = await TrustedCert.findInDatabase(hexFromU8(subjectAuthKeyId), rootCertsDatabase);
     }
     if (signingCert !== void 0) {
     }
@@ -2161,20 +2389,19 @@ SSA-PKCS1-v1_5", hash }, false, ["verify"]);
 
 // src/tls/readEncryptedHandshake.ts
 var txtEnc3 = new TextEncoder();
-async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
-  const hs = new ASN1Bytes(await readHandshakeRecord());
-  hs.expectUint8(8, 0);
-  const [eeMessageEnd] = hs.expectLengthUint24();
-  const [extEnd, extRemaining] = hs.expectLengthUint16(0);
+async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
+  await hs.expectUint8(8, 0);
+  const [eeMessageEnd] = await hs.expectLengthUint24();
+  const [extEnd, extRemaining] = await hs.expectLengthUint16(0);
   while (extRemaining() > 0) {
-    const extType = hs.readUint16(0);
+    const extType = await hs.readUint16(0);
     if (extType === 0) {
-      hs.expectUint16(0, 0);
+      await hs.expectUint16(0, 0);
     } else if (extType === 10) {
-      const [endGroupsData] = hs.expectLengthUint16(0);
-      const [endGroups, groupsRemaining] = hs.expectLengthUint16(0);
+      const [endGroupsData] = await hs.expectLengthUint16(0);
+      const [endGroups, groupsRemaining] = await hs.expectLengthUint16(0);
       while (groupsRemaining() > 0) {
-        const group = hs.readUint16();
+        const group = await hs.readUint16();
         if (0) {
           const groupName = {
             23: "secp256r1",
@@ -2199,32 +2426,30 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   }
   extEnd();
   eeMessageEnd();
-  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
   let clientCertRequested = false;
-  let certMsgType = hs.readUint8();
+  let certMsgType = await hs.readUint8();
   if (certMsgType === 13) {
     clientCertRequested = true;
-    const [endCertReq] = hs.expectLengthUint24("certificate request data");
-    hs.expectUint8(0, 0);
-    const [endCertReqExts, certReqExtsRemaining] = hs.expectLengthUint16("certificate request extensions");
-    hs.skip(certReqExtsRemaining(), 0);
+    const [endCertReq] = await hs.expectLengthUint24("certificate request data");
+    await hs.expectUint8(0, 0);
+    const [endCertReqExts, certReqExtsRemaining] = await hs.expectLengthUint16("certificate request extensions");
+    await hs.skipRead(certReqExtsRemaining(), 0);
     endCertReqExts();
     endCertReq();
-    if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
-    certMsgType = hs.readUint8();
+    certMsgType = await hs.readUint8();
   }
   if (certMsgType !== 11) throw new Error(`Unexpected handshake message type 0x${hexFromU8([certMsgType])}`);
-  const [endCertPayload] = hs.expectLengthUint24(0);
-  hs.expectUint8(0, 0);
-  const [endCerts, certsRemaining] = hs.expectLengthUint24(0);
+  const [endCertPayload] = await hs.expectLengthUint24(0);
+  await hs.expectUint8(0, 0);
+  const [endCerts, certsRemaining] = await hs.expectLengthUint24(0);
   const certs = [];
   while (certsRemaining() > 0) {
-    const [endCert] = hs.expectLengthUint24(0);
-    const cert = new Cert(hs);
+    const [endCert] = await hs.expectLengthUint24(0);
+    const cert = await Cert.create(hs);
     certs.push(cert);
     endCert();
-    const [endCertExt, certExtRemaining] = hs.expectLengthUint16("certificate extensions");
-    hs.skip(certExtRemaining());
+    const [endCertExt, certExtRemaining] = await hs.expectLengthUint16("certificate extensions");
+    await hs.skipRead(certExtRemaining());
     endCertExt();
   }
   endCerts();
@@ -2237,17 +2462,16 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
   const certVerifyHash = new Uint8Array(certVerifyHashBuffer);
   const certVerifySignedData = concat(txtEnc3.encode(" ".repeat(64) + "TLS 1.3, server CertificateVerify"), [0],
   certVerifyHash);
-  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
-  hs.expectUint8(15, 0);
-  const [endCertVerifyPayload] = hs.expectLengthUint24(0);
-  const sigType = hs.readUint16();
+  await hs.expectUint8(15, 0);
+  const [endCertVerifyPayload] = await hs.expectLengthUint24(0);
+  const sigType = await hs.readUint16();
   if (sigType === 1027) {
-    const [endSignature] = hs.expectLengthUint16();
+    const [endSignature] = await hs.expectLengthUint16();
     await ecdsaVerify(hs, userCert.publicKey.all, certVerifySignedData, "P-256", "SHA-256");
     endSignature();
   } else if (sigType === 2052) {
-    const [endSignature, signatureRemaining] = hs.expectLengthUint16();
-    const signature = hs.subarray(signatureRemaining());
+    const [endSignature, signatureRemaining] = await hs.expectLengthUint16();
+    const signature = await hs.subarrayForRead(signatureRemaining());
     endSignature();
     const signatureKey = await cryptoProxy_default.importKey("spki", userCert.publicKey.all, { name: "RSA-PSS",
     hash: "SHA-256" }, false, ["verify"]);
@@ -2269,18 +2493,17 @@ async function readEncryptedHandshake(host, readHandshakeRecord, serverSecret, h
 56` } }, false, ["sign"]);
   const correctVerifyHashBuffer = await cryptoProxy_default.sign("HMAC", hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
-  if (hs.remaining() === 0) hs.extend(await readHandshakeRecord());
-  hs.expectUint8(20, 0);
-  const [endHsFinishedPayload, hsFinishedPayloadRemaining] = hs.expectLengthUint24(0);
-  const verifyHash = hs.readBytes(hsFinishedPayloadRemaining());
+  await hs.expectUint8(20, 0);
+  const [endHsFinishedPayload, hsFinishedPayloadRemaining] = await hs.expectLengthUint24(0);
+  const verifyHash = await hs.readBytes(hsFinishedPayloadRemaining());
   endHsFinishedPayload();
-  if (hs.remaining() !== 0) throw new Error("Unexpected extra bytes in server handshake");
+  if (hs.readRemaining() !== 0) throw new Error("Unexpected extra bytes in server handshake");
   const verifyHashVerified = equal(verifyHash, correctVerifyHash);
   if (verifyHashVerified !== true) throw new Error("Invalid server verify hash");
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage,
   requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot) throw new Error("Validated certificate chain did not end in a trusted root");
-  return { handshakeData: hs.data, clientCertRequested, userCert };
+  return { handshakeData: hs.data.subarray(0, hs.offset), clientCertRequested, userCert };
 }
 
 // src/tls/startTls.ts
@@ -2289,7 +2512,7 @@ requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData } = {}) {
   useSNI ?? (useSNI = true);
   requireServerTlsExtKeyUsage ?? (requireServerTlsExtKeyUsage = true);
   requireDigitalSigKeyUsage ?? (requireDigitalSigKeyUsage = true);
-  if (typeof rootCertsDatabase === "string") rootCertsDatabase = TrustedCert.databaseFromPEM(rootCertsDatabase);
+  if (typeof rootCertsDatabase === "string") rootCertsDatabase = await TrustedCert.databaseFromPEM(rootCertsDatabase);
   const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["derive\
 Key", "deriveBits"]);
   const rawPublicKeyBuffer = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
@@ -2316,18 +2539,12 @@ s.xargs.org). It\u2019s identified by coordinates x and y.");
     if (!receivedPreData || !equal(receivedPreData, expectPreData)) throw new Error("Pre data did not match ex\
 pectation");
   }
-  const serverHelloRecord = await readTlsRecord(networkRead, 22 /* Handshake */);
-  if (serverHelloRecord === void 0) throw new Error("Connection closed while awaiting server hello");
-  const serverHello = new Bytes(serverHelloRecord.content);
-  const serverPublicKey = parseServerHello(serverHello, sessionId);
-  const changeCipherRecord = await readTlsRecord(networkRead, 20 /* ChangeCipherSpec */);
-  if (changeCipherRecord === void 0) throw new Error("Connection closed awaiting server cipher change");
-  const ccipher = new Bytes(changeCipherRecord.content);
-  const [endCipherPayload] = ccipher.expectLength(1);
-  ccipher.expectUint8(1, 0);
-  endCipherPayload();
+  const serverHello = bytesFromTlsRecords(networkRead, 22 /* Handshake */);
+  const serverPublicKey = await parseServerHello(serverHello, sessionId);
+  const ccipher = bytesFromTlsRecords(networkRead, 20 /* ChangeCipherSpec */);
+  await ccipher.expectUint8(1, 0);
   const clientHelloContent = clientHelloData.subarray(5);
-  const serverHelloContent = serverHelloRecord.content;
+  const serverHelloContent = serverHello.array();
   const hellos = concat(clientHelloContent, serverHelloContent);
   const handshakeKeys = await getHandshakeKeys(serverPublicKey, ecdhKeys.privateKey, hellos, 256, 16);
   const serverHandshakeKey = await cryptoProxy_default.importKey("raw", handshakeKeys.serverHandshakeKey, { name: "\
@@ -2336,14 +2553,10 @@ AES-GCM" }, false, ["decrypt"]);
   const clientHandshakeKey = await cryptoProxy_default.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "\
 AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
-  const readHandshakeRecord = async () => {
-    const tlsRecord = await readEncryptedTlsRecord(networkRead, handshakeDecrypter, 22 /* Handshake */);
-    if (tlsRecord === void 0) throw new Error("Premature end of encrypted server handshake");
-    return tlsRecord;
-  };
+  const handshakeBytes = bytesFromEncryptedTlsRecords(networkRead, handshakeDecrypter, 22 /* Handshake */);
   const { handshakeData: serverHandshake, clientCertRequested, userCert } = await readEncryptedHandshake(
     host,
-    readHandshakeRecord,
+    handshakeBytes,
     handshakeKeys.serverSecret,
     hellos,
     rootCertsDatabase,
@@ -2415,93 +2628,6 @@ SHA-256" } }, false, ["sign"]);
   };
   return { read, write, userCert };
 }
-
-// src/util/readQueue.ts
-var ReadQueue = class {
-  constructor() {
-    __publicField(this, "queue");
-    __publicField(this, "outstandingRequest");
-    this.queue = [];
-  }
-  enqueue(data) {
-    this.queue.push(data);
-    this.dequeue();
-  }
-  dequeue() {
-    if (this.outstandingRequest === void 0) return;
-    let { resolve, bytes } = this.outstandingRequest;
-    const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.socketIsNotClosed()) return;
-    bytes = Math.min(bytes, bytesInQueue);
-    if (bytes === 0) return resolve(void 0);
-    this.outstandingRequest = void 0;
-    const firstItem = this.queue[0];
-    const firstItemLength = firstItem.length;
-    if (firstItemLength === bytes) {
-      this.queue.shift();
-      return resolve(firstItem);
-    } else if (firstItemLength > bytes) {
-      this.queue[0] = firstItem.subarray(bytes);
-      return resolve(firstItem.subarray(0, bytes));
-    } else {
-      const result = new Uint8Array(bytes);
-      let outstandingBytes = bytes;
-      let offset = 0;
-      while (outstandingBytes > 0) {
-        const nextItem = this.queue[0];
-        const nextItemLength = nextItem.length;
-        if (nextItemLength <= outstandingBytes) {
-          this.queue.shift();
-          result.set(nextItem, offset);
-          offset += nextItemLength;
-          outstandingBytes -= nextItemLength;
-        } else {
-          this.queue[0] = nextItem.subarray(outstandingBytes);
-          result.set(nextItem.subarray(0, outstandingBytes), offset);
-          outstandingBytes -= outstandingBytes;
-          offset += outstandingBytes;
-        }
-      }
-      return resolve(result);
-    }
-  }
-  bytesInQueue() {
-    return this.queue.reduce((memo, arr) => memo + arr.length, 0);
-  }
-  async read(bytes) {
-    if (this.outstandingRequest !== void 0) throw new Error("Can\u2019t read while already awaiting read");
-    return new Promise((resolve) => {
-      this.outstandingRequest = { resolve, bytes };
-      this.dequeue();
-    });
-  }
-};
-var WebSocketReadQueue = class extends ReadQueue {
-  constructor(socket) {
-    super();
-    this.socket = socket;
-    socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
-    socket.addEventListener("close", () => this.dequeue());
-  }
-  socketIsNotClosed() {
-    const { socket } = this;
-    const { readyState } = socket;
-    return readyState <= 1 /* OPEN */;
-  }
-};
-var SocketReadQueue = class extends ReadQueue {
-  constructor(socket) {
-    super();
-    this.socket = socket;
-    socket.on("data", (data) => this.enqueue(new Uint8Array(data)));
-    socket.on("close", () => this.dequeue());
-  }
-  socketIsNotClosed() {
-    const { socket } = this;
-    const { readyState } = socket;
-    return readyState === "opening" || readyState === "open";
-  }
-};
 
 // src/util/stableStringify.ts
 function stableStringify(x, replacer = (_, v) => v, indent) {

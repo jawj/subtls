@@ -18,7 +18,7 @@ export class Bytes {
   indents: Record<number, number>;
 
   /**
-   * @param data 
+   * @param data -
    * * If data is a `Uint8Array`, this is the initial data
    * * If data is a `number`, this is the initial size in bytes (all zeroes)
    * * If data is a `function`, this function is called to retrieve data when required

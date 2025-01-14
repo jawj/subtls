@@ -68,8 +68,13 @@ function htmlFromLogArgs(...args: string[]) {
 }
 
 let c = 0;
+export const appendLog = Symbol('append');
 export function log(...args: any[]) {
   // if (!chatty) throw new Error('No logs should be emitted outside of chatty mode');
+
+  const append = args[0] === appendLog;
+  if (append) args = args.slice(1);
+
   console.log(...args, '\n');
   if (typeof document === 'undefined') return;
 
@@ -78,7 +83,13 @@ export function log(...args: any[]) {
     docEl.clientHeight >= docEl.scrollHeight;
 
   const element = document.querySelector('#logs')!;  // initialize here, not globally, or this appears in exported output
-  element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
+  if (append) {
+    const sections = element.querySelectorAll('.section');
+    sections[sections.length - 1].insertAdjacentHTML('beforeend', htmlFromLogArgs('\n' + args[0], ...args.slice(1)));
+
+  } else {
+    element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
+  }
 
   if (fullyScrolled) window.scrollTo({ top: 99999, behavior: 'auto' });
 }

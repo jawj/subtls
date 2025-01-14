@@ -11,11 +11,10 @@ import { concat, equal } from '../util/array';
 import { hexFromU8 } from '../util/hex';
 import { LogColours } from '../presentation/appearance';
 import { highlightBytes, highlightColonList } from '../presentation/highlights';
-import { log } from '../presentation/log';
+import { log, appendLog } from '../presentation/log';
 import { TrustedCert, type RootCertsDatabase } from './cert';
 import cs from '../util/cryptoProxy';
 import { getRandomValues } from '../util/cryptoRandom';
-import { LazyReadFunctionReadQueue } from '../util/readQueue';
 
 export async function startTls(
   host: string,
@@ -72,13 +71,13 @@ export async function startTls(
   // parse server hello
   const serverHello = bytesFromTlsRecords(networkRead, RecordType.Handshake);
   const serverPublicKey = await parseServerHello(serverHello, sessionId);
-  chatty && log(...highlightBytes(serverHello.commentedString(false), LogColours.server));
+  chatty && log(appendLog, ...highlightBytes(serverHello.commentedString(false), LogColours.server));
 
   // parse dummy cipher change
   chatty && log('For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, the server sends us a meaningless cipher change record:');
   const ccipher = bytesFromTlsRecords(networkRead, RecordType.ChangeCipherSpec);
   await ccipher.expectUint8(0x01, chatty && 'dummy ChangeCipherSpec payload (middlebox compatibility)');
-  chatty && log(...highlightBytes(ccipher.commentedString(false), LogColours.server));
+  chatty && log(appendLog, ...highlightBytes(ccipher.commentedString(false), LogColours.server));
 
   // handshake keys, encryption/decryption instances
   chatty && log('Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:');

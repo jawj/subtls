@@ -5,50 +5,63 @@ import type { Socket } from 'net';
 export declare const allKeyUsages: readonly ["digitalSignature", "nonRepudiation", "keyEncipherment", "dataEncipherment", "keyAgreement", "keyCertSign", "cRLSign", "encipherOnly", "decipherOnly"];
 
 export declare class ASN1Bytes extends Bytes {
-    readASN1Length(comment?: string): number;
-    expectASN1Length(comment?: string): readonly [() => void, () => number];
-    readASN1OID(comment?: string): string;
-    readASN1Boolean(comment?: string): boolean;
-    readASN1UTCTime(): Date;
-    readASN1GeneralizedTime(): Date;
-    readASN1BitString(): Uint8Array<ArrayBuffer>;
+    readASN1Length(comment?: string): Promise<number>;
+    expectASN1Length(comment?: string): Promise<readonly [() => void, () => number]>;
+    readASN1OID(comment?: string): Promise<string>;
+    readASN1Boolean(comment?: string): Promise<boolean>;
+    readASN1UTCTime(): Promise<Date>;
+    readASN1GeneralizedTime(): Promise<Date>;
+    readASN1BitString(): Promise<Uint8Array<ArrayBuffer>>;
 }
 
 export declare class Bytes {
+    indent: number;
+    fetchFn: undefined | ((bytes: number) => Promise<Uint8Array | undefined>);
+    endOfReadableData: number;
     offset: number;
     dataView: DataView;
     data: Uint8Array;
     comments: Record<number, string>;
     indents: Record<number, number>;
-    indent: number;
-    constructor(data: number | Uint8Array | (() => Uint8Array | undefined));
-    extend(newData: number | Uint8Array | (() => Uint8Array | undefined)): void;
-    remaining(): number;
-    subarray(length: number): Uint8Array<ArrayBufferLike>;
-    skip(length: number, comment?: string): this;
+    /**
+     * @param data -
+     * * If data is a `Uint8Array`, this is the initial data
+     * * If data is a `number`, this is the initial size in bytes (all zeroes)
+     * * If data is a `function`, this function is called to retrieve data when required
+     */
+    constructor(data?: Uint8Array | number | ((bytes: number) => Promise<Uint8Array | undefined>), indent?: number);
+    readRemaining(): number;
+    resizeTo(newSize: number): void;
+    ensureReadAvailable(bytes: number): Promise<void>;
+    ensureWriteAvailable(bytes: number): void;
+    expectLength(length: number, indentDelta?: number): readonly [() => void, () => number];
     comment(s: string, offset?: number): this;
     lengthComment(length: number, comment?: string, inclusive?: boolean): string;
-    readBytes(length: number): Uint8Array<ArrayBuffer>;
-    readUTF8String(length: number): string;
-    readUTF8StringNullTerminated(): string;
-    readUint8(comment?: string): number;
-    readUint16(comment?: string): number;
-    readUint24(comment?: string): number;
-    readUint32(comment?: string): number;
-    expectBytes(expected: Uint8Array | number[], comment?: string): void;
-    expectUint8(expectedValue: number, comment?: string): void;
-    expectUint16(expectedValue: number, comment?: string): void;
-    expectUint24(expectedValue: number, comment?: string): void;
-    expectUint32(expectedValue: number, comment?: string): void;
-    expectLength(length: number, indentDelta?: number): readonly [() => void, () => number];
-    expectLengthUint8(comment?: string): readonly [() => void, () => number];
-    expectLengthUint16(comment?: string): readonly [() => void, () => number];
-    expectLengthUint24(comment?: string): readonly [() => void, () => number];
-    expectLengthUint32(comment?: string): readonly [() => void, () => number];
-    expectLengthUint8Incl(comment?: string): readonly [() => void, () => number];
-    expectLengthUint16Incl(comment?: string): readonly [() => void, () => number];
-    expectLengthUint24Incl(comment?: string): readonly [() => void, () => number];
-    expectLengthUint32Incl(comment?: string): readonly [() => void, () => number];
+    subarrayForRead(length: number): Promise<Uint8Array<ArrayBufferLike>>;
+    skipRead(length: number, comment?: string): Promise<this>;
+    readBytes(length: number): Promise<Uint8Array<ArrayBuffer>>;
+    readUTF8String(length: number): Promise<string>;
+    readUTF8StringNullTerminated(): Promise<string>;
+    readUint8(comment?: string): Promise<number>;
+    readUint16(comment?: string): Promise<number>;
+    readUint24(comment?: string): Promise<number>;
+    readUint32(comment?: string): Promise<number>;
+    expectBytes(expected: Uint8Array | number[], comment?: string): Promise<void>;
+    expectUint8(expectedValue: number, comment?: string): Promise<void>;
+    expectUint16(expectedValue: number, comment?: string): Promise<void>;
+    expectUint24(expectedValue: number, comment?: string): Promise<void>;
+    expectUint32(expectedValue: number, comment?: string): Promise<void>;
+    expectReadLength(length: number, indentDelta?: number): Promise<readonly [() => void, () => number]>;
+    expectLengthUint8(comment?: string): Promise<readonly [() => void, () => number]>;
+    expectLengthUint16(comment?: string): Promise<readonly [() => void, () => number]>;
+    expectLengthUint24(comment?: string): Promise<readonly [() => void, () => number]>;
+    expectLengthUint32(comment?: string): Promise<readonly [() => void, () => number]>;
+    expectLengthUint8Incl(comment?: string): Promise<readonly [() => void, () => number]>;
+    expectLengthUint16Incl(comment?: string): Promise<readonly [() => void, () => number]>;
+    expectLengthUint24Incl(comment?: string): Promise<readonly [() => void, () => number]>;
+    expectLengthUint32Incl(comment?: string): Promise<readonly [() => void, () => number]>;
+    subarrayForWrite(length: number): Uint8Array<ArrayBufferLike>;
+    skipWrite(length: number, comment?: string): this;
     writeBytes(bytes: number[] | Uint8Array): this;
     writeUTF8String(s: string): this;
     writeUTF8StringNullTerminated(s: string): this;
@@ -65,6 +78,7 @@ export declare class Bytes {
     writeLengthUint16Incl(comment?: string): () => void;
     writeLengthUint24Incl(comment?: string): () => void;
     writeLengthUint32Incl(comment?: string): () => void;
+    expectWriteLength(length: number, indentDelta?: number): readonly [() => void, () => number];
     array(): Uint8Array<ArrayBufferLike>;
     commentedString(all?: boolean): string;
 }
@@ -102,9 +116,10 @@ export declare class Cert {
     } | undefined;
     signedData: Uint8Array;
     rawData: Uint8Array;
+    constructor();
     static distinguishedNamesAreEqual(dn1: DistinguishedName, dn2: DistinguishedName): boolean;
     static stringFromDistinguishedName(dn: DistinguishedName): string;
-    constructor(certData: Uint8Array | ASN1Bytes | CertJSON);
+    static create(certData: Uint8Array | ASN1Bytes | CertJSON): Promise<Cert>;
     subjectAltNameMatchingHost(host: string): string | undefined;
     isValidAtMoment(moment?: Date): boolean;
     description(): string;
@@ -143,7 +158,7 @@ export declare class Cert {
         rawData: string;
     };
     static uint8ArraysFromPEM(pem: string): Uint8Array<ArrayBuffer>[];
-    static fromPEM(pem: string): Cert[];
+    static fromPEM(pem: string): Promise<Cert[]>;
 }
 
 export declare type CertJSON = ReturnType<typeof Cert.prototype.toJSON>;
@@ -183,7 +198,7 @@ export declare interface RootCertsIndex {
 }
 
 export declare class SocketReadQueue extends ReadQueue {
-    private socket;
+    protected socket: Socket;
     constructor(socket: Socket);
     socketIsNotClosed(): boolean;
 }
@@ -204,14 +219,14 @@ export declare function startTls(host: string, rootCertsDatabase: RootCertsDatab
 }>;
 
 export declare class TrustedCert extends Cert {
-    static databaseFromPEM(pem: string): RootCertsDatabase;
-    static findInDatabase(subjectOrSubjectKeyId: DistinguishedName | string, db: RootCertsDatabase): TrustedCert | undefined;
+    static databaseFromPEM(pem: string): Promise<RootCertsDatabase>;
+    static findInDatabase(subjectOrSubjectKeyId: DistinguishedName | string, db: RootCertsDatabase): Promise<Cert | undefined>;
 }
 
 export declare function u8FromHex(hex: string): Uint8Array<ArrayBuffer>;
 
 export declare class WebSocketReadQueue extends ReadQueue {
-    private socket;
+    protected socket: WebSocket;
     constructor(socket: WebSocket);
     socketIsNotClosed(): boolean;
 }

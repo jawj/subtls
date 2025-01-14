@@ -5,7 +5,7 @@ import { concat } from '../util/array';
 import { parseSessionTicket } from './sessionTicket';
 import { LogColours } from '../presentation/appearance';
 import { highlightBytes } from '../presentation/highlights';
-import { log } from '../presentation/log';
+import { appendLog, log } from '../presentation/log';
 import { hexFromU8 } from '../util/hex';
 import { LazyReadFunctionReadQueue } from '../util/readQueue';
 import exp from 'constants';
@@ -123,7 +123,7 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   const encryptedBytes = new Bytes(encryptedRecord.content, 1);
   await encryptedBytes.skipRead(encryptedRecord.length - 16, chatty && 'encrypted payload');
   await encryptedBytes.skipRead(16, chatty && 'auth tag');
-  chatty && log(...highlightBytes(encryptedBytes.commentedString(), LogColours.server));
+  chatty && log(appendLog, ...highlightBytes(encryptedBytes.commentedString(), LogColours.server));
 
   const decryptedRecord = await decrypter.process(encryptedRecord.content, 16, encryptedRecord.rawHeader);
 
