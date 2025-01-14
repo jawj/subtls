@@ -8,7 +8,6 @@ import { highlightBytes } from '../presentation/highlights';
 import { appendLog, log } from '../presentation/log';
 import { hexFromU8 } from '../util/hex';
 import { LazyReadFunctionReadQueue } from '../util/readQueue';
-import exp from 'constants';
 
 export enum RecordType {
   ChangeCipherSpec = 0x14,

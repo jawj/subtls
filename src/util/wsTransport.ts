@@ -1,4 +1,4 @@
-import { WebSocketReadQueue } from "./readQueue";
+import { WebSocketReadQueue } from './readQueue';
 
 export default async function wsTransport(host: string, port: string | number, close = () => { }) {
   const ws = await new Promise<WebSocket>(resolve => {
