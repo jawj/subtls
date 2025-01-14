@@ -2374,7 +2374,7 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
   }
   log("Next, we verify the signature of each certificate using the public key of the next certificate in the chain. This carries on until we find a certificate we can verify using one of our own trusted root certificates (or until we reach the end of the chain and therefore fail):");
   let verifiedToTrustedRoot = false;
-  log("%c%s", `color: ${"#c88" /* header */}`, `trusted root certificates in store: ${rootCertsDatabase.index.offsets.length - 1}`);
+  log("%c%s", `color: ${"#c88" /* header */}`, `trusted root certificates in store: ${rootCertsDatabase.index.offsets.length - 1} ([from Mozilla](https://curl.se/docs/caextract.html))`);
   for (let i = 0, len = certs.length; i < len; i++) {
     const subjectCert = certs[i];
     const subjectAuthKeyId = subjectCert.authorityKeyIdentifier;

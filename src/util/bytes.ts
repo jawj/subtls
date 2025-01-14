@@ -1,4 +1,4 @@
-import { concat, equal } from './array';
+import { equal } from './array';
 import { indentChars } from '../presentation/appearance';
 
 const initialSize = 1024;

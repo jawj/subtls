@@ -10,14 +10,13 @@ A TypeScript TLS 1.3 client with limited scope.
 
 * TLS 1.3 only
 * Client only
-* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there’s currently no SubtleCrypto support for Curve25519 and x448)
+* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there’s currently no SubtleCrypto support for x448, but Curve25519 [on the way](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign#browser_compatibility))
 * Ciphers: TLS_AES_128_GCM_SHA256 only (TLS_AES_256_GCM_SHA384 would be easy to add; there’s currently no SubtleCrypto support for TLS_CHACHA20_POLY1305_SHA256)
 * End-user certificate verify: ECDSA (P-256) + SHA256 and RSA_PSS_RSAE_SHA256 only (some others would be easy to add)
 * Certificate chain verify: ECDSA (P-256/384) + SHA256/384 and RSASSA_PKCS1-v1_5 + SHA-256 only (some others would be easy to add)
 * No cert chain building: each cert must sign the preceding one, leading to a trusted root
 * No client certificates
 * No Pre-Shared Keys, ignores session tickets
-* Limited ability to deal with message fragmentation across records
 * Never sends alert records: just throws an Error if something goes wrong
 
 Fundamentally, there’s not much of a state machine here: we just expect a mostly predictable sequence of messages, and throw if we don’t get what we expect.
@@ -203,7 +202,7 @@ A deprecated `subtls-dev` package is available on npm. This was published in err
 
 ## Licence
 
-Copyright &copy; 2022 – 2024 George MacKerron.
+Copyright &copy; 2022 – 2025 George MacKerron.
 
 Licenced under the [MIT licence](https://opensource.org/licenses/MIT).
 

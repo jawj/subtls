@@ -42,7 +42,7 @@ export async function verifyCerts(
 
   let verifiedToTrustedRoot = false;
 
-  chatty && log('%c%s', `color: ${LogColours.header}`, `trusted root certificates in store: ${rootCertsDatabase.index.offsets.length - 1}`);
+  chatty && log('%c%s', `color: ${LogColours.header}`, `trusted root certificates in store: ${rootCertsDatabase.index.offsets.length - 1} ([from Mozilla](https://curl.se/docs/caextract.html))`);
 
   for (let i = 0, len = certs.length; i < len; i++) {
     const subjectCert = certs[i];
