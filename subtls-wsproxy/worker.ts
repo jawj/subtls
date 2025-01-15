@@ -1,3 +1,4 @@
+/// <reference path="./worker.d.ts" />
 import { connect } from 'cloudflare:sockets';
 
 // note: as at 11 September 2023, Safari needs:
@@ -5,7 +6,7 @@ import { connect } from 'cloudflare:sockets';
 // in wrangler.toml (or disabled 'NSURLSession WebSockets' under Develop > Experimental Features)
 
 export default {
-  async fetch(req, env, ctx) {
+  fetch(req: Request, env: any, ctx: ExecutionContext) {
     // various sanity checks
     if (req.method !== 'GET') return new Response('Expected GET request', { status: 405 });
 
@@ -14,7 +15,8 @@ export default {
 
     const url = new URL(req.url);
     const address = url.searchParams.get('address');
-    if (typeof address !== 'string') return new Response('Expected search param: ?address=example.com:443', { status: 400 });
+    if (typeof address !== 'string')
+      return new Response('Expected search param: ?address=example.com:443', { status: 400 });
 
     const addressRegExp = env.ADDRESS_REGEXP;
     if (!addressRegExp) return new Response('Environment variable ADDRESS_REGEXP not set', { status: 500 });
@@ -29,11 +31,13 @@ export default {
     wsServer.accept();
 
     // deal with data from WebSocket to TCP
-    wsServer.addEventListener('message', event => {
-      socketWriter.write(event.data);
+    wsServer.addEventListener('message', (event) => {
+      const writePromise = socketWriter.write(event.data);
+      ctx.waitUntil(writePromise);
     });
     wsServer.addEventListener('close', () => {
-      socket.close();
+      const closePromise = socket.close();
+      ctx.waitUntil(closePromise);
     });
 
     // deal with data from TCP to WebSocket
@@ -48,10 +52,8 @@ export default {
         wsServer.close(1001 /* endpoint going away */, reason);
       },
     });
-    const pipe = socket.readable.pipeTo(wsWritableStream);
-
-    // don't quit yet
-    ctx.waitUntil(pipe);
+    const pipePromise = socket.readable.pipeTo(wsWritableStream);
+    ctx.waitUntil(pipePromise);
 
     // return WebSocket to client
     return new Response(null, { status: 101, webSocket: wsClient });

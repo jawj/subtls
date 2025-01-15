@@ -21,20 +21,21 @@ A TypeScript TLS 1.3 client with limited scope.
 
 Fundamentally, there’s not much of a state machine here: we just expect a mostly predictable sequence of messages, and throw if we don’t get what we expect.
 
-## Features
+## Annotations
 
-* [Annotated and indented binary input and output](https://bytebybyte.dev/) (when built in ‘chatty’ mode)
+The library can display annotated binary input and output when built in ‘chatty’ mode. You can see this in action at [https://bytebybyte.dev](https://bytebybyte.dev).
 
-To run this locally (where you can specify any https:// or postgresql:// URL to connect to, as the URL hash):
+To run the web app locally (using macOS, Linux, or WSL on Windows):
 
 ```bash
 git clone https://github.com/jawj/subtls.git
 cd subtls
 npm install
 npm run start
+# now open e.g. http://localhost:6543/#https://www.microsoft.com/robots.txt
 ```
 
-Note: you need to be on macOS, Linux, or WSL on Windows.
+When run locally, you can specify any `https://` or `postgresql://` URL to connect to, as the URL hash. Note, however, that not all URLs will work. For example, at the time of writing, Hacker News is stuck on TLS 1.2.
 
 ## How could this ever be useful?
 

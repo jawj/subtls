@@ -28,6 +28,7 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/triple-slash-reference': 'off',
       '@stylistic/quotes': ['warn', 'single', { avoidEscape: true }],
       '@stylistic/semi': 'warn',
     },
