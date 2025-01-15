@@ -46,7 +46,7 @@ export default async function parseServerHello(h: Bytes, sessionId: Uint8Array) 
       const keyShareLength = keyShareRemaining();
       if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
       if (chatty) {
-        await h.expectUint8(4, 'legacy point format: always 4, which means uncompressed ([RFC 8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 §5.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))')
+        await h.expectUint8(4, 'legacy point format: always 4, which means uncompressed ([RFC 8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 §5.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))');
         const x = await h.readBytes(32);
         h.comment('x coordinate');
         const y = await h.readBytes(32);
@@ -61,7 +61,7 @@ export default async function parseServerHello(h: Bytes, sessionId: Uint8Array) 
       endKeyShare();
 
     } else {
-      throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`)
+      throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`);
     }
 
     endExtension();

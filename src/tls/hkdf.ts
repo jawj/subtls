@@ -26,7 +26,7 @@ export async function hkdfExtract(salt: Uint8Array, keyMaterial: Uint8Array, has
   PRK = HMAC-Hash(salt, IKM)
   */
   const hmacKey = await cs.importKey('raw', salt, { name: 'HMAC', hash: { name: `SHA-${hashBits}` } }, false, ['sign']);
-  var prk = new Uint8Array(await cs.sign('HMAC', hmacKey, keyMaterial)); // yes, the key material is used as the input data, not the key
+  const prk = new Uint8Array(await cs.sign('HMAC', hmacKey, keyMaterial)); // yes, the key material is used as the input data, not the key
   return prk;
 }
 

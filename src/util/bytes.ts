@@ -197,7 +197,7 @@ export class Bytes {
     await this.ensureReadAvailable(expected.length);
     const actual = await this.readBytes(expected.length);
     if (chatty && comment) this.comment(comment);
-    if (!equal(actual, expected)) throw new Error(`Unexpected bytes`);
+    if (!equal(actual, expected)) throw new Error('Unexpected bytes');
   }
 
   async expectUint8(expectedValue: number, comment?: string) {
@@ -347,7 +347,7 @@ export class Bytes {
 
   // forward-looking lengths
 
-  _writeLengthGeneric(lengthBytes: 1 | 2 | 3 | 4, inclusive: boolean, comment?: string) {
+  _writeLengthGeneric(lengthBytes: number, inclusive: boolean, comment?: string) {
     this.ensureWriteAvailable(lengthBytes);
     const startOffset = this.offset;
     this.offset += lengthBytes;
@@ -356,14 +356,23 @@ export class Bytes {
     this.indents[endOffset] = this.indent;
     return () => {
       const length = this.offset - (inclusive ? startOffset : endOffset);
-      if (lengthBytes === 1) this.dataView.setUint8(startOffset, length);
-      else if (lengthBytes === 2) this.dataView.setUint16(startOffset, length);
-      else if (lengthBytes === 3) {
-        this.dataView.setUint8(startOffset, (length & 0xff0000) >> 16);
-        this.dataView.setUint16(startOffset + 1, length & 0xffff);
+      switch (lengthBytes) {
+        case 1:
+          this.dataView.setUint8(startOffset, length);
+          break;
+        case 2:
+          this.dataView.setUint16(startOffset, length);
+          break;
+        case 3:
+          this.dataView.setUint8(startOffset, (length & 0xff0000) >> 16);
+          this.dataView.setUint16(startOffset + 1, length & 0xffff);
+          break;
+        case 4:
+          this.dataView.setUint32(startOffset, length);
+          break;
+        default:
+          throw new Error(`Invalid length for length field: ${lengthBytes}`);
       }
-      else if (lengthBytes === 4) this.dataView.setUint32(startOffset, length);
-      else throw new Error(`Invalid length for length field: ${lengthBytes}`);
       chatty && this.comment(this.lengthComment(length, comment, inclusive), endOffset);
       this.indent -= 1;
       this.indents[this.offset] = this.indent;

@@ -15,6 +15,6 @@ if (pg) {
 
 goBtn.addEventListener('click', () => {
   document.querySelector('#logs')?.replaceChildren();  // clear logs
-  if (pg) postgres(urlStr, wsTransport, false);
-  else https(web ? urlStr : 'https://bytebybyte.dev', 'GET', wsTransport);
+  if (pg) void postgres(urlStr, wsTransport, false);
+  else void https(web ? urlStr : 'https://bytebybyte.dev', 'GET', wsTransport);
 });

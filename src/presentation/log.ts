@@ -25,7 +25,7 @@ function htmlEscape(s: string, linkUrls = true): string {
       url = linkText = htmlEscape(match, false);
     }
 
-    return `<a href="${url}" target="_blank">${linkText}</a>`
+    return `<a href="${url}" target="_blank">${linkText}</a>`;
   });
   return replaced;
 };
@@ -88,7 +88,7 @@ export function log(...args: any[]) {
     sections[sections.length - 1].insertAdjacentHTML('beforeend', htmlFromLogArgs('\n' + args[0], ...args.slice(1)));
 
   } else {
-    element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
+    element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + '</div></label>';
   }
 
   if (fullyScrolled) window.scrollTo({ top: 99999, behavior: 'auto' });

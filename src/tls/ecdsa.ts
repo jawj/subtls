@@ -10,13 +10,13 @@ export async function ecdsaVerify(sb: ASN1Bytes /* signature */, publicKey: Uint
 
   await sb.expectUint8(universalTypeInteger, chatty && 'integer');
   const [endSigRBytes, sigRBytesRemaining] = await sb.expectASN1Length(chatty && 'integer');
-  let sigR = await sb.readBytes(sigRBytesRemaining());
+  const sigR = await sb.readBytes(sigRBytesRemaining());
   chatty && sb.comment('signature: r');
   endSigRBytes();
 
   await sb.expectUint8(universalTypeInteger, chatty && 'integer');
   const [endSigSBytes, sigSBytesRemaining] = await sb.expectASN1Length(chatty && 'integer');
-  let sigS = await sb.readBytes(sigSBytesRemaining());
+  const sigS = await sb.readBytes(sigSBytesRemaining());
   chatty && sb.comment('signature: s');
   endSigSBytes();
 

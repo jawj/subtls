@@ -66,7 +66,7 @@ const maxCiphertextRecordLength = maxPlaintextRecordLength + 1 /* record type */
 export async function readTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, expectedType?: RecordType, maxLength = maxPlaintextRecordLength) {
   const record = new Bytes(read);
 
-  let type: keyof typeof RecordTypeName
+  let type: keyof typeof RecordTypeName;
   try {
     type = await record.readUint8();
   } catch (e: any) {
@@ -75,7 +75,7 @@ export async function readTlsRecord(read: (length: number) => Promise<Uint8Array
   }
 
   chatty && record.comment(`record type: ${RecordTypeName[type]}`);
-  if (type < 0x14 || type > 0x18) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
+  if (!(type in RecordTypeName)) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
 
   await record.expectUint16(0x0303, 'TLS record version 1.2 (middlebox compatibility)');
 
@@ -131,7 +131,7 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   while (decryptedRecord[recordTypeIndex] === 0) recordTypeIndex -= 1;
   if (recordTypeIndex < 0) throw new Error('Decrypted message has no record type indicator (all zeroes)');
 
-  const type = decryptedRecord[recordTypeIndex];
+  const type = decryptedRecord[recordTypeIndex] as RecordType;
   const record = decryptedRecord.subarray(0, recordTypeIndex /* exclusive */);
 
   if (type === RecordType.Alert) {
@@ -140,7 +140,7 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
     if (closeNotify) return undefined;  // 0x00 is close_notify
   }
 
-  chatty && log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, '0'), `color: ${LogColours.server}`, `actual decrypted record type: ${(RecordTypeName as any)[type]}`);
+  chatty && log('... decrypted payload (see below) ... %s%c  %s', type.toString(16).padStart(2, '0'), `color: ${LogColours.server}`, `actual decrypted record type: ${(RecordTypeName as any)[type]}`);
 
   if (type === RecordType.Handshake && record[0] === 0x04) {  // new session ticket message: always ignore these
     await parseSessionTicket(record);

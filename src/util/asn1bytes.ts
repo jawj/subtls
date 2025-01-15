@@ -63,7 +63,7 @@ export class ASN1Bytes extends Bytes {
     if (!parts) throw new Error('Unrecognised ASN.1 UTC time format');
     const [, yr2dstr, mth, dy, hr, min, sec] = parts;
     const yr2d = parseInt(yr2dstr, 10);
-    const yr = yr2d + (yr2d >= 50 ? 1900 : 2000);  // range is 1950 – 2049
+    const yr = yr2d + (yr2d >= 50 ? 1900 : 2000);  // range is 1950 – 2049
     const time = new Date(`${yr}-${mth}-${dy}T${hr}:${min}:${sec}Z`);  // ISO8601 should be safe to parse
     chatty && this.comment('= ' + time.toISOString());
     endTime();
@@ -87,7 +87,7 @@ export class ASN1Bytes extends Bytes {
   async readASN1BitString() {
     const [endBitString, bitStringRemaining] = await this.expectASN1Length(chatty && 'bit string');
     const rightPadBits = await this.readUint8(chatty && 'right-padding bits');
-    const bytesLength = bitStringRemaining()
+    const bytesLength = bitStringRemaining();
     const bitString = await this.readBytes(bytesLength);
     if (rightPadBits > 7) throw new Error(`Invalid right pad value: ${rightPadBits}`);
     if (rightPadBits > 0) {  // (this was surprisingly hard to get right)

@@ -1,5 +1,5 @@
 import { LogColours } from '../presentation/appearance';
-import { hkdfExpandLabel } from "./hkdf";
+import { hkdfExpandLabel } from './hkdf';
 import { concat, equal } from '../util/array';
 import cs from '../util/cryptoProxy';
 import { Cert } from './cert';
@@ -189,7 +189,7 @@ export async function readEncryptedHandshake(
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, 'finished', new Uint8Array(0), 32, 256);
   const finishedHash = await cs.digest('SHA-256', verifyData);
-  const hmacKey = await cs.importKey('raw', finishedKey, { name: 'HMAC', hash: { name: `SHA-256` } }, false, ['sign']);
+  const hmacKey = await cs.importKey('raw', finishedKey, { name: 'HMAC', hash: { name: 'SHA-256' } }, false, ['sign']);
   const correctVerifyHashBuffer = await cs.sign('HMAC', hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
 

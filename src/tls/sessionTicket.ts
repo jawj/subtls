@@ -11,7 +11,7 @@ export async function parseSessionTicket(record: Uint8Array) {
     const [endTicketRecord] = await ticket.expectLengthUint24('session ticket message');
 
     const ticketSeconds = await ticket.readUint32();
-    ticket.comment(`ticket lifetime in seconds: ${ticketSeconds} = ${ticketSeconds / 3600} hours`)
+    ticket.comment(`ticket lifetime in seconds: ${ticketSeconds} = ${ticketSeconds / 3600} hours`);
 
     await ticket.readUint32('ticket age add');
 

@@ -6,7 +6,7 @@ export function concat(...arrs: (Uint8Array | number[])[]) {
   let offset = 0;
   for (const arr of arrs) {
     result.set(arr, offset);
-    offset += arr.length
+    offset += arr.length;
   }
   return result;
 }
@@ -25,7 +25,7 @@ export function range(start: number, stop?: number, step?: number) {
   }
   if (step === undefined) step = 1;
   const result = [];
-  for (let i = start; i < stop; i += step) result.push(i)
+  for (let i = start; i < stop; i += step) result.push(i);
   return result;
 }
 

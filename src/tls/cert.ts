@@ -48,7 +48,7 @@ export const allKeyUsages = [
 ] as const;
 
 export type CertJSON = ReturnType<typeof Cert.prototype.toJSON>;
-export type DistinguishedName = Record<string, string | string[]>
+export type DistinguishedName = Record<string, string | string[]>;
 
 export interface RootCertsIndex {
   offsets: number[];
@@ -181,7 +181,7 @@ export class Cert {
         if (keyParamRecordType === universalTypeOID) {
           chatty && cb.comment('OID');
           const keyOID = await cb.readASN1OID();
-          chatty && cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`)
+          chatty && cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`);
           publicKeyOIDs.push(keyOID);
 
         } else if (keyParamRecordType === universalTypeNull) {
@@ -212,7 +212,7 @@ export class Cert {
         const extOID = await cb.readASN1OID();
         chatty && cb.comment(`${extOID} = ${extOIDMap[extOID]}`);
 
-        if (extOID === "2.5.29.17") {  // subjectAltName
+        if (extOID === '2.5.29.17') {  // subjectAltName
           await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
           const [endSanDerDoc] = await cb.expectASN1Length(chatty && 'DER document');
           await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (names)');
@@ -237,7 +237,7 @@ export class Cert {
           const keyUsageBitStr = await cb.readASN1BitString();
           const keyUsageBitmask = intFromBitString(keyUsageBitStr);
           const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & (1 << i)));
-          chatty && cb.comment(`key usage: ${keyUsageBitmask} = ${[...keyUsageNames]}`);
+          chatty && cb.comment(`key usage: ${keyUsageBitmask} = ${[...keyUsageNames].join(', ')}`);
           endKeyUsageDer();
           cert.keyUsage = {
             critical: keyUsageCritical,
@@ -352,7 +352,7 @@ export class Cert {
             critical: basicConstraintsCritical,
             ca: basicConstraintsCa,
             pathLength: basicConstraintsPathLength,
-          }
+          };
 
         } else if (chatty && extOID === '1.3.6.1.5.5.7.1.1') {  // authorityInfoAccess -- only parsed for annotation purposes
           await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
@@ -367,14 +367,14 @@ export class Cert {
 
             await cb.expectUint8(universalTypeOID, chatty && 'OID');
             const accessMethodOID = await cb.readASN1OID();
-            chatty && cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? 'unknown method'} `)
+            chatty && cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? 'unknown method'} `);
 
             await cb.expectUint8(contextSpecificType | GeneralName.uniformResourceIdentifier, chatty && 'context-specific type: URI');
             const [endMethodURI, methodURIRemaining] = await cb.expectASN1Length(chatty && 'access location');
             await cb.readUTF8String(methodURIRemaining());
             endMethodURI();
 
-            endAuthInfoAccessInnerSeq()
+            endAuthInfoAccessInnerSeq();
           }
 
           endAuthInfoAccessSeq();
@@ -405,7 +405,7 @@ export class Cert {
 
                 await cb.expectUint8(universalTypeOID, chatty && 'OID (policyQualifierId)');
                 const certPolQualOID = await cb.readASN1OID();
-                chatty && cb.comment(`${certPolQualOID} = qualifier: ${certPolQualOIDMap[certPolQualOID] ?? 'unknown qualifier'} `)
+                chatty && cb.comment(`${certPolQualOID} = qualifier: ${certPolQualOIDMap[certPolQualOID] ?? 'unknown qualifier'} `);
 
                 const qualType = await cb.readUint8();
                 if (chatty && qualType === universalTypeIA5String) {
@@ -539,12 +539,12 @@ export class Cert {
       (this.subjectKeyIdentifier ? `\nsubject key id: ${hexFromU8(this.subjectKeyIdentifier, ' ')}` : '') +
       '\nissuer: ' + Cert.stringFromDistinguishedName(this.issuer) +
       (this.authorityKeyIdentifier ? `\nauthority key id: ${hexFromU8(this.authorityKeyIdentifier, ' ')}` : '') +
-      '\nvalidity: ' + this.validityPeriod.notBefore.toISOString() + ' – ' + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? 'currently valid' : 'not valid'})` +
+      '\nvalidity: ' + this.validityPeriod.notBefore.toISOString() + ' — ' + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? 'currently valid' : 'not valid'})` +
       (this.keyUsage ? `\nkey usage (${this.keyUsage.critical ? 'critical' : 'non-critical'}): ` +
         [...this.keyUsage.usages].join(', ') : '') +
-      (this.extKeyUsage ? `\nextended key usage: TLS server — ${this.extKeyUsage.serverTls}, TLS client — ${this.extKeyUsage.clientTls}` : '') +
+      (this.extKeyUsage ? `\nextended key usage: TLS server — ${this.extKeyUsage.serverTls}, TLS client — ${this.extKeyUsage.clientTls}` : '') +
       (this.basicConstraints ? `\nbasic constraints (${this.basicConstraints.critical ? 'critical' : 'non-critical'}): ` +
-        `CA — ${this.basicConstraints.ca}, path length — ${this.basicConstraints.pathLength}` : '') +
+        `CA — ${this.basicConstraints.ca}, path length — ${this.basicConstraints.pathLength}` : '') +
       '\nsignature algorithm: ' + descriptionForAlgorithm(algorithmWithOID(this.algorithm));
   }
 
@@ -575,15 +575,15 @@ export class Cert {
       basicConstraints: this.basicConstraints,
       signedData: hexFromU8(this.signedData),
       rawData: hexFromU8(this.rawData),
-    }
+    };
   }
 
   static uint8ArraysFromPEM(pem: string) {
-    const tag = "[A-Z0-9 ]+";
+    const tag = '[A-Z0-9 ]+';
     const pattern = new RegExp(`-----BEGIN ${tag}-----([a-zA-Z0-9=+\\/\\n\\r]+)-----END ${tag}-----`, 'g');
     const res = [];
     let matches = null;
-    while (matches = pattern.exec(pem)) {
+    while ((matches = pattern.exec(pem))) {
       const base64 = matches[1].replace(/[\r\n]/g, '');
       const binary = fromBase64(base64);
       res.push(binary);

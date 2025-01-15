@@ -48,7 +48,7 @@ export default async function makeClientHello(host: string, publicKey: Uint8Arra
   const endFormatTypes = h.writeLengthUint8(chatty && 'point formats');
   h.writeUint8(0x00, chatty && 'point format: uncompressed');
   endFormatTypes();
-  endFormatTypesExt()
+  endFormatTypesExt();
 
   h.writeUint16(0x000a, chatty && 'extension type: supported groups for key exchange ([RFC 8446 §4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
   const endGroupsExt = h.writeLengthUint16(chatty && 'groups data');

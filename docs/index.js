@@ -523,7 +523,7 @@ var Bytes = class {
     await this.ensureReadAvailable(expected.length);
     const actual = await this.readBytes(expected.length);
     if (comment) this.comment(comment);
-    if (!equal(actual, expected)) throw new Error(`Unexpected bytes`);
+    if (!equal(actual, expected)) throw new Error("Unexpected bytes");
   }
   async expectUint8(expectedValue, comment) {
     const actualValue = await this.readUint8();
@@ -656,13 +656,23 @@ var Bytes = class {
     this.indents[endOffset] = this.indent;
     return () => {
       const length = this.offset - (inclusive ? startOffset : endOffset);
-      if (lengthBytes === 1) this.dataView.setUint8(startOffset, length);
-      else if (lengthBytes === 2) this.dataView.setUint16(startOffset, length);
-      else if (lengthBytes === 3) {
-        this.dataView.setUint8(startOffset, (length & 16711680) >> 16);
-        this.dataView.setUint16(startOffset + 1, length & 65535);
-      } else if (lengthBytes === 4) this.dataView.setUint32(startOffset, length);
-      else throw new Error(`Invalid length for length field: ${lengthBytes}`);
+      switch (lengthBytes) {
+        case 1:
+          this.dataView.setUint8(startOffset, length);
+          break;
+        case 2:
+          this.dataView.setUint16(startOffset, length);
+          break;
+        case 3:
+          this.dataView.setUint8(startOffset, (length & 16711680) >> 16);
+          this.dataView.setUint16(startOffset + 1, length & 65535);
+          break;
+        case 4:
+          this.dataView.setUint32(startOffset, length);
+          break;
+        default:
+          throw new Error(`Invalid length for length field: ${lengthBytes}`);
+      }
       this.comment(this.lengthComment(length, comment, inclusive), endOffset);
       this.indent -= 1;
       this.indents[this.offset] = this.indent;
@@ -812,7 +822,7 @@ function log(...args) {
     const sections = element.querySelectorAll(".section");
     sections[sections.length - 1].insertAdjacentHTML("beforeend", htmlFromLogArgs("\n" + args[0], ...args.slice(1)));
   } else {
-    element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + `</div></label>`;
+    element.innerHTML += `<label><input type="checkbox" name="c${c++}" checked="checked"><div class="section">` + htmlFromLogArgs(...args) + "</div></label>";
   }
   if (fullyScrolled) window.scrollTo({ top: 99999, behavior: "auto" });
 }
@@ -1138,10 +1148,10 @@ var ReadQueue = class {
   }
   dequeue() {
     if (this.outstandingRequest === void 0) return;
-    let { resolve, bytes } = this.outstandingRequest;
+    const { resolve, bytes: requestedBytes } = this.outstandingRequest;
     const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.socketIsNotClosed()) return;
-    bytes = Math.min(bytes, bytesInQueue);
+    if (bytesInQueue < requestedBytes && this.socketIsNotClosed()) return;
+    const bytes = Math.min(requestedBytes, bytesInQueue);
     if (bytes === 0) return resolve(void 0);
     this.outstandingRequest = void 0;
     const firstItem = this.queue[0];
@@ -1195,7 +1205,9 @@ var WebSocketReadQueue = class extends ReadQueue {
   socketIsNotClosed() {
     const { socket } = this;
     const { readyState } = socket;
-    return readyState <= 1 /* OPEN */;
+    const connecting = readyState === 0 /* CONNECTING */;
+    const open = readyState === 1 /* OPEN */;
+    return connecting || open;
   }
 };
 var LazyReadFunctionReadQueue = class extends ReadQueue {
@@ -1273,7 +1285,7 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
     throw e;
   }
   record.comment(`record type: ${RecordTypeName[type]}`);
-  if (type < 20 || type > 24) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
+  if (!(type in RecordTypeName)) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   await record.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
   const [, recordRemaining] = await record.expectLengthUint16("TLS record");
   const length = recordRemaining();
@@ -1323,7 +1335,7 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
     log(`%cTLS 0x15 alert record: ${hexFromU8(record, " ")}` + (closeNotify ? " (close notify)" : ""), `color: ${"#c88" /* header */}`);
     if (closeNotify) return void 0;
   }
-  log(`... decrypted payload (see below) ... %s%c  %s`, type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
+  log("... decrypted payload (see below) ... %s%c  %s", type.toString(16).padStart(2, "0"), `color: ${"#88c" /* server */}`, `actual decrypted record type: ${RecordTypeName[type]}`);
   if (type === 22 /* Handshake */ && record[0] === 4) {
     await parseSessionTicket(record);
     return readEncryptedTlsRecord(read, decrypter, expectedType);
@@ -1380,7 +1392,7 @@ function subtleCryptoMethod(method, args) {
   return subtleCrypto.then((cs) => cs[method](...args));
 }
 var cryptoProxy_default = new Proxy({}, {
-  get(target, property, receiver) {
+  get(target, property) {
     return (...args) => subtleCryptoMethod(property, args);
   }
 });
@@ -1389,7 +1401,7 @@ var cryptoProxy_default = new Proxy({}, {
 var txtEnc2 = new TextEncoder();
 async function hkdfExtract(salt, keyMaterial, hashBits) {
   const hmacKey = await cryptoProxy_default.importKey("raw", salt, { name: "HMAC", hash: { name: `SHA-${hashBits}` } }, false, ["sign"]);
-  var prk = new Uint8Array(await cryptoProxy_default.sign("HMAC", hmacKey, keyMaterial));
+  const prk = new Uint8Array(await cryptoProxy_default.sign("HMAC", hmacKey, keyMaterial));
   return prk;
 }
 async function hkdfExpand(key, info, length, hashBits) {
@@ -2021,7 +2033,7 @@ var Cert = class _Cert {
           const keyUsageBitStr = await cb.readASN1BitString();
           const keyUsageBitmask = intFromBitString(keyUsageBitStr);
           const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & 1 << i));
-          cb.comment(`key usage: ${keyUsageBitmask} = ${[...keyUsageNames]}`);
+          cb.comment(`key usage: ${keyUsageBitmask} = ${[...keyUsageNames].join(", ")}`);
           endKeyUsageDer();
           cert.keyUsage = {
             critical: keyUsageCritical,
@@ -2246,10 +2258,10 @@ var Cert = class _Cert {
   description() {
     return "subject: " + _Cert.stringFromDistinguishedName(this.subject) + (this.subjectAltNames ? "\nsubject alt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
 subject key id: ${hexFromU8(this.subjectKeyIdentifier, " ")}` : "") + "\nissuer: " + _Cert.stringFromDistinguishedName(this.issuer) + (this.authorityKeyIdentifier ? `
-authority key id: ${hexFromU8(this.authorityKeyIdentifier, " ")}` : "") + "\nvalidity: " + this.validityPeriod.notBefore.toISOString() + " \u2013 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? "currently valid" : "not valid"})` + (this.keyUsage ? `
+authority key id: ${hexFromU8(this.authorityKeyIdentifier, " ")}` : "") + "\nvalidity: " + this.validityPeriod.notBefore.toISOString() + " \u2014 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? "currently valid" : "not valid"})` + (this.keyUsage ? `
 key usage (${this.keyUsage.critical ? "critical" : "non-critical"}): ` + [...this.keyUsage.usages].join(", ") : "") + (this.extKeyUsage ? `
-extended key usage: TLS server \u2014\xA0${this.extKeyUsage.serverTls}, TLS client \u2014\xA0${this.extKeyUsage.clientTls}` : "") + (this.basicConstraints ? `
-basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical"}): CA \u2014\xA0${this.basicConstraints.ca}, path length \u2014 ${this.basicConstraints.pathLength}` : "") + "\nsignature algorithm: " + descriptionForAlgorithm(algorithmWithOID(this.algorithm));
+extended key usage: TLS server \u2014 ${this.extKeyUsage.serverTls}, TLS client \u2014 ${this.extKeyUsage.clientTls}` : "") + (this.basicConstraints ? `
+basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical"}): CA \u2014 ${this.basicConstraints.ca}, path length \u2014 ${this.basicConstraints.pathLength}` : "") + "\nsignature algorithm: " + descriptionForAlgorithm(algorithmWithOID(this.algorithm));
   }
   toJSON() {
     return {
@@ -2332,12 +2344,12 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
   const [endSigDer] = await sb.expectASN1Length("sequence");
   await sb.expectUint8(universalTypeInteger, "integer");
   const [endSigRBytes, sigRBytesRemaining] = await sb.expectASN1Length("integer");
-  let sigR = await sb.readBytes(sigRBytesRemaining());
+  const sigR = await sb.readBytes(sigRBytesRemaining());
   sb.comment("signature: r");
   endSigRBytes();
   await sb.expectUint8(universalTypeInteger, "integer");
   const [endSigSBytes, sigSBytesRemaining] = await sb.expectASN1Length("integer");
-  let sigS = await sb.readBytes(sigSBytesRemaining());
+  const sigS = await sb.readBytes(sigSBytesRemaining());
   sb.comment("signature: s");
   endSigSBytes();
   endSigDer();
@@ -2357,6 +2369,9 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
 }
 
 // src/tls/verifyCerts.ts
+function stringFromCN(cn) {
+  return typeof cn === "string" ? cn : cn.join(", ");
+}
 async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
   log("%c%s", `color: ${"#c88" /* header */}`, "certificates received from host");
   for (const cert of certs) log(...highlightColonList(cert.description()));
@@ -2367,10 +2382,10 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
   log(`%c\u2713 matched host to subjectAltName "${matchingSubjectAltName}"`, "color: #8c8;");
   const validNow = userCert.isValidAtMoment();
   if (!validNow) throw new Error("End-user certificate is not valid now");
-  log(`%c\u2713 end-user certificate is valid now`, "color: #8c8;");
+  log("%c\u2713 end-user certificate is valid now", "color: #8c8;");
   if (requireServerTlsExtKeyUsage) {
     if (!userCert.extKeyUsage?.serverTls) throw new Error("End-user certificate has no TLS server extKeyUsage");
-    log(`%c\u2713 end-user certificate has TLS server extKeyUsage`, "color: #8c8;");
+    log("%c\u2713 end-user certificate has TLS server extKeyUsage", "color: #8c8;");
   }
   log("Next, we verify the signature of each certificate using the public key of the next certificate in the chain. This carries on until we find a certificate we can verify using one of our own trusted root certificates (or until we reach the end of the chain and therefore fail):");
   let verifiedToTrustedRoot = false;
@@ -2387,30 +2402,30 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
       signingCert && log("matched a trusted root cert on key id: %s", hexFromU8(subjectAuthKeyId, " "));
     }
     if (signingCert !== void 0) {
-      log("%c%s", `color: ${"#c88" /* header */}`, `trusted root certificate`);
+      log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificate");
       signingCert && log(...highlightColonList(signingCert.description()));
     }
     if (signingCert === void 0) signingCert = certs[i + 1];
     if (signingCert === void 0) throw new Error("Ran out of certificates before reaching trusted root");
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
-    log(`checking ${signingCertIsTrustedRoot ? "trusted root" : "intermediate"} signing certificate CN "${signingCert.subject.CN}" ...`);
+    log(`checking ${signingCertIsTrustedRoot ? "trusted root" : "intermediate"} signing certificate CN "${stringFromCN(signingCert.subject.CN)}" ...`);
     if (signingCert.isValidAtMoment() !== true) throw new Error("Signing certificate is not valid now");
-    log(`%c\u2713 certificate is valid now`, "color: #8c8;");
+    log("%c\u2713 certificate is valid now", "color: #8c8;");
     if (requireDigitalSigKeyUsage) {
       if (signingCert.keyUsage?.usages.has("digitalSignature") !== true) throw new Error("Signing certificate keyUsage does not include digital signatures");
-      log(`%c\u2713 certificate keyUsage includes digital signatures`, "color: #8c8;");
+      log("%c\u2713 certificate keyUsage includes digital signatures", "color: #8c8;");
     }
     if (signingCert.basicConstraints?.ca !== true) throw new Error("Signing certificate basicConstraints do not indicate a CA certificate");
-    log(`%c\u2713 certificate basicConstraints indicate a CA certificate`, "color: #8c8;");
+    log("%c\u2713 certificate basicConstraints indicate a CA certificate", "color: #8c8;");
     const { pathLength } = signingCert.basicConstraints;
     if (pathLength === void 0) {
-      log(`%c\u2713 certificate pathLength is not constrained`, "color: #8c8;");
+      log("%c\u2713 certificate pathLength is not constrained", "color: #8c8;");
     } else {
       if (pathLength < i) throw new Error("Exceeded certificate pathLength");
-      log(`%c\u2713 certificate pathLength is not exceeded`, "color: #8c8;");
+      log("%c\u2713 certificate pathLength is not exceeded", "color: #8c8;");
     }
     log(
-      `verifying certificate CN "${subjectCert.subject.CN}" is signed by %c${signingCertIsTrustedRoot ? "trusted root" : "intermediate"}%c certificate CN "${signingCert.subject.CN}" ...`,
+      `verifying certificate CN "${stringFromCN(subjectCert.subject.CN)}" is signed by %c${signingCertIsTrustedRoot ? "trusted root" : "intermediate"}%c certificate CN "${stringFromCN(signingCert.subject.CN)}" ...`,
       `background: ${signingCertIsTrustedRoot ? "#ffc" : "#eee"}`,
       "background: inherit"
     );
@@ -2426,12 +2441,12 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
       const signatureKey = await cryptoProxy_default.importKey("spki", signingCert.publicKey.all, { name: "RSASSA-PKCS1-v1_5", hash }, false, ["verify"]);
       const certVerifyResult = await cryptoProxy_default.verify({ name: "RSASSA-PKCS1-v1_5" }, signatureKey, subjectCert.signature, subjectCert.signedData);
       if (certVerifyResult !== true) throw new Error("RSASSA_PKCS1-v1_5-SHA256 certificate verify failed");
-      log(`%c\u2713 RSASAA-PKCS1-v1_5 signature verified`, "color: #8c8;");
+      log("%c\u2713 RSASAA-PKCS1-v1_5 signature verified", "color: #8c8;");
     } else {
       throw new Error("Unsupported signing algorithm");
     }
     if (signingCertIsTrustedRoot) {
-      log(`%c\u2713 chain of trust validated back to a trusted root`, "color: #8c8;");
+      log("%c\u2713 chain of trust validated back to a trusted root", "color: #8c8;");
       verifiedToTrustedRoot = true;
       break;
     }
@@ -2549,7 +2564,7 @@ async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsD
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, "finished", new Uint8Array(0), 32, 256);
   const finishedHash = await cryptoProxy_default.digest("SHA-256", verifyData);
-  const hmacKey = await cryptoProxy_default.importKey("raw", finishedKey, { name: "HMAC", hash: { name: `SHA-256` } }, false, ["sign"]);
+  const hmacKey = await cryptoProxy_default.importKey("raw", finishedKey, { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
   const correctVerifyHashBuffer = await cryptoProxy_default.sign("HMAC", hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
   await hs.expectUint8(20, "handshake message type: finished ([RFC 8446 \xA74.4.4](https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.4))");
@@ -2730,8 +2745,8 @@ async function getRootCertsDatabase() {
 function parseAsHTTP(url, parseQueryString = false) {
   const { protocol } = new URL(url);
   const httpUrl = "http:" + url.substring(protocol.length);
-  let { username, password, hostname, port, pathname, search, searchParams, hash } = new URL(httpUrl);
-  password = decodeURIComponent(password);
+  const { username, password: rawPwd, hostname, port, pathname, search, searchParams, hash } = new URL(httpUrl);
+  const password = decodeURIComponent(rawPwd);
   const auth = username + ":" + password;
   const query = parseQueryString ? Object.fromEntries(searchParams.entries()) : search;
   return { href: url, protocol, auth, username, password, hostname, port, pathname, search, query, hash };
@@ -2816,7 +2831,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
       saslMechanisms.add(mechanism);
     }
     await preAuthBytes.expectUint8(0, "end of list");
-    if (!saslMechanisms.has("SCRAM-SHA-256-PLUS")) throw new Error(`SCRAM-SHA-256 without channel binding is not supported`);
+    if (!saslMechanisms.has("SCRAM-SHA-256-PLUS")) throw new Error("SCRAM-SHA-256 without channel binding is not supported");
   } else {
     throw new Error(`Unsupported auth mechanism: ${authMechanism}`);
   }
@@ -2863,7 +2878,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     const attrs = Object.fromEntries(serverFirstMessage.split(",").map((v) => [v[0], v.slice(2)]));
     const { r: nonceStr, s: saltB64, i: iterationsStr } = attrs;
     const iterations = parseInt(iterationsStr, 10);
-    log("%c%s", `color: ${"#c88" /* header */}`, `server-supplied SASL values`);
+    log("%c%s", `color: ${"#c88" /* header */}`, "server-supplied SASL values");
     log(...highlightColonList(`nonce: ${nonceStr}`));
     log(...highlightColonList(`salt: ${saltB64}`));
     log(...highlightColonList(`number of iterations: ${iterations}`));
@@ -3160,6 +3175,6 @@ if (pg) {
 }
 goBtn.addEventListener("click", () => {
   document.querySelector("#logs")?.replaceChildren();
-  if (pg) postgres(urlStr, wsTransport, false);
-  else https(web ? urlStr : "https://bytebybyte.dev", "GET", wsTransport);
+  if (pg) void postgres(urlStr, wsTransport, false);
+  else void https(web ? urlStr : "https://bytebybyte.dev", "GET", wsTransport);
 });

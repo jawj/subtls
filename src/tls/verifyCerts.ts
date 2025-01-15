@@ -8,6 +8,9 @@ import { ASN1Bytes } from '../util/asn1bytes';
 import { ecdsaVerify } from './ecdsa';
 import cs from '../util/cryptoProxy';
 
+function stringFromCN(cn: string | string[]) {
+  return typeof cn === 'string' ? cn : cn.join(', ');
+}
 
 export async function verifyCerts(
   host: string,
@@ -30,11 +33,11 @@ export async function verifyCerts(
 
   const validNow = userCert.isValidAtMoment();
   if (!validNow) throw new Error('End-user certificate is not valid now');
-  chatty && log(`%c✓ end-user certificate is valid now`, 'color: #8c8;');
+  chatty && log('%c✓ end-user certificate is valid now', 'color: #8c8;');
 
   if (requireServerTlsExtKeyUsage) {
     if (!userCert.extKeyUsage?.serverTls) throw new Error('End-user certificate has no TLS server extKeyUsage');
-    chatty && log(`%c✓ end-user certificate has TLS server extKeyUsage`, 'color: #8c8;');
+    chatty && log('%c✓ end-user certificate has TLS server extKeyUsage', 'color: #8c8;');
   }
 
   // certificate chain checks
@@ -62,7 +65,7 @@ export async function verifyCerts(
     }
 
     if (signingCert !== undefined) {
-      chatty && log('%c%s', `color: ${LogColours.header}`, `trusted root certificate`);
+      chatty && log('%c%s', `color: ${LogColours.header}`, 'trusted root certificate');
       chatty && signingCert && log(...highlightColonList(signingCert.description()));
     }
 
@@ -74,30 +77,30 @@ export async function verifyCerts(
 
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
 
-    chatty && log(`checking ${signingCertIsTrustedRoot ? 'trusted root' : 'intermediate'} signing certificate CN "${signingCert.subject.CN}" ...`);
+    chatty && log(`checking ${signingCertIsTrustedRoot ? 'trusted root' : 'intermediate'} signing certificate CN "${stringFromCN(signingCert.subject.CN)}" ...`);
 
     if (signingCert.isValidAtMoment() !== true) throw new Error('Signing certificate is not valid now');
-    chatty && log(`%c✓ certificate is valid now`, 'color: #8c8;');
+    chatty && log('%c✓ certificate is valid now', 'color: #8c8;');
 
     if (requireDigitalSigKeyUsage) {
       if (signingCert.keyUsage?.usages.has('digitalSignature') !== true) throw new Error('Signing certificate keyUsage does not include digital signatures');
-      chatty && log(`%c✓ certificate keyUsage includes digital signatures`, 'color: #8c8;');
+      chatty && log('%c✓ certificate keyUsage includes digital signatures', 'color: #8c8;');
     }
 
     if (signingCert.basicConstraints?.ca !== true) throw new Error('Signing certificate basicConstraints do not indicate a CA certificate');
-    chatty && log(`%c✓ certificate basicConstraints indicate a CA certificate`, 'color: #8c8;');
+    chatty && log('%c✓ certificate basicConstraints indicate a CA certificate', 'color: #8c8;');
 
     const { pathLength } = signingCert.basicConstraints;
     if (pathLength === undefined) {
-      chatty && log(`%c✓ certificate pathLength is not constrained`, 'color: #8c8;');
+      chatty && log('%c✓ certificate pathLength is not constrained', 'color: #8c8;');
 
     } else {
       if (pathLength < i) throw new Error('Exceeded certificate pathLength');
-      chatty && log(`%c✓ certificate pathLength is not exceeded`, 'color: #8c8;');
+      chatty && log('%c✓ certificate pathLength is not exceeded', 'color: #8c8;');
     }
 
     // verify cert chain signature
-    chatty && log(`verifying certificate CN "${subjectCert.subject.CN}" is signed by %c${signingCertIsTrustedRoot ? 'trusted root' : 'intermediate'}%c certificate CN "${signingCert.subject.CN}" ...`,
+    chatty && log(`verifying certificate CN "${stringFromCN(subjectCert.subject.CN)}" is signed by %c${signingCertIsTrustedRoot ? 'trusted root' : 'intermediate'}%c certificate CN "${stringFromCN(signingCert.subject.CN)}" ...`,
       `background: ${signingCertIsTrustedRoot ? '#ffc' : '#eee'}`, 'background: inherit');
 
     if (subjectCert.algorithm === '1.2.840.10045.4.3.2' || subjectCert.algorithm === '1.2.840.10045.4.3.3') {  // ECDSA + SHA256/384
@@ -114,14 +117,14 @@ export async function verifyCerts(
       const signatureKey = await cs.importKey('spki', signingCert.publicKey.all, { name: 'RSASSA-PKCS1-v1_5', hash }, false, ['verify']);
       const certVerifyResult = await cs.verify({ name: 'RSASSA-PKCS1-v1_5' }, signatureKey, subjectCert.signature, subjectCert.signedData);
       if (certVerifyResult !== true) throw new Error('RSASSA_PKCS1-v1_5-SHA256 certificate verify failed');
-      chatty && log(`%c✓ RSASAA-PKCS1-v1_5 signature verified`, 'color: #8c8;');
+      chatty && log('%c✓ RSASAA-PKCS1-v1_5 signature verified', 'color: #8c8;');
 
     } else {
       throw new Error('Unsupported signing algorithm');
     }
 
     if (signingCertIsTrustedRoot) {
-      chatty && log(`%c✓ chain of trust validated back to a trusted root`, 'color: #8c8;');
+      chatty && log('%c✓ chain of trust validated back to a trusted root', 'color: #8c8;');
       verifiedToTrustedRoot = true;
       break;
     }

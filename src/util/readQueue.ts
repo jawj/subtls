@@ -30,11 +30,11 @@ export abstract class ReadQueue {
   dequeue() {
     if (this.outstandingRequest === undefined) return;
 
-    let { resolve, bytes } = this.outstandingRequest;
+    const { resolve, bytes: requestedBytes } = this.outstandingRequest;
     const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.socketIsNotClosed()) return;  // if socket remains open, wait until requested data size is available
+    if (bytesInQueue < requestedBytes && this.socketIsNotClosed()) return;  // if socket remains open, wait until requested data size is available
 
-    bytes = Math.min(bytes, bytesInQueue);
+    const bytes = Math.min(requestedBytes, bytesInQueue);
     if (bytes === 0) return resolve(undefined);
 
     this.outstandingRequest = undefined;
@@ -99,7 +99,9 @@ export class WebSocketReadQueue extends ReadQueue {
   socketIsNotClosed() {
     const { socket } = this;
     const { readyState } = socket;
-    return readyState <= WebSocketReadyState.OPEN;
+    const connecting = readyState as WebSocketReadyState === WebSocketReadyState.CONNECTING;
+    const open = readyState as WebSocketReadyState === WebSocketReadyState.OPEN;
+    return connecting || open;
   }
 }
 

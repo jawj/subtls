@@ -54,7 +54,7 @@ export async function postgres(
   transport.write(writePreData);
   const SorN = await transport.read(1);
   chatty && log('The server tells us if it can speak SSL/TLS ("S" for yes, "N" for no):');
-  const byte = new Bytes(SorN!);
+  const byte = new Bytes(SorN);
   await byte.expectUint8(0x53, '"S" = SSL connection supported');
   chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
 
@@ -132,7 +132,7 @@ export async function postgres(
     }
     await preAuthBytes.expectUint8(0, chatty && 'end of list');
 
-    if (!saslMechanisms.has('SCRAM-SHA-256-PLUS')) throw new Error(`SCRAM-SHA-256 without channel binding is not supported`);
+    if (!saslMechanisms.has('SCRAM-SHA-256-PLUS')) throw new Error('SCRAM-SHA-256 without channel binding is not supported');
 
   } else {
     throw new Error(`Unsupported auth mechanism: ${authMechanism}`);
@@ -197,7 +197,7 @@ export async function postgres(
     const { r: nonceStr, s: saltB64, i: iterationsStr } = attrs as Record<string, string>;
     const iterations = parseInt(iterationsStr, 10);
 
-    chatty && log('%c%s', `color: ${LogColours.header}`, `server-supplied SASL values`);
+    chatty && log('%c%s', `color: ${LogColours.header}`, 'server-supplied SASL values');
     chatty && log(...highlightColonList(`nonce: ${nonceStr}`));
     chatty && log(...highlightColonList(`salt: ${saltB64}`));
     chatty && log(...highlightColonList(`number of iterations: ${iterations}`));
@@ -209,12 +209,12 @@ export async function postgres(
     chatty && log(...highlightColonList(`The channel-binding data tells the server who we think we’re talking to. We present a hash of the end-user certificate we received from the server during the TLS handshake above. That’s the first certificate in the chain, which (as you can double-check above) is in this case: serial number ${hexFromU8(userCert.serialNumber)}, for ${userCert.subjectAltNames?.join(', ')}.`));
     chatty && log('This has a somewhat similar purpose to [certificate pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning). It rules out some sophisticated MITM attacks in which we connect to a proxy that has a certificate that appears valid for the real server but is not the real server’s.');
 
-    let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name;
+    let hashAlgo = algorithmWithOID(userCert.algorithm)?.hash?.name as string;
     if (hashAlgo === 'SHA-1' || hashAlgo === 'MD5') hashAlgo = 'SHA-256';
 
     chatty && log(...highlightColonList(`The hash we present is determined by the certificate’s algorithm (unless that’s MD5 or SHA-1, in which case it’s upgraded to SHA-256). For this particular certificate, it’s: ${hashAlgo}.`));
 
-    const hashedCert = new Uint8Array(await cs.digest(hashAlgo, userCert.rawData!));
+    const hashedCert = new Uint8Array(await cs.digest(hashAlgo, userCert.rawData));
 
     chatty && log(...highlightColonList(`certificate hash: ${hexFromU8(hashedCert, ' ')}`));
 
@@ -350,7 +350,7 @@ export async function postgres(
     const serverKey = new Uint8Array(await cs.sign('HMAC', skHmacKey, te.encode('Server Key')));
     chatty && log(...highlightColonList(`ServerKey: ${hexFromU8(serverKey, ' ')}`));
 
-    chatty && log('Then we make the ServerSignature, as an HMAC of the AuthMessage (as defined above) using the ServerKey.')
+    chatty && log('Then we make the ServerSignature, as an HMAC of the AuthMessage (as defined above) using the ServerKey.');
 
     const ssbHmacKey = await cs.importKey(
       'raw',
@@ -413,7 +413,7 @@ export async function postgres(
   chatty && log(...highlightBytes(postAuthBytes.commentedString(), LogColours.server));
 
   if (pipelinedPasswordAuth === false) {
-    const query = new Bytes()
+    const query = new Bytes();
     query.writeUTF8String('Q');
     chatty && msg.comment('= [Query](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-QUERY)');
     const endQuery = query.writeLengthUint32Incl(chatty && 'query');
@@ -490,7 +490,7 @@ export async function postgres(
   chatty && endBytes.comment('= [Terminate](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-TERMINATE)');
   const endTerminate = endBytes.writeLengthUint32Incl();
   endTerminate();
-  chatty && endBytes.comment("(and therefore end here too)");
+  chatty && endBytes.comment('(and therefore end here too)');
 
   chatty && log('Last of all, we send a termination command. Before encryption, that’s:');
   chatty && log(...highlightBytes(endBytes.commentedString(), LogColours.client));
