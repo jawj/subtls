@@ -1247,23 +1247,23 @@ var ReadQueue = class {
     const result = new Uint8Array(bytes);
     let outstandingBytes = bytes;
     let offset = 0;
-    let consumed = 0;
+    let itemsConsumed = 0;
     while (outstandingBytes > 0) {
-      const nextItem = this.queue[consumed];
+      const nextItem = this.queue[itemsConsumed];
       const nextItemLength = nextItem.length;
       if (nextItemLength <= outstandingBytes) {
-        consumed++;
+        itemsConsumed++;
         result.set(nextItem, offset);
         offset += nextItemLength;
         outstandingBytes -= nextItemLength;
       } else {
-        if (readMode === 0 /* CONSUME */) this.queue[consumed] = nextItem.subarray(outstandingBytes);
+        if (readMode === 0 /* CONSUME */) this.queue[itemsConsumed] = nextItem.subarray(outstandingBytes);
         result.set(nextItem.subarray(0, outstandingBytes), offset);
         outstandingBytes -= outstandingBytes;
         offset += outstandingBytes;
       }
     }
-    if (readMode === 0 /* CONSUME */) this.queue.splice(0, consumed);
+    if (readMode === 0 /* CONSUME */) this.queue.splice(0, itemsConsumed);
     resolve(result);
   }
   bytesInQueue() {
