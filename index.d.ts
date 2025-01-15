@@ -69,7 +69,7 @@ export declare class Bytes {
     writeUint16(value: number, comment?: string): Bytes;
     writeUint24(value: number, comment?: string): Bytes;
     writeUint32(value: number, comment?: string): Bytes;
-    _writeLengthGeneric(lengthBytes: 1 | 2 | 3 | 4, inclusive: boolean, comment?: string): () => void;
+    _writeLengthGeneric(lengthBytes: number, inclusive: boolean, comment?: string): () => void;
     writeLengthUint8(comment?: string): () => void;
     writeLengthUint16(comment?: string): () => void;
     writeLengthUint24(comment?: string): () => void;
@@ -166,23 +166,37 @@ export declare type CertJSON = ReturnType<typeof Cert.prototype.toJSON>;
 export declare interface DataRequest {
     bytes: number;
     resolve: (data: Uint8Array | undefined) => void;
+    readMode: ReadMode;
 }
 
 export declare type DistinguishedName = Record<string, string | string[]>;
 
 export declare function hexFromU8(u8: Uint8Array | number[], spacer?: string): string;
 
+export declare class LazyReadFunctionReadQueue extends ReadQueue {
+    protected readFn: () => Promise<Uint8Array | undefined>;
+    protected dataIsExhausted: boolean;
+    constructor(readFn: () => Promise<Uint8Array | undefined>);
+    read(bytes: number, readMode?: ReadMode): Promise<Uint8Array<ArrayBufferLike> | undefined>;
+    moreDataMayFollow(): boolean;
+}
+
 export declare type OID = string;
+
+export declare enum ReadMode {
+    CONSUME = 0,
+    PEEK = 1
+}
 
 export declare abstract class ReadQueue {
     queue: Uint8Array[];
     outstandingRequest: DataRequest | undefined;
     constructor();
-    abstract socketIsNotClosed(): boolean;
+    abstract moreDataMayFollow(): boolean;
     enqueue(data: Uint8Array): void;
     dequeue(): void;
     bytesInQueue(): number;
-    read(bytes: number): Promise<Uint8Array<ArrayBufferLike> | undefined>;
+    read(bytes: number, readMode?: ReadMode): Promise<Uint8Array<ArrayBufferLike> | undefined>;
 }
 
 export declare type RootCertsData = Uint8Array;
@@ -200,7 +214,7 @@ export declare interface RootCertsIndex {
 export declare class SocketReadQueue extends ReadQueue {
     protected socket: Socket;
     constructor(socket: Socket);
-    socketIsNotClosed(): boolean;
+    moreDataMayFollow(): boolean;
 }
 
 export declare function stableStringify(x: any, replacer?: (key: string, value: any) => any, indent?: string | number): string;
@@ -228,7 +242,7 @@ export declare function u8FromHex(hex: string): Uint8Array<ArrayBuffer>;
 export declare class WebSocketReadQueue extends ReadQueue {
     protected socket: WebSocket;
     constructor(socket: WebSocket);
-    socketIsNotClosed(): boolean;
+    moreDataMayFollow(): boolean;
 }
 
 

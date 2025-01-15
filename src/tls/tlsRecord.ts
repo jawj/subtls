@@ -7,7 +7,7 @@ import { LogColours } from '../presentation/appearance';
 import { highlightBytes } from '../presentation/highlights';
 import { appendLog, log } from '../presentation/log';
 import { hexFromU8 } from '../util/hex';
-import { LazyReadFunctionReadQueue } from '../util/readQueue';
+import { LazyReadFunctionReadQueue, ReadMode } from '../util/readQueue';
 
 export enum RecordType {
   ChangeCipherSpec = 0x14,
@@ -63,16 +63,13 @@ export const AlertRecordDescName = {
 const maxPlaintextRecordLength = 1 << 14;
 const maxCiphertextRecordLength = maxPlaintextRecordLength + 1 /* record type */ + 255 /* max aead */;
 
-export async function readTlsRecord(read: (length: number) => Promise<Uint8Array | undefined>, expectedType?: RecordType, maxLength = maxPlaintextRecordLength) {
-  const record = new Bytes(read);
+export async function readTlsRecord(read: (length: number, readMode?: ReadMode) => Promise<Uint8Array | undefined>, expectedType?: RecordType, maxLength = maxPlaintextRecordLength) {
+  // make sure there's at least one byte of data still available, but don't consume it
+  const nextByte = await read(1, ReadMode.PEEK);
+  if (nextByte === undefined) return;
 
-  let type: keyof typeof RecordTypeName;
-  try {
-    type = await record.readUint8();
-  } catch (e: any) {
-    if (e._bytes_error_reason === 'EOF') return undefined;  // no more data
-    throw e;
-  }
+  const record = new Bytes(read);
+  const type = await record.readUint8() as RecordType;
 
   chatty && record.comment(`record type: ${RecordTypeName[type]}`);
   if (!(type in RecordTypeName)) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);

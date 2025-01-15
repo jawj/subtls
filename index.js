@@ -700,7 +700,7 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
     await this.ensureReadAvailable(expected.length);
     const actual = await this.readBytes(expected.length);
     if (0) this.comment(comment);
-    if (!equal(actual, expected)) throw new Error(`Unexpected bytes`);
+    if (!equal(actual, expected)) throw new Error("Unexpected bytes");
   }
   async expectUint8(expectedValue, comment) {
     const actualValue = await this.readUint8();
@@ -822,13 +822,23 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
     this.indents[endOffset] = this.indent;
     return () => {
       const length = this.offset - (inclusive ? startOffset : endOffset);
-      if (lengthBytes === 1) this.dataView.setUint8(startOffset, length);
-      else if (lengthBytes === 2) this.dataView.setUint16(startOffset, length);
-      else if (lengthBytes === 3) {
-        this.dataView.setUint8(startOffset, (length & 16711680) >> 16);
-        this.dataView.setUint16(startOffset + 1, length & 65535);
-      } else if (lengthBytes === 4) this.dataView.setUint32(startOffset, length);
-      else throw new Error(`Invalid length for length field: ${lengthBytes}`);
+      switch (lengthBytes) {
+        case 1:
+          this.dataView.setUint8(startOffset, length);
+          break;
+        case 2:
+          this.dataView.setUint16(startOffset, length);
+          break;
+        case 3:
+          this.dataView.setUint8(startOffset, (length & 16711680) >> 16);
+          this.dataView.setUint16(startOffset + 1, length & 65535);
+          break;
+        case 4:
+          this.dataView.setUint32(startOffset, length);
+          break;
+        default:
+          throw new Error(`Invalid length for length field: ${lengthBytes}`);
+      }
       this.indent -= 1;
       this.indents[this.offset] = this.indent;
     };
@@ -1049,7 +1059,7 @@ rg/doc/html/rfc8422#section-5.4.1))");
         h.comment("x coordinate");
         const y = await h.readBytes(32);
         h.comment("y coordinate");
-        serverPublicKey = concat3([4], x, y);
+        serverPublicKey = concat2([4], x, y);
       } else {
         serverPublicKey = await h.readBytes(keyShareLength);
       }
@@ -1196,6 +1206,11 @@ c/html/rfc8446#section-4.6.1) (we do nothing with these)");
 }
 
 // src/util/readQueue.ts
+var ReadMode = /* @__PURE__ */ ((ReadMode2) => {
+  ReadMode2[ReadMode2["CONSUME"] = 0] = "CONSUME";
+  ReadMode2[ReadMode2["PEEK"] = 1] = "PEEK";
+  return ReadMode2;
+})(ReadMode || {});
 var ReadQueue = class {
   constructor() {
     __publicField(this, "queue");
@@ -1208,49 +1223,56 @@ var ReadQueue = class {
   }
   dequeue() {
     if (this.outstandingRequest === void 0) return;
-    let { resolve, bytes } = this.outstandingRequest;
+    const { resolve, bytes: requestedBytes, readMode } = this.outstandingRequest;
     const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < bytes && this.socketIsNotClosed()) return;
-    bytes = Math.min(bytes, bytesInQueue);
-    if (bytes === 0) return resolve(void 0);
+    if (bytesInQueue < requestedBytes && this.moreDataMayFollow()) return;
+    const bytes = Math.min(requestedBytes, bytesInQueue);
+    if (bytes === 0) {
+      resolve(void 0);
+      return;
+    }
     this.outstandingRequest = void 0;
     const firstItem = this.queue[0];
     const firstItemLength = firstItem.length;
     if (firstItemLength === bytes) {
-      this.queue.shift();
-      return resolve(firstItem);
-    } else if (firstItemLength > bytes) {
-      this.queue[0] = firstItem.subarray(bytes);
-      return resolve(firstItem.subarray(0, bytes));
-    } else {
-      const result = new Uint8Array(bytes);
-      let outstandingBytes = bytes;
-      let offset = 0;
-      while (outstandingBytes > 0) {
-        const nextItem = this.queue[0];
-        const nextItemLength = nextItem.length;
-        if (nextItemLength <= outstandingBytes) {
-          this.queue.shift();
-          result.set(nextItem, offset);
-          offset += nextItemLength;
-          outstandingBytes -= nextItemLength;
-        } else {
-          this.queue[0] = nextItem.subarray(outstandingBytes);
-          result.set(nextItem.subarray(0, outstandingBytes), offset);
-          outstandingBytes -= outstandingBytes;
-          offset += outstandingBytes;
-        }
-      }
-      return resolve(result);
+      if (readMode === 0 /* CONSUME */) this.queue.shift();
+      resolve(firstItem);
+      return;
     }
+    if (firstItemLength > bytes) {
+      if (readMode === 0 /* CONSUME */) this.queue[0] = firstItem.subarray(bytes);
+      resolve(firstItem.subarray(0, bytes));
+      return;
+    }
+    const result = new Uint8Array(bytes);
+    let outstandingBytes = bytes;
+    let offset = 0;
+    let consumed = 0;
+    while (outstandingBytes > 0) {
+      const nextItem = this.queue[consumed];
+      const nextItemLength = nextItem.length;
+      if (nextItemLength <= outstandingBytes) {
+        consumed++;
+        result.set(nextItem, offset);
+        offset += nextItemLength;
+        outstandingBytes -= nextItemLength;
+      } else {
+        if (readMode === 0 /* CONSUME */) this.queue[consumed] = nextItem.subarray(outstandingBytes);
+        result.set(nextItem.subarray(0, outstandingBytes), offset);
+        outstandingBytes -= outstandingBytes;
+        offset += outstandingBytes;
+      }
+    }
+    if (readMode === 0 /* CONSUME */) this.queue.splice(0, consumed);
+    resolve(result);
   }
   bytesInQueue() {
     return this.queue.reduce((memo, arr) => memo + arr.length, 0);
   }
-  async read(bytes) {
+  async read(bytes, readMode = 0 /* CONSUME */) {
     if (this.outstandingRequest !== void 0) throw new Error("Can\u2019t read while already awaiting read");
     return new Promise((resolve) => {
-      this.outstandingRequest = { resolve, bytes };
+      this.outstandingRequest = { resolve, bytes, readMode };
       this.dequeue();
     });
   }
@@ -1262,10 +1284,12 @@ var WebSocketReadQueue = class extends ReadQueue {
     socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
     socket.addEventListener("close", () => this.dequeue());
   }
-  socketIsNotClosed() {
+  moreDataMayFollow() {
     const { socket } = this;
     const { readyState } = socket;
-    return readyState <= 1 /* OPEN */;
+    const connecting = readyState === 0 /* CONNECTING */;
+    const open = readyState === 1 /* OPEN */;
+    return connecting || open;
   }
 };
 var SocketReadQueue = class extends ReadQueue {
@@ -1275,7 +1299,7 @@ var SocketReadQueue = class extends ReadQueue {
     socket.on("data", (data) => this.enqueue(new Uint8Array(data)));
     socket.on("close", () => this.dequeue());
   }
-  socketIsNotClosed() {
+  moreDataMayFollow() {
     const { socket } = this;
     const { readyState } = socket;
     return readyState === "opening" || readyState === "open";
@@ -1287,7 +1311,7 @@ var LazyReadFunctionReadQueue = class extends ReadQueue {
     this.readFn = readFn;
     __publicField(this, "dataIsExhausted", false);
   }
-  async read(bytes) {
+  async read(bytes, readMode = 0 /* CONSUME */) {
     while (this.bytesInQueue() < bytes) {
       const data = await this.readFn();
       if (data === void 0) {
@@ -1296,26 +1320,29 @@ var LazyReadFunctionReadQueue = class extends ReadQueue {
       }
       if (data.length > 0) this.enqueue(data);
     }
-    return super.read(bytes);
+    return super.read(bytes, readMode);
   }
-  socketIsNotClosed() {
+  moreDataMayFollow() {
     return !this.dataIsExhausted;
   }
 };
 
 // src/tls/tlsRecord.ts
+var RecordTypeName = {
+  [20 /* ChangeCipherSpec */]: "ChangeCipherSpec",
+  [21 /* Alert */]: "Alert",
+  [22 /* Handshake */]: "Handshake",
+  [23 /* Application */]: "Application",
+  [24 /* Heartbeat */]: "Heartbeat"
+};
 var maxPlaintextRecordLength = 1 << 14;
 var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
 async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordLength) {
+  const nextByte = await read(1, 1 /* PEEK */);
+  if (nextByte === void 0) return;
   const record = new Bytes(read);
-  let type;
-  try {
-    type = await record.readUint8();
-  } catch (e) {
-    if (e._bytes_error_reason === "EOF") return void 0;
-    throw e;
-  }
-  if (type < 20 || type > 24) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
+  const type = await record.readUint8();
+  if (!(type in RecordTypeName)) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   await record.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
   const [, recordRemaining] = await record.expectLengthUint16("TLS record");
   const length = recordRemaining();
@@ -1416,7 +1443,7 @@ function subtleCryptoMethod(method, args) {
   return subtleCrypto.then((cs) => cs[method](...args));
 }
 var cryptoProxy_default = new Proxy({}, {
-  get(target, property, receiver) {
+  get(target, property) {
     return (...args) => subtleCryptoMethod(property, args);
   }
 });
@@ -1426,7 +1453,7 @@ var txtEnc2 = new TextEncoder();
 async function hkdfExtract(salt, keyMaterial, hashBits) {
   const hmacKey = await cryptoProxy_default.importKey("raw", salt, { name: "HMAC", hash: { name: `SHA-${hashBits}` } },
   false, ["sign"]);
-  var prk = new Uint8Array(await cryptoProxy_default.sign("HMAC", hmacKey, keyMaterial));
+  const prk = new Uint8Array(await cryptoProxy_default.sign("HMAC", hmacKey, keyMaterial));
   return prk;
 }
 async function hkdfExpand(key, info, length, hashBits) {
@@ -2208,13 +2235,13 @@ lt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier
 subject key id: ${hexFromU8(this.subjectKeyIdentifier, " ")}` : "") + "\nissuer: " + _Cert.stringFromDistinguishedName(
     this.issuer) + (this.authorityKeyIdentifier ? `
 authority key id: ${hexFromU8(this.authorityKeyIdentifier, " ")}` : "") + "\nvalidity: " + this.validityPeriod.
-    notBefore.toISOString() + " \u2013 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ?
+    notBefore.toISOString() + " \u2014 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ?
     "currently valid" : "not valid"})` + (this.keyUsage ? `
 key usage (${this.keyUsage.critical ? "critical" : "non-critical"}): ` + [...this.keyUsage.usages].join(", ") :
     "") + (this.extKeyUsage ? `
-extended key usage: TLS server \u2014\xA0${this.extKeyUsage.serverTls}, TLS client \u2014\xA0${this.extKeyUsage.
-    clientTls}` : "") + (this.basicConstraints ? `
-basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical"}): CA \u2014\xA0${this.basicConstraints.
+extended key usage: TLS server \u2014 ${this.extKeyUsage.serverTls}, TLS client \u2014 ${this.extKeyUsage.clientTls}` :
+    "") + (this.basicConstraints ? `
+basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical"}): CA \u2014 ${this.basicConstraints.
     ca}, path length \u2014 ${this.basicConstraints.pathLength}` : "") + "\nsignature algorithm: " + descriptionForAlgorithm(
     algorithmWithOID(this.algorithm));
   }
@@ -2300,11 +2327,11 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
   const [endSigDer] = await sb.expectASN1Length(0);
   await sb.expectUint8(universalTypeInteger, 0);
   const [endSigRBytes, sigRBytesRemaining] = await sb.expectASN1Length(0);
-  let sigR = await sb.readBytes(sigRBytesRemaining());
+  const sigR = await sb.readBytes(sigRBytesRemaining());
   endSigRBytes();
   await sb.expectUint8(universalTypeInteger, 0);
   const [endSigSBytes, sigSBytesRemaining] = await sb.expectASN1Length(0);
-  let sigS = await sb.readBytes(sigSBytesRemaining());
+  const sigS = await sb.readBytes(sigSBytesRemaining());
   endSigSBytes();
   endSigDer();
   const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : (
@@ -2489,8 +2516,8 @@ async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsD
   const verifyData = concat(hellos, verifyHandshakeData);
   const finishedKey = await hkdfExpandLabel(serverSecret, "finished", new Uint8Array(0), 32, 256);
   const finishedHash = await cryptoProxy_default.digest("SHA-256", verifyData);
-  const hmacKey = await cryptoProxy_default.importKey("raw", finishedKey, { name: "HMAC", hash: { name: `SHA-2\
-56` } }, false, ["sign"]);
+  const hmacKey = await cryptoProxy_default.importKey("raw", finishedKey, { name: "HMAC", hash: { name: "SHA-2\
+56" } }, false, ["sign"]);
   const correctVerifyHashBuffer = await cryptoProxy_default.sign("HMAC", hmacKey, finishedHash);
   const correctVerifyHash = new Uint8Array(correctVerifyHashBuffer);
   await hs.expectUint8(20, 0);
@@ -2642,6 +2669,8 @@ export {
   ASN1Bytes,
   Bytes,
   Cert,
+  LazyReadFunctionReadQueue,
+  ReadMode,
   ReadQueue,
   SocketReadQueue,
   TrustedCert,

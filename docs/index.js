@@ -1148,49 +1148,56 @@ var ReadQueue = class {
   }
   dequeue() {
     if (this.outstandingRequest === void 0) return;
-    const { resolve, bytes: requestedBytes } = this.outstandingRequest;
+    const { resolve, bytes: requestedBytes, readMode } = this.outstandingRequest;
     const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < requestedBytes && this.socketIsNotClosed()) return;
+    if (bytesInQueue < requestedBytes && this.moreDataMayFollow()) return;
     const bytes = Math.min(requestedBytes, bytesInQueue);
-    if (bytes === 0) return resolve(void 0);
+    if (bytes === 0) {
+      resolve(void 0);
+      return;
+    }
     this.outstandingRequest = void 0;
     const firstItem = this.queue[0];
     const firstItemLength = firstItem.length;
     if (firstItemLength === bytes) {
-      this.queue.shift();
-      return resolve(firstItem);
-    } else if (firstItemLength > bytes) {
-      this.queue[0] = firstItem.subarray(bytes);
-      return resolve(firstItem.subarray(0, bytes));
-    } else {
-      const result = new Uint8Array(bytes);
-      let outstandingBytes = bytes;
-      let offset = 0;
-      while (outstandingBytes > 0) {
-        const nextItem = this.queue[0];
-        const nextItemLength = nextItem.length;
-        if (nextItemLength <= outstandingBytes) {
-          this.queue.shift();
-          result.set(nextItem, offset);
-          offset += nextItemLength;
-          outstandingBytes -= nextItemLength;
-        } else {
-          this.queue[0] = nextItem.subarray(outstandingBytes);
-          result.set(nextItem.subarray(0, outstandingBytes), offset);
-          outstandingBytes -= outstandingBytes;
-          offset += outstandingBytes;
-        }
-      }
-      return resolve(result);
+      if (readMode === 0 /* CONSUME */) this.queue.shift();
+      resolve(firstItem);
+      return;
     }
+    if (firstItemLength > bytes) {
+      if (readMode === 0 /* CONSUME */) this.queue[0] = firstItem.subarray(bytes);
+      resolve(firstItem.subarray(0, bytes));
+      return;
+    }
+    const result = new Uint8Array(bytes);
+    let outstandingBytes = bytes;
+    let offset = 0;
+    let consumed = 0;
+    while (outstandingBytes > 0) {
+      const nextItem = this.queue[consumed];
+      const nextItemLength = nextItem.length;
+      if (nextItemLength <= outstandingBytes) {
+        consumed++;
+        result.set(nextItem, offset);
+        offset += nextItemLength;
+        outstandingBytes -= nextItemLength;
+      } else {
+        if (readMode === 0 /* CONSUME */) this.queue[consumed] = nextItem.subarray(outstandingBytes);
+        result.set(nextItem.subarray(0, outstandingBytes), offset);
+        outstandingBytes -= outstandingBytes;
+        offset += outstandingBytes;
+      }
+    }
+    if (readMode === 0 /* CONSUME */) this.queue.splice(0, consumed);
+    resolve(result);
   }
   bytesInQueue() {
     return this.queue.reduce((memo, arr) => memo + arr.length, 0);
   }
-  async read(bytes) {
+  async read(bytes, readMode = 0 /* CONSUME */) {
     if (this.outstandingRequest !== void 0) throw new Error("Can\u2019t read while already awaiting read");
     return new Promise((resolve) => {
-      this.outstandingRequest = { resolve, bytes };
+      this.outstandingRequest = { resolve, bytes, readMode };
       this.dequeue();
     });
   }
@@ -1202,7 +1209,7 @@ var WebSocketReadQueue = class extends ReadQueue {
     socket.addEventListener("message", (msg) => this.enqueue(new Uint8Array(msg.data)));
     socket.addEventListener("close", () => this.dequeue());
   }
-  socketIsNotClosed() {
+  moreDataMayFollow() {
     const { socket } = this;
     const { readyState } = socket;
     const connecting = readyState === 0 /* CONNECTING */;
@@ -1216,7 +1223,7 @@ var LazyReadFunctionReadQueue = class extends ReadQueue {
     this.readFn = readFn;
     __publicField(this, "dataIsExhausted", false);
   }
-  async read(bytes) {
+  async read(bytes, readMode = 0 /* CONSUME */) {
     while (this.bytesInQueue() < bytes) {
       const data = await this.readFn();
       if (data === void 0) {
@@ -1225,9 +1232,9 @@ var LazyReadFunctionReadQueue = class extends ReadQueue {
       }
       if (data.length > 0) this.enqueue(data);
     }
-    return super.read(bytes);
+    return super.read(bytes, readMode);
   }
-  socketIsNotClosed() {
+  moreDataMayFollow() {
     return !this.dataIsExhausted;
   }
 };
@@ -1276,14 +1283,10 @@ var AlertRecordDescName = {
 var maxPlaintextRecordLength = 1 << 14;
 var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
 async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordLength) {
+  const nextByte = await read(1, 1 /* PEEK */);
+  if (nextByte === void 0) return;
   const record = new Bytes(read);
-  let type;
-  try {
-    type = await record.readUint8();
-  } catch (e) {
-    if (e._bytes_error_reason === "EOF") return void 0;
-    throw e;
-  }
+  const type = await record.readUint8();
   record.comment(`record type: ${RecordTypeName[type]}`);
   if (!(type in RecordTypeName)) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
   await record.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");

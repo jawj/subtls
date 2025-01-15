@@ -1,8 +1,14 @@
 import type { Socket } from 'net';
 
+export enum ReadMode {
+  CONSUME = 0,
+  PEEK = 1,
+}
+
 export interface DataRequest {
   bytes: number;
   resolve: (data: Uint8Array | undefined) => void;
+  readMode: ReadMode;
 }
 
 enum WebSocketReadyState {
@@ -20,7 +26,7 @@ export abstract class ReadQueue {
     this.queue = [];
   }
 
-  abstract socketIsNotClosed(): boolean;
+  abstract moreDataMayFollow(): boolean;
 
   enqueue(data: Uint8Array) {
     this.queue.push(data);
@@ -30,12 +36,15 @@ export abstract class ReadQueue {
   dequeue() {
     if (this.outstandingRequest === undefined) return;
 
-    const { resolve, bytes: requestedBytes } = this.outstandingRequest;
+    const { resolve, bytes: requestedBytes, readMode } = this.outstandingRequest;
     const bytesInQueue = this.bytesInQueue();
-    if (bytesInQueue < requestedBytes && this.socketIsNotClosed()) return;  // if socket remains open, wait until requested data size is available
+    if (bytesInQueue < requestedBytes && this.moreDataMayFollow()) return;  // if socket remains open, wait until requested data size is available
 
     const bytes = Math.min(requestedBytes, bytesInQueue);
-    if (bytes === 0) return resolve(undefined);
+    if (bytes === 0) {
+      resolve(undefined);
+      return;
+    }
 
     this.outstandingRequest = undefined;
 
@@ -43,46 +52,53 @@ export abstract class ReadQueue {
     const firstItemLength = firstItem.length;
 
     if (firstItemLength === bytes) {
-      this.queue.shift();
-      return resolve(firstItem);
-
-    } else if (firstItemLength > bytes) {
-      this.queue[0] = firstItem.subarray(bytes);
-      return resolve(firstItem.subarray(0, bytes));
-
-    } else {  // i.e. firstItem.length < bytes
-      const result = new Uint8Array(bytes);
-      let outstandingBytes = bytes;
-      let offset = 0;
-
-      while (outstandingBytes > 0) {
-        const nextItem = this.queue[0];
-        const nextItemLength = nextItem.length;
-        if (nextItemLength <= outstandingBytes) {
-          this.queue.shift();
-          result.set(nextItem, offset);
-          offset += nextItemLength;
-          outstandingBytes -= nextItemLength;
-
-        } else {  // nextItemLength > outstandingBytes
-          this.queue[0] = nextItem.subarray(outstandingBytes);
-          result.set(nextItem.subarray(0, outstandingBytes), offset);
-          outstandingBytes -= outstandingBytes;  // i.e. zero
-          offset += outstandingBytes;  // not technically necessary
-        }
-      }
-      return resolve(result);
+      if (readMode === ReadMode.CONSUME) this.queue.shift();
+      resolve(firstItem);
+      return;
     }
+
+    if (firstItemLength > bytes) {
+      if (readMode === ReadMode.CONSUME) this.queue[0] = firstItem.subarray(bytes);
+      resolve(firstItem.subarray(0, bytes));
+      return;
+    }
+
+    // now we know: firstItem.length < bytes
+    const result = new Uint8Array(bytes);
+    let outstandingBytes = bytes;
+    let offset = 0;
+
+    let consumed = 0;
+    while (outstandingBytes > 0) {
+      const nextItem = this.queue[consumed];
+      const nextItemLength = nextItem.length;
+      if (nextItemLength <= outstandingBytes) {
+        // this.queue.shift();
+        consumed++;
+        result.set(nextItem, offset);
+        offset += nextItemLength;
+        outstandingBytes -= nextItemLength;
+
+      } else {  // nextItemLength > outstandingBytes
+        if (readMode === ReadMode.CONSUME) this.queue[consumed] = nextItem.subarray(outstandingBytes);
+        result.set(nextItem.subarray(0, outstandingBytes), offset);
+        outstandingBytes -= outstandingBytes;  // i.e. zero
+        offset += outstandingBytes;  // not technically necessary
+      }
+    }
+
+    if (readMode === ReadMode.CONSUME) this.queue.splice(0, consumed);
+    resolve(result);
   }
 
   bytesInQueue() {
     return this.queue.reduce((memo, arr) => memo + arr.length, 0);
   }
 
-  async read(bytes: number) {
+  async read(bytes: number, readMode = ReadMode.CONSUME) {
     if (this.outstandingRequest !== undefined) throw new Error('Can’t read while already awaiting read');
     return new Promise((resolve: (data: Uint8Array | undefined) => void) => {
-      this.outstandingRequest = { resolve, bytes };
+      this.outstandingRequest = { resolve, bytes, readMode };
       this.dequeue();
     });
   }
@@ -96,7 +112,7 @@ export class WebSocketReadQueue extends ReadQueue {
     socket.addEventListener('close', () => this.dequeue());
   }
 
-  socketIsNotClosed() {
+  moreDataMayFollow() {
     const { socket } = this;
     const { readyState } = socket;
     const connecting = readyState as WebSocketReadyState === WebSocketReadyState.CONNECTING;
@@ -113,7 +129,7 @@ export class SocketReadQueue extends ReadQueue {
     socket.on('close', () => this.dequeue());
   }
 
-  socketIsNotClosed() {
+  moreDataMayFollow() {
     const { socket } = this;
     const { readyState } = socket;
     return readyState === 'opening' || readyState === 'open';
@@ -127,7 +143,7 @@ export class LazyReadFunctionReadQueue extends ReadQueue {
     super();
   }
 
-  override async read(bytes: number) {
+  override async read(bytes: number, readMode = ReadMode.CONSUME) {
     while (this.bytesInQueue() < bytes) {
       const data = await this.readFn();
       if (data === undefined) {
@@ -136,10 +152,10 @@ export class LazyReadFunctionReadQueue extends ReadQueue {
       }
       if (data.length > 0) this.enqueue(data);
     }
-    return super.read(bytes);
+    return super.read(bytes, readMode);
   }
 
-  socketIsNotClosed(): boolean {
+  moreDataMayFollow(): boolean {
     return !this.dataIsExhausted;
   }
 }
