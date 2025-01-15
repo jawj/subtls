@@ -2,24 +2,23 @@
 
 A TypeScript TLS 1.3 client with limited scope.
 
-* Built using the JS [SubtleCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto), with no external dependencies
-* Non-compliant with [the spec](https://www.rfc-editor.org/rfc/rfc8446) in various ways
-* **NOT READY FOR USE IN PRODUCTION**
+* Built using the JS [SubtleCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto), with no external dependencies (except [hextreme](https://github.com/jawj/hextreme/), by the same author)
+* Not fully compliant with [the spec](https://www.rfc-editor.org/rfc/rfc8446)
+* **Not intended for production use**
 
 ## Current scope
 
-* TLS 1.3 only
-* Client only
-* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there’s currently no SubtleCrypto support for x448, but Curve25519 is [on the way](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign#browser_compatibility))
+* Client only, TLS 1.3 only
+* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there’s currently no SubtleCrypto support for x448 or Curve25519)
 * Ciphers: TLS_AES_128_GCM_SHA256 only (TLS_AES_256_GCM_SHA384 would be easy to add; there’s currently no SubtleCrypto support for TLS_CHACHA20_POLY1305_SHA256)
 * End-user certificate verify: ECDSA (P-256) + SHA256 and RSA_PSS_RSAE_SHA256 only (some others would be easy to add)
 * Certificate chain verify: ECDSA (P-256/384) + SHA256/384 and RSASSA_PKCS1-v1_5 + SHA-256 only (some others would be easy to add)
-* No cert chain building: each cert must sign the preceding one, leading to a trusted root
 * No client certificates
+* No chain building: each certificate must sign the preceding one, leading to a trusted root
 * No Pre-Shared Keys, ignores session tickets
-* Never sends alert records: just throws an Error if something goes wrong
+* Never sends alert records, just throws an `Error` if something goes wrong
 
-Fundamentally, there’s not much of a state machine here: we just expect a mostly predictable sequence of messages, and throw if we don’t get what we expect.
+Fundamentally, there’s not much of a state machine here: we mostly just expect a predictable sequence of messages, and throw if we don’t get what we expect.
 
 ## Annotations
 
@@ -134,7 +133,7 @@ You’ll notice heavy use of the `Bytes` class (found in `src/util/bytes.ts`) th
 
   Also in evidence here is the other thing the `writeLength` and `expectLength` methods do for us: they maintain an indentation level for the binary data, indicating which parts of the binary data are subordinate to which other parts.
 
-  For example, due to the use of the `writeLength` methods and commenting, the first few bytes of the ClientHello can be logged like so (you can [see this live](https://subtls.pages.dev/)):
+  For example, due to the use of the `writeLength` methods and commenting, the first few bytes of the ClientHello can be logged like so (you can [see this live](https://bytebybyte.dev/)):
 
   ```
   16  record type: handshake
@@ -152,7 +151,9 @@ You’ll notice heavy use of the `Bytes` class (found in `src/util/bytes.ts`) th
 
   You’ll notice that all the comments here are prefixed with a conditional `chatty &&`. That means we can omit these strings from the build as dead code, and save the work of keeping track of them, by setting `chatty` to `0` when we bundle with esbuild. We’re then left with only some residual zeroes.
 
-Finally, there’s also an `ASN1Bytes` subclass of `Bytes` that adds various methods for reading ASN.1-specific data types, as used in X.509 certificates, such as lengths, OIDs, and BitStrings.
+There’s an `ASN1Bytes` subclass of `Bytes` that adds various methods for reading ASN.1-specific data types, as used in X.509 certificates, such as lengths, OIDs, and BitStrings.
+
+The other classes used in several places are the subclasses of `ReadQueue` (found in `src/util/readQueue.ts`). These turn data that arrives in arbitrary chunks, such as WebSocket messages or TLS records, into data that can be consumed a specified number of bytes at a time.
 
 ## Alternatives
 
