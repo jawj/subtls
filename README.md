@@ -10,7 +10,7 @@ A TypeScript TLS 1.3 client with limited scope.
 
 * TLS 1.3 only
 * Client only
-* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there’s currently no SubtleCrypto support for x448, but Curve25519 [on the way](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign#browser_compatibility))
+* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there’s currently no SubtleCrypto support for x448, but Curve25519 is [on the way](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign#browser_compatibility))
 * Ciphers: TLS_AES_128_GCM_SHA256 only (TLS_AES_256_GCM_SHA384 would be easy to add; there’s currently no SubtleCrypto support for TLS_CHACHA20_POLY1305_SHA256)
 * End-user certificate verify: ECDSA (P-256) + SHA256 and RSA_PSS_RSAE_SHA256 only (some others would be easy to add)
 * Certificate chain verify: ECDSA (P-256/384) + SHA256/384 and RSASSA_PKCS1-v1_5 + SHA-256 only (some others would be easy to add)
@@ -23,7 +23,18 @@ Fundamentally, there’s not much of a state machine here: we just expect a most
 
 ## Features
 
-* [Annotated and indented binary input and output](https://subtls.pages.dev/) (when built in ‘chatty’ mode)
+* [Annotated and indented binary input and output](https://bytebybyte.dev/) (when built in ‘chatty’ mode)
+
+To run this locally (where you can specify any https:// or postgresql:// URL to connect to, as the URL hash):
+
+```bash
+git clone https://github.com/jawj/subtls.git
+cd subtls
+npm install
+npm run start
+```
+
+Note: you need to be on macOS, Linux, or WSL on Windows.
 
 ## How could this ever be useful?
 
@@ -144,7 +155,7 @@ Finally, there’s also an `ASN1Bytes` subclass of `Bytes` that adds various met
 
 ## Alternatives
 
-The only alternative JS TLS implementation I’m aware of is [Forge](https://github.com/digitalbazaar/forge). This is pure JS, without SubtleCrypto, making it somewhat slow. More importantly, its TLS parts are not very actively maintained. The main project supports up to TLS 1.1. There’s a fork that supports up to TLS 1.2, but even that supports none of the modern and secure ciphers you’d want to use.
+The only alternative JS TLS implementation I’m aware of is [Forge](https://github.com/digitalbazaar/forge). This is pure JS, without SubtleCrypto, making it somewhat slow. More importantly, its TLS parts are not very actively maintained. The main project supports up to TLS 1.1. There’s a fork that supports up to TLS 1.2, but even that supports none of the modern and secure ciphers you’d want to enable in TLS 1.2.
 
 ## Name
 
