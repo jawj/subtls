@@ -3,7 +3,8 @@ import { Bytes } from '../util/bytes';
 import { hexFromU8 } from '../util/hex';
 
 export default async function parseServerHello(h: Bytes, sessionId: Uint8Array) {
-  let serverPublicKey, tlsVersionSpecified;
+  let serverPublicKey;
+  let tlsVersionSpecified;
 
   await h.expectUint8(0x02, chatty && 'handshake type: server hello');
   const [endServerHello] = await h.expectLengthUint24(chatty && 'server hello');

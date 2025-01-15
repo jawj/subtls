@@ -40,6 +40,6 @@ export async function ecdsaVerify(sb: ASN1Bytes /* signature */, publicKey: Uint
   const signatureKey = await cs.importKey('spki', publicKey, { name: 'ECDSA', namedCurve }, false, ['verify']);
   const certVerifyResult = await cs.verify({ name: 'ECDSA', hash }, signatureKey, signature, signedData);
 
-  if (certVerifyResult !== true) throw new Error('ECDSA-SECP256R1-SHA256 certificate verify failed');
+  if (certVerifyResult !== true) throw new Error('ECDSA certificate verify failed');
   chatty && log(`%c✓ ECDSA signature verified (curve ${namedCurve}, hash ${hash})`, 'color: #8c8;');
 }

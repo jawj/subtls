@@ -26,7 +26,7 @@ export async function hkdfExtract(salt: Uint8Array, keyMaterial: Uint8Array, has
   PRK = HMAC-Hash(salt, IKM)
   */
   const hmacKey = await cs.importKey('raw', salt, { name: 'HMAC', hash: { name: `SHA-${hashBits}` } }, false, ['sign']);
-  const prk = new Uint8Array(await cs.sign('HMAC', hmacKey, keyMaterial)); // yes, the key material is used as the input data, not the key
+  const prk = new Uint8Array(await cs.sign('HMAC', hmacKey, keyMaterial));  // yes, the key material is used as the input data, not the key
   return prk;
 }
 
@@ -84,6 +84,7 @@ export async function hkdfExpand(key: Uint8Array, info: Uint8Array, length: numb
 
   return okm.subarray(0, length);
 }
+
 const tls13_Bytes = txtEnc.encode('tls13 ');
 
 export async function hkdfExpandLabel(key: Uint8Array, label: string, context: Uint8Array, length: number, hashBits: 256 | 384) {
