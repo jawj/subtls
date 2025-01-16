@@ -61,7 +61,7 @@ export async function verifyCerts(
 
     } else {
       signingCert = await TrustedCert.findInDatabase(hexFromU8(subjectAuthKeyId), rootCertsDatabase);
-      chatty && signingCert && log('matched a trusted root cert on key id: %s', hexFromU8(subjectAuthKeyId, ' '));
+      chatty && signingCert && log('matched a trusted root cert on key id: %s', hexFromU8(subjectAuthKeyId));
     }
 
     if (signingCert !== undefined) {

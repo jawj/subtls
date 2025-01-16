@@ -6,20 +6,6 @@ A TypeScript TLS 1.3 client with limited scope.
 * Not fully compliant with [the spec](https://www.rfc-editor.org/rfc/rfc8446)
 * **Not intended for production use**
 
-## Current scope
-
-* Client only, TLS 1.3 only
-* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there’s currently no SubtleCrypto support for x448 or Curve25519)
-* Ciphers: TLS_AES_128_GCM_SHA256 only (TLS_AES_256_GCM_SHA384 would be easy to add; there’s currently no SubtleCrypto support for TLS_CHACHA20_POLY1305_SHA256)
-* End-user certificate verify: ECDSA (P-256) + SHA256 and RSA_PSS_RSAE_SHA256 only (some others would be easy to add)
-* Certificate chain verify: ECDSA (P-256/384) + SHA256/384 and RSASSA_PKCS1-v1_5 + SHA-256 only (some others would be easy to add)
-* No client certificates
-* No chain building: each certificate must sign the preceding one, leading to a trusted root
-* No Pre-Shared Keys, ignores session tickets
-* Never sends alert records, just throws an `Error` if something goes wrong
-
-Fundamentally, there’s not much of a state machine here: we mostly just expect a predictable sequence of messages, and throw if we don’t get what we expect.
-
 ## Annotations
 
 The library can display annotated binary input and output when built in ‘chatty’ mode. You can see this in action at [https://bytebybyte.dev](https://bytebybyte.dev).
@@ -34,7 +20,21 @@ npm run start
 # now open e.g. http://localhost:6543/#https://www.microsoft.com/robots.txt
 ```
 
-When run locally, you can specify any `https://` or `postgresql://` URL to connect to, as the URL hash. Note, however, that not all URLs will work. For example, at the time of writing, Hacker News is stuck on TLS 1.2.
+When run locally, you can specify any `https://` or `postgresql://` URL to connect to, as the URL hash. But note that not all URLs will work. For example, Hacker News is stuck on TLS 1.2 at the time of writing, and many Postgres hosts do not support channel binding.
+
+## Current scope
+
+* Client only, TLS 1.3 only
+* Key exchange: NIST P-256 ECDH only (P-384 and P-521 would be easy to add; there’s currently no SubtleCrypto support for x448 or Curve25519)
+* Ciphers: TLS_AES_128_GCM_SHA256 only (TLS_AES_256_GCM_SHA384 would be easy to add; there’s currently no SubtleCrypto support for TLS_CHACHA20_POLY1305_SHA256)
+* End-user certificate verify: ECDSA (P-256) + SHA256 and RSA_PSS_RSAE_SHA256 only (some others would be easy to add)
+* Certificate chain verify: ECDSA (P-256/384) + SHA256/384 and RSASSA_PKCS1-v1_5 + SHA-256 only (some others would be easy to add)
+* No client certificates
+* No chain building: each certificate must sign the preceding one, leading to a trusted root
+* No Pre-Shared Keys, ignores session tickets
+* Never sends alert records, just throws an `Error` if something goes wrong
+
+Fundamentally, there’s not much of a state machine here: we mostly just expect a predictable sequence of messages, and throw if we don’t get what we expect.
 
 ## How could this ever be useful?
 

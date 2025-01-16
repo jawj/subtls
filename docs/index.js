@@ -928,7 +928,8 @@ function hexFromU8(u8, spacer = "") {
 
 // src/tls/parseServerHello.ts
 async function parseServerHello(h, sessionId) {
-  let serverPublicKey, tlsVersionSpecified;
+  let serverPublicKey;
+  let tlsVersionSpecified;
   await h.expectUint8(2, "handshake type: server hello");
   const [endServerHello] = await h.expectLengthUint24("server hello");
   await h.expectUint16(771, "TLS version 1.2 (middlebox compatibility)");
@@ -1297,8 +1298,8 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
   if (type === 21 /* Alert */) {
     alertLevel = await record.readUint8("alert level:");
     record.comment(AlertRecordLevelName[alertLevel] ?? "unknown");
-    const desc = await record.readUint8("alert description:");
-    record.comment(AlertRecordDescName[desc] ?? "unknown");
+    const desc2 = await record.readUint8("alert description:");
+    record.comment(AlertRecordDescName[desc2] ?? "unknown");
   }
   log(...highlightBytes(record.commentedString(), type === 21 /* Alert */ ? "#c88" /* header */ : "#88c" /* server */));
   if (alertLevel === 2) throw new Error("Unexpected fatal alert");
@@ -1866,12 +1867,12 @@ function algorithmWithOID(oid) {
   if (algo === void 0) throw new Error(`Unsupported algorithm identifier: ${oid}`);
   return algo;
 }
-function _descriptionForAlgorithm(algo, desc = []) {
+function _descriptionForAlgorithm(algo, desc2 = []) {
   Object.values(algo).forEach((value) => {
-    if (typeof value === "string") desc = [...desc, value];
-    else desc = _descriptionForAlgorithm(value, desc);
+    if (typeof value === "string") desc2 = [...desc2, value];
+    else desc2 = _descriptionForAlgorithm(value, desc2);
   });
-  return desc;
+  return desc2;
 }
 function descriptionForAlgorithm(algo) {
   return _descriptionForAlgorithm(algo).join(" / ");
@@ -2260,8 +2261,8 @@ var Cert = class _Cert {
   }
   description() {
     return "subject: " + _Cert.stringFromDistinguishedName(this.subject) + (this.subjectAltNames ? "\nsubject alt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
-subject key id: ${hexFromU8(this.subjectKeyIdentifier, " ")}` : "") + "\nissuer: " + _Cert.stringFromDistinguishedName(this.issuer) + (this.authorityKeyIdentifier ? `
-authority key id: ${hexFromU8(this.authorityKeyIdentifier, " ")}` : "") + "\nvalidity: " + this.validityPeriod.notBefore.toISOString() + " \u2014 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? "currently valid" : "not valid"})` + (this.keyUsage ? `
+subject key id: ${hexFromU8(this.subjectKeyIdentifier)}` : "") + "\nissuer: " + _Cert.stringFromDistinguishedName(this.issuer) + (this.authorityKeyIdentifier ? `
+authority key id: ${hexFromU8(this.authorityKeyIdentifier)}` : "") + "\nvalidity: " + this.validityPeriod.notBefore.toISOString() + " \u2014 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? "currently valid" : "not valid"})` + (this.keyUsage ? `
 key usage (${this.keyUsage.critical ? "critical" : "non-critical"}): ` + [...this.keyUsage.usages].join(", ") : "") + (this.extKeyUsage ? `
 extended key usage: TLS server \u2014 ${this.extKeyUsage.serverTls}, TLS client \u2014 ${this.extKeyUsage.clientTls}` : "") + (this.basicConstraints ? `
 basic constraints (${this.basicConstraints.critical ? "critical" : "non-critical"}): CA \u2014 ${this.basicConstraints.ca}, path length \u2014 ${this.basicConstraints.pathLength}` : "") + "\nsignature algorithm: " + descriptionForAlgorithm(algorithmWithOID(this.algorithm));
@@ -2367,7 +2368,7 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
   const signature = concat(clampToLength(sigR, intLength), clampToLength(sigS, intLength));
   const signatureKey = await cryptoProxy_default.importKey("spki", publicKey, { name: "ECDSA", namedCurve }, false, ["verify"]);
   const certVerifyResult = await cryptoProxy_default.verify({ name: "ECDSA", hash }, signatureKey, signature, signedData);
-  if (certVerifyResult !== true) throw new Error("ECDSA-SECP256R1-SHA256 certificate verify failed");
+  if (certVerifyResult !== true) throw new Error("ECDSA certificate verify failed");
   log(`%c\u2713 ECDSA signature verified (curve ${namedCurve}, hash ${hash})`, "color: #8c8;");
 }
 
@@ -2402,7 +2403,7 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
       signingCert && log("matched a trusted root cert on subject/issuer distinguished name: %s", Cert.stringFromDistinguishedName(signingCert.subject));
     } else {
       signingCert = await TrustedCert.findInDatabase(hexFromU8(subjectAuthKeyId), rootCertsDatabase);
-      signingCert && log("matched a trusted root cert on key id: %s", hexFromU8(subjectAuthKeyId, " "));
+      signingCert && log("matched a trusted root cert on key id: %s", hexFromU8(subjectAuthKeyId));
     }
     if (signingCert !== void 0) {
       log("%c%s", `color: ${"#c88" /* header */}`, "trusted root certificate");
@@ -2779,7 +2780,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   const writePreData = sslRequest.array();
   transport.write(writePreData);
   const SorN = await transport.read(1);
-  log('The server tells us if it can speak SSL/TLS ("S" for yes, "N" for no):');
+  log('The server tells us if it can speak SSL/TLS ("S" for SSL, "N" for No SSL):');
   const byte = new Bytes(SorN);
   await byte.expectUint8(83, '"S" = SSL connection supported');
   log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
@@ -2842,7 +2843,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
   log("Decrypted and parsed:");
   log(...highlightBytes(preAuthBytes.commentedString(), "#88c" /* server */));
   if (authMechanism === 10) {
-    log("So the server requires [SASL authentication](https://www.postgresql.org/docs/current/sasl-authentication.html), and the supported mechanisms are: " + [...saslMechanisms].join(", ") + ".");
+    log("So the server requires [SASL authentication](https://www.postgresql.org/docs/current/sasl-authentication.html), and the supported mechanisms are: %c" + [...saslMechanisms].join(", ") + "%c.", textColour, mutedColour);
     log("We continue by picking SCRAM-SHA-256-PLUS. This is defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802) and provides channel binding (see [RFC 5056](https://datatracker.ietf.org/doc/html/rfc5056)) for some additional protection against MITM attacks.");
     log("That selection is the first part of the Postgres SASLInitialResponse we now send. The second part is a SCRAM client-first-message, which consists of three parameters: p, n and r.");
     log("p= selects the channel binding method: tls-server-end-point is the only one Postgres currently supports. A patch to also support tls-exporter ([RFC 9266](https://datatracker.ietf.org/doc/html/rfc9266)) [was discussed back in 2022](https://www.postgresql.org/message-id/YwxWWQR6uwWHBCbQ%40paquier.xyz), but ran into difficulties.");
@@ -2894,7 +2895,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     if (hashAlgo === "SHA-1" || hashAlgo === "MD5") hashAlgo = "SHA-256";
     log(...highlightColonList(`The hash we present is determined by the certificate\u2019s algorithm (unless that\u2019s MD5 or SHA-1, in which case it\u2019s upgraded to SHA-256). For this particular certificate, it\u2019s: ${hashAlgo}.`));
     const hashedCert = new Uint8Array(await cryptoProxy_default.digest(hashAlgo, userCert.rawData));
-    log(...highlightColonList(`certificate hash: ${hexFromU8(hashedCert, " ")}`));
+    log(...highlightColonList(`certificate hash: ${hexFromU8(hashedCert)}`));
     const cbindMessageB64 = toBase64(concat(te2.encode(gs2Header), hashedCert));
     const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceStr}`;
     log(`The channel-binding data (c) consists of the channel-binding header we sent before (${gs2Header}), followed by this binary hash, all base64-encoded. That completes the client-final-message-without-proof.`);
@@ -2913,13 +2914,13 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     );
     let Ui = new Uint8Array(await cryptoProxy_default.sign("HMAC", HiHmacKey, concat(salt, [0, 0, 0, 1])));
     let saltedPassword = Ui;
-    log(...highlightColonList(`first result: ${hexFromU8(saltedPassword, " ")}`));
+    log(...highlightColonList(`first result: ${hexFromU8(saltedPassword)}`));
     for (let i = 1; i < iterations; i++) {
       Ui = new Uint8Array(await cryptoProxy_default.sign("HMAC", HiHmacKey, Ui));
       saltedPassword = saltedPassword.map((x, j) => x ^ Ui[j]);
     }
     log(`... ${iterations - 2} intermediate results ...`);
-    log(...highlightColonList(`final result \u2014 the SaltedPassword: ${hexFromU8(saltedPassword, " ")}`));
+    log(...highlightColonList(`final result \u2014 the SaltedPassword: ${hexFromU8(saltedPassword)}`));
     const ckHmacKey = await cryptoProxy_default.importKey(
       "raw",
       saltedPassword,
@@ -2929,10 +2930,10 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
     );
     const clientKey = new Uint8Array(await cryptoProxy_default.sign("HMAC", ckHmacKey, te2.encode("Client Key")));
     log('Next, we generate the ClientKey. It\u2019s an HMAC of the string "Client Key" using that SaltedPassword.');
-    log(...highlightColonList(`ClientKey: ${hexFromU8(clientKey, " ")}`));
+    log(...highlightColonList(`ClientKey: ${hexFromU8(clientKey)}`));
     const storedKey = new Uint8Array(await cryptoProxy_default.digest("SHA-256", clientKey));
     log("The StoredKey is then the SHA-256 hash of the ClientKey.");
-    log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey, " ")}`));
+    log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey)}`));
     log(`The StoredKey is one of the auth parameters stored by Postgres. In fact, you\u2019ll see the base64-encoded StoredKey ([alongside the salt, iteration count, and some other parameters](https://www.postgresql.org/docs/current/catalog-pg-authid.html)) if you run the following query against your database: SELECT rolpassword FROM pgauthid WHERE rolname='${user.replace(/'/g, "''")}'.`);
     log(...highlightColonList(`StoredKey, base64-encoded: ${toBase64(storedKey)}`));
     log("We now need to calculate the ClientSignature. This is an HMAC of the AuthMessage, which is itself a concatenation of the three previous messages sent between client and server.");
@@ -2946,10 +2947,10 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
       ["sign"]
     );
     const clientSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", csHmacKey, te2.encode(authMessage)));
-    log(...highlightColonList(`ClientSignature: ${hexFromU8(clientSignature, " ")}`));
+    log(...highlightColonList(`ClientSignature: ${hexFromU8(clientSignature)}`));
     log("And at last we can calculate the proof (p), by XORing this ClientSignature with the ClientKey.");
     const clientProof = clientKey.map((x, i) => x ^ clientSignature[i]);
-    log(...highlightColonList(`ClientProof: ${hexFromU8(clientProof, " ")}`));
+    log(...highlightColonList(`ClientProof: ${hexFromU8(clientProof)}`));
     log(...highlightColonList(`ClientProof, base64-encoded: ${toBase64(clientProof)}`));
     log("We\u2019re now ready to send the client-final-message as a Postgres SASLResponse:");
     const clientProofB64 = toBase64(clientProof);
@@ -2982,7 +2983,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
       ["sign"]
     );
     const serverKey = new Uint8Array(await cryptoProxy_default.sign("HMAC", skHmacKey, te2.encode("Server Key")));
-    log(...highlightColonList(`ServerKey: ${hexFromU8(serverKey, " ")}`));
+    log(...highlightColonList(`ServerKey: ${hexFromU8(serverKey)}`));
     log("Then we make the ServerSignature, as an HMAC of the AuthMessage (as defined above) using the ServerKey.");
     const ssbHmacKey = await cryptoProxy_default.importKey(
       "raw",
@@ -2992,7 +2993,7 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
       ["sign"]
     );
     const serverSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", ssbHmacKey, te2.encode(authMessage)));
-    log(...highlightColonList(`ServerSignature: ${hexFromU8(serverSignature, " ")}`));
+    log(...highlightColonList(`ServerSignature: ${hexFromU8(serverSignature)}`));
     const serverSignatureB64 = toBase64(serverSignature);
     log(...highlightColonList(`ServerSignature, base64-encoded: ${serverSignatureB64}`));
     const remoteServerSignatureB64 = Object.fromEntries(saslOutcome.split(",").map((v) => [v[0], v.slice(2)])).v;
@@ -3167,17 +3168,27 @@ async function wsTransport(host, port, close = () => {
 }
 
 // src/index.ts
+var qs = (sel) => document.querySelector(sel);
+var pgTab = qs("#postgres");
+var httpsTab = qs("#https");
+var goBtn = qs("#go");
+var heading = qs("#heading");
+var desc = qs("#description");
+var logs = qs("#logs");
 var urlStr = location.hash.slice(1);
-var pg = urlStr && urlStr.startsWith("postgres");
-var web = urlStr && urlStr.startsWith("https");
-var goBtn = document.getElementById("go");
-var heading = document.getElementById("heading");
+var pg = /\?postgres(ql)?/i.test(location.search);
+(pg ? pgTab : httpsTab).classList.add("active");
+(pg ? httpsTab : pgTab).classList.remove("active");
 if (pg) {
-  goBtn.value = "Ask Postgres the time over TLS";
-  heading.textContent = "Postgres + TLS, byte-by-byte, LIVE!";
+  goBtn.value = "Ask Postgres the time, live";
+  heading.innerHTML = "A live Postgres query with TLS channel binding, byte by byte";
+  desc.innerHTML = 'This page connects to a <a href="https://neon.tech">Neon</a> PostgreSQL instance using <a href="https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256">SCRAM-SHA-256-PLUS</a> auth and issues a <span class="q">SELECT now()</span>.';
+  if (!urlStr.startsWith("postgres")) urlStr = "postgresql://frodo:correct-horse-battery-staple@ep-crimson-sound-a8nnh11s-pooler.eastus2.azure.neon.tech/neondb";
+} else {
+  if (!urlStr.startsWith("https")) urlStr = "https://bytebybyte.dev";
 }
 goBtn.addEventListener("click", () => {
-  document.querySelector("#logs")?.replaceChildren();
+  logs.replaceChildren();
   if (pg) void postgres(urlStr, wsTransport, false);
-  else void https(web ? urlStr : "https://bytebybyte.dev", "GET", wsTransport);
+  else void https(urlStr, "GET", wsTransport);
 });

@@ -1,7 +1,7 @@
 import { fromBase64, toBase64 } from 'hextreme';
 import { Bytes } from './util/bytes';
 import { LogColours } from './presentation/appearance';
-import { highlightBytes, highlightColonList } from './presentation/highlights';
+import { highlightBytes, highlightColonList, mutedColour, textColour } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
 import { getRandomValues } from './util/cryptoRandom';
@@ -53,7 +53,7 @@ export async function postgres(
 
   transport.write(writePreData);
   const SorN = await transport.read(1);
-  chatty && log('The server tells us if it can speak SSL/TLS ("S" for yes, "N" for no):');
+  chatty && log('The server tells us if it can speak SSL/TLS ("S" for SSL, "N" for No SSL):');
   const byte = new Bytes(SorN);
   await byte.expectUint8(0x53, '"S" = SSL connection supported');
   chatty && log(...highlightBytes(byte.commentedString(), LogColours.server));
@@ -145,7 +145,7 @@ export async function postgres(
   // SASL/SCRAM
 
   if (authMechanism === 10) {  // continue SASL auth
-    chatty && log('So the server requires [SASL authentication](https://www.postgresql.org/docs/current/sasl-authentication.html), and the supported mechanisms are: ' + [...saslMechanisms].join(', ') + '.');
+    chatty && log('So the server requires [SASL authentication](https://www.postgresql.org/docs/current/sasl-authentication.html), and the supported mechanisms are: %c' + [...saslMechanisms].join(', ') + '%c.', textColour, mutedColour);
     chatty && log('We continue by picking SCRAM-SHA-256-PLUS. This is defined in [RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802) and provides channel binding (see [RFC 5056](https://datatracker.ietf.org/doc/html/rfc5056)) for some additional protection against MITM attacks.');
     chatty && log('That selection is the first part of the Postgres SASLInitialResponse we now send. The second part is a SCRAM client-first-message, which consists of three parameters: p, n and r.');
     chatty && log('p= selects the channel binding method: tls-server-end-point is the only one Postgres currently supports. A patch to also support tls-exporter ([RFC 9266](https://datatracker.ietf.org/doc/html/rfc9266)) [was discussed back in 2022](https://www.postgresql.org/message-id/YwxWWQR6uwWHBCbQ%40paquier.xyz), but ran into difficulties.');
@@ -216,7 +216,7 @@ export async function postgres(
 
     const hashedCert = new Uint8Array(await cs.digest(hashAlgo, userCert.rawData));
 
-    chatty && log(...highlightColonList(`certificate hash: ${hexFromU8(hashedCert, ' ')}`));
+    chatty && log(...highlightColonList(`certificate hash: ${hexFromU8(hashedCert)}`));
 
     const cbindMessageB64 = toBase64(concat(te.encode(gs2Header), hashedCert));
     const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceStr}`;
@@ -257,7 +257,7 @@ export async function postgres(
     let Ui = new Uint8Array(await cs.sign('HMAC', HiHmacKey, concat(salt, [0, 0, 0, 1])));
     let saltedPassword = Ui;
 
-    chatty && log(...highlightColonList(`first result: ${hexFromU8(saltedPassword, ' ')}`));
+    chatty && log(...highlightColonList(`first result: ${hexFromU8(saltedPassword)}`));
 
     for (let i = 1; i < iterations; i++) {
       Ui = new Uint8Array(await cs.sign('HMAC', HiHmacKey, Ui));
@@ -265,7 +265,7 @@ export async function postgres(
     }
 
     chatty && log(`... ${iterations - 2} intermediate results ...`);
-    chatty && log(...highlightColonList(`final result — the SaltedPassword: ${hexFromU8(saltedPassword, ' ')}`));
+    chatty && log(...highlightColonList(`final result — the SaltedPassword: ${hexFromU8(saltedPassword)}`));
 
     const ckHmacKey = await cs.importKey(
       'raw',
@@ -277,12 +277,12 @@ export async function postgres(
     const clientKey = new Uint8Array(await cs.sign('HMAC', ckHmacKey, te.encode('Client Key')));
 
     chatty && log('Next, we generate the ClientKey. It’s an HMAC of the string "Client Key" using that SaltedPassword.');
-    chatty && log(...highlightColonList(`ClientKey: ${hexFromU8(clientKey, ' ')}`));
+    chatty && log(...highlightColonList(`ClientKey: ${hexFromU8(clientKey)}`));
 
     const storedKey = new Uint8Array(await cs.digest('SHA-256', clientKey));
 
     chatty && log('The StoredKey is then the SHA-256 hash of the ClientKey.');
-    chatty && log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey, ' ')}`));
+    chatty && log(...highlightColonList(`StoredKey: ${hexFromU8(storedKey)}`));
 
     chatty && log(`The StoredKey is one of the auth parameters stored by Postgres. In fact, you’ll see the base64-encoded StoredKey ([alongside the salt, iteration count, and some other parameters](https://www.postgresql.org/docs/current/catalog-pg-authid.html)) if you run the following query against your database: SELECT rolpassword FROM pgauthid WHERE rolname='${user.replace(/'/g, "''")}'.`);
 
@@ -301,12 +301,12 @@ export async function postgres(
       ['sign'],
     );
     const clientSignature = new Uint8Array(await cs.sign('HMAC', csHmacKey, te.encode(authMessage)));
-    chatty && log(...highlightColonList(`ClientSignature: ${hexFromU8(clientSignature, ' ')}`));
+    chatty && log(...highlightColonList(`ClientSignature: ${hexFromU8(clientSignature)}`));
 
     chatty && log('And at last we can calculate the proof (p), by XORing this ClientSignature with the ClientKey.');
 
     const clientProof = clientKey.map((x, i) => x ^ clientSignature[i]);
-    chatty && log(...highlightColonList(`ClientProof: ${hexFromU8(clientProof, ' ')}`));
+    chatty && log(...highlightColonList(`ClientProof: ${hexFromU8(clientProof)}`));
     chatty && log(...highlightColonList(`ClientProof, base64-encoded: ${toBase64(clientProof)}`));
 
     chatty && log('We’re now ready to send the client-final-message as a Postgres SASLResponse:');
@@ -348,7 +348,7 @@ export async function postgres(
       ['sign'],
     );
     const serverKey = new Uint8Array(await cs.sign('HMAC', skHmacKey, te.encode('Server Key')));
-    chatty && log(...highlightColonList(`ServerKey: ${hexFromU8(serverKey, ' ')}`));
+    chatty && log(...highlightColonList(`ServerKey: ${hexFromU8(serverKey)}`));
 
     chatty && log('Then we make the ServerSignature, as an HMAC of the AuthMessage (as defined above) using the ServerKey.');
 
@@ -360,7 +360,7 @@ export async function postgres(
       ['sign'],
     );
     const serverSignature = new Uint8Array(await cs.sign('HMAC', ssbHmacKey, te.encode(authMessage)));
-    chatty && log(...highlightColonList(`ServerSignature: ${hexFromU8(serverSignature, ' ')}`));
+    chatty && log(...highlightColonList(`ServerSignature: ${hexFromU8(serverSignature)}`));
 
     const serverSignatureB64 = toBase64(serverSignature);
     chatty && log(...highlightColonList(`ServerSignature, base64-encoded: ${serverSignatureB64}`));

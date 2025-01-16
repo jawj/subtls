@@ -6,6 +6,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {
+    ignores: ['docs/*'],
     languageOptions: {
       parserOptions: {
         projectService: {
@@ -15,8 +16,6 @@ export default tseslint.config(
         tsconfigRootDir: import.meta.dirname,
       },
     },
-  },
-  {
     plugins: {
       '@stylistic': stylistic,
     },
@@ -31,7 +30,6 @@ export default tseslint.config(
       '@typescript-eslint/triple-slash-reference': 'off',
       '@stylistic/quotes': ['warn', 'single', { avoidEscape: true }],
       '@stylistic/semi': 'warn',
-    },
-    ignores: ['eslint.config.mjs'],
+    }
   }
 );

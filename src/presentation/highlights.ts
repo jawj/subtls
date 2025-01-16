@@ -3,8 +3,8 @@ import { indentChars } from './appearance';
 
 const regex = new RegExp(`  .+|^(${indentChars})+`, 'gm');
 const dotColour = 'color: #ddd';
-const textColour = 'color: #111';
-const mutedColour = 'color: #777';
+export const textColour = 'color: #111';
+export const mutedColour = 'color: #777';
 
 export function highlightBytes(s: string, colour: string) {
   const css: string[] = [textColour];

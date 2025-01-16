@@ -10,8 +10,46 @@ a {
   text-decoration: none;
 }
 
+h1 {
+  line-height: 1.25;
+}
+
+#tabs {
+  border-bottom: 1px solid #aaa;
+  background: #aaa;
+  padding: 1ex 5ex 0;
+}
+
+#tabs a.tab {
+  display: inline-block;
+  padding: .75ex 2.5ex .65ex;
+  position: relative;
+  top: 1px;
+  background: #eee;
+  border-bottom: 1px solid #aaa;
+  border-top-left-radius: 2ex;
+  border-top-right-radius: 2ex;
+  color: inherit;
+  box-shadow: inset 0 -2px 4px #ddd;
+}
+
+#tabs .tab.active {
+  border-color: #fff;
+  background: #fff;
+  cursor: default;
+  box-shadow: unset;
+}
+
 .discussion {
   padding: 3ex 5ex 1ex;
+}
+
+.q {
+  display: inline-block;
+  padding: 0 3px;
+  font-family: Monaco, Menlo, Consolas, monospace;
+  font-size: 95%;
+  background: #eee;
 }
 
 #logs input[type=checkbox] {

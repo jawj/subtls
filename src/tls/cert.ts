@@ -536,9 +536,9 @@ export class Cert {
   description() {
     return 'subject: ' + Cert.stringFromDistinguishedName(this.subject) +
       (this.subjectAltNames ? '\nsubject alt names: ' + this.subjectAltNames.join(', ') : '') +
-      (this.subjectKeyIdentifier ? `\nsubject key id: ${hexFromU8(this.subjectKeyIdentifier, ' ')}` : '') +
+      (this.subjectKeyIdentifier ? `\nsubject key id: ${hexFromU8(this.subjectKeyIdentifier)}` : '') +
       '\nissuer: ' + Cert.stringFromDistinguishedName(this.issuer) +
-      (this.authorityKeyIdentifier ? `\nauthority key id: ${hexFromU8(this.authorityKeyIdentifier, ' ')}` : '') +
+      (this.authorityKeyIdentifier ? `\nauthority key id: ${hexFromU8(this.authorityKeyIdentifier)}` : '') +
       '\nvalidity: ' + this.validityPeriod.notBefore.toISOString() + ' — ' + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? 'currently valid' : 'not valid'})` +
       (this.keyUsage ? `\nkey usage (${this.keyUsage.critical ? 'critical' : 'non-critical'}): ` +
         [...this.keyUsage.usages].join(', ') : '') +
