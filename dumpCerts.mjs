@@ -5,11 +5,11 @@
 // or on a Mac:
 //   cat '/etc/ssl/cert.pem' | ./dumpCerts.mjs
 
-import { readFileSync, writeFileSync } from 'fs';
+import { readFile, writeFile } from 'fs/promises';
 import { TrustedCert } from './index.js';
 
-const pem = readFileSync('/dev/stdin', { encoding: 'utf8' });
-const { index, data } = TrustedCert.databaseFromPEM(pem);
+const pem = await readFile('/dev/stdin', { encoding: 'utf8' });
+const { index, data } = await TrustedCert.databaseFromPEM(pem);
 
-writeFileSync('docs/certs.bin', data);
-writeFileSync('docs/certs.index.json', JSON.stringify(index), { encoding: 'utf8' });
+await writeFile('docs/certs.bin', data);
+await writeFile('docs/certs.index.json', JSON.stringify(index), { encoding: 'utf8' });
