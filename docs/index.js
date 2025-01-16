@@ -2758,9 +2758,9 @@ function parseAsHTTP(url, parseQueryString = false) {
 
 // src/postgres.ts
 var te2 = new TextEncoder();
-async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false) {
+async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false) {
   const t0 = Date.now();
-  const url = parseAsHTTP(urlStr2);
+  const url = parseAsHTTP(urlStr);
   const host = url.hostname;
   const port = url.port || "5432";
   const db = url.pathname.slice(1);
@@ -3113,9 +3113,9 @@ async function postgres(urlStr2, transportFactory, pipelinedPasswordAuth = false
 
 // src/https.ts
 var txtDec3 = new TextDecoder();
-async function https(urlStr2, method, transportFactory) {
+async function https(urlStr, method, transportFactory) {
   const t0 = Date.now();
-  const url = new URL(urlStr2);
+  const url = new URL(urlStr);
   if (url.protocol !== "https:") throw new Error("Wrong protocol");
   const host = url.hostname;
   const port = url.port || 443;
@@ -3175,7 +3175,6 @@ var goBtn = qs("#go");
 var heading = qs("#heading");
 var desc = qs("#description");
 var logs = qs("#logs");
-var urlStr = location.hash.slice(1);
 var pg = /\?postgres(ql)?/i.test(location.search);
 (pg ? pgTab : httpsTab).classList.add("active");
 (pg ? httpsTab : pgTab).classList.remove("active");
@@ -3183,12 +3182,15 @@ if (pg) {
   goBtn.value = "Ask Postgres the time, live";
   heading.innerHTML = "A live Postgres query with TLS channel binding, byte by byte";
   desc.innerHTML = 'This page connects to a <a href="https://neon.tech">Neon</a> PostgreSQL instance using <a href="https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256">SCRAM-SHA-256-PLUS</a> auth and issues a <span class="q">SELECT now()</span>.';
-  if (!urlStr.startsWith("postgres")) urlStr = "postgresql://frodo:correct-horse-battery-staple@ep-crimson-sound-a8nnh11s-pooler.eastus2.azure.neon.tech/neondb";
-} else {
-  if (!urlStr.startsWith("https")) urlStr = "https://bytebybyte.dev";
 }
 goBtn.addEventListener("click", () => {
   logs.replaceChildren();
-  if (pg) void postgres(urlStr, wsTransport, false);
-  else void https(urlStr, "GET", wsTransport);
+  let urlStr = location.hash.slice(1);
+  if (pg) {
+    if (!urlStr.startsWith("postgres")) urlStr = "postgresql://frodo:correct-horse-battery-staple@ep-crimson-sound-a8nnh11s-pooler.eastus2.azure.neon.tech/neondb";
+    void postgres(urlStr, wsTransport, false);
+  } else {
+    if (!urlStr.startsWith("https")) urlStr = "https://bytebybyte.dev";
+    void https(urlStr, "GET", wsTransport);
+  }
 });
