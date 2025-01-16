@@ -326,7 +326,7 @@ export async function postgres(
     chatty && log('And as ciphertext:');
     await write(saslResponse.array());
 
-    chatty && log('The server responds with a base64-encoded ServerSignature (v):');
+    chatty && log('The server responds with a base64-encoded ServerSignature (v) — plus likely some further data that we’ll parse below.');
 
     const authSaslFinalBytes = new Bytes(read);
     await authSaslFinalBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
