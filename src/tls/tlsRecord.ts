@@ -92,7 +92,7 @@ export async function readTlsRecord(read: (length: number, readMode?: ReadMode) 
 
   chatty && log(...highlightBytes(record.commentedString(), type === RecordType.Alert ? LogColours.header : LogColours.server));
 
-  if (alertLevel === 2) throw new Error('Unexpected fatal alert');
+  if (alertLevel === 2) throw new Error('Fatal alert message received');
   else if (alertLevel === 1) return readTlsRecord(read, expectedType, maxLength);  // ignore and continue
 
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);

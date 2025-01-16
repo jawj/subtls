@@ -1302,7 +1302,7 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
     record.comment(AlertRecordDescName[desc2] ?? "unknown");
   }
   log(...highlightBytes(record.commentedString(), type === 21 /* Alert */ ? "#c88" /* header */ : "#88c" /* server */));
-  if (alertLevel === 2) throw new Error("Unexpected fatal alert");
+  if (alertLevel === 2) throw new Error("Fatal alert message received");
   else if (alertLevel === 1) return readTlsRecord(read, expectedType, maxLength);
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   const rawHeader = record.array();
@@ -2410,7 +2410,7 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
       signingCert && log(...highlightColonList(signingCert.description()));
     }
     if (signingCert === void 0) signingCert = certs[i + 1];
-    if (signingCert === void 0) throw new Error("Ran out of certificates before reaching trusted root");
+    if (signingCert === void 0) throw new Error("Ran out of certificates without reaching a trusted root");
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
     log(`checking ${signingCertIsTrustedRoot ? "trusted root" : "intermediate"} signing certificate CN "${stringFromCN(signingCert.subject.CN)}" ...`);
     if (signingCert.isValidAtMoment() !== true) throw new Error("Signing certificate is not valid now");
@@ -3180,17 +3180,21 @@ var pg = /\?postgres(ql)?/i.test(location.search);
 (pg ? httpsTab : pgTab).classList.remove("active");
 if (pg) {
   goBtn.value = "Ask Postgres the time, live";
-  heading.innerHTML = "A live Postgres query with TLS channel binding, byte by byte";
+  heading.innerHTML = "Live Postgres query with TLS channel binding, byte by byte";
   desc.innerHTML = 'This page connects to a <a href="https://neon.tech">Neon</a> PostgreSQL instance using <a href="https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256">SCRAM-SHA-256-PLUS</a> auth and issues a <span class="q">SELECT now()</span>.';
 }
+var logAndRethrow = (e) => {
+  log(`%cError: ${e.message}%c`, `color: ${"#c88" /* header */}`, textColour);
+  throw e;
+};
 goBtn.addEventListener("click", () => {
   logs.replaceChildren();
   let urlStr = location.hash.slice(1);
   if (pg) {
     if (!urlStr.startsWith("postgres")) urlStr = "postgresql://frodo:correct-horse-battery-staple@ep-crimson-sound-a8nnh11s-pooler.eastus2.azure.neon.tech/neondb";
-    void postgres(urlStr, wsTransport, false);
+    postgres(urlStr, wsTransport, false).catch(logAndRethrow);
   } else {
     if (!urlStr.startsWith("https")) urlStr = "https://bytebybyte.dev";
-    void https(urlStr, "GET", wsTransport);
+    https(urlStr, "GET", wsTransport).catch(logAndRethrow);
   }
 });

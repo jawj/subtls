@@ -73,7 +73,7 @@ export async function verifyCerts(
     if (signingCert === undefined) signingCert = certs[i + 1];
 
     // if we still didn't find a signing certificate, give up
-    if (signingCert === undefined) throw new Error('Ran out of certificates before reaching trusted root');
+    if (signingCert === undefined) throw new Error('Ran out of certificates without reaching a trusted root');
 
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
 
