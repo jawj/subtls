@@ -2965,7 +2965,7 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
     log(...highlightBytes(saslResponse.commentedString(), "#8cc" /* client */));
     log("And as ciphertext:");
     await write(saslResponse.array());
-    log("The server responds with a base64-encoded ServerSignature (v):");
+    log("The server responds with a base64-encoded ServerSignature (v) \u2014 plus likely some further data that we\u2019ll parse below.");
     const authSaslFinalBytes = new Bytes(read);
     await authSaslFinalBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
     const [endAuthSaslFinal, authSaslFinalRemaining] = await authSaslFinalBytes.expectLengthUint32Incl("message");
@@ -3000,7 +3000,7 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
     if (remoteServerSignatureB64 !== serverSignatureB64) throw new Error("Server signature mismatch");
     log("%c\u2713 server signature matches locally-generated server signature", "color: #8c8;");
   }
-  log("Now the server tells us we\u2019re in, and provides some other useful data. Encrypted, that\u2019s:");
+  log("Now the server tells us we\u2019re in, and provides some other useful data.");
   const postAuthBytes = new Bytes(read);
   await postAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
   const [endAuthOK] = await postAuthBytes.expectLengthUint32Incl("authentication result");
