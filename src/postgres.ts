@@ -371,7 +371,7 @@ export async function postgres(
     chatty && log('%c✓ server signature matches locally-generated server signature', 'color: #8c8;');
   }
 
-  chatty && log('Now the server tells us we’re in, and provides some other useful data. Encrypted, that’s:');
+  chatty && log('Now the server tells us we’re in, and provides some other useful data.');
 
   const postAuthBytes = new Bytes(read);
   await postAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
