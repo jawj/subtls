@@ -994,7 +994,8 @@ function hexFromU8(u8, spacer = "") {
 
 // src/tls/parseServerHello.ts
 async function parseServerHello(h, sessionId) {
-  let serverPublicKey, tlsVersionSpecified;
+  let serverPublicKey;
+  let tlsVersionSpecified;
   await h.expectUint8(2, 0);
   const [endServerHello] = await h.expectLengthUint24(0);
   await h.expectUint16(771, 0);
@@ -1352,7 +1353,7 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
     alertLevel = await record.readUint8(0);
     const desc = await record.readUint8(0);
   }
-  if (alertLevel === 2) throw new Error("Unexpected fatal alert");
+  if (alertLevel === 2) throw new Error("Fatal alert message received");
   else if (alertLevel === 1) return readTlsRecord(read, expectedType, maxLength);
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(
   16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
@@ -2232,11 +2233,11 @@ icy qualifier data");
   description() {
     return "subject: " + _Cert.stringFromDistinguishedName(this.subject) + (this.subjectAltNames ? "\nsubject a\
 lt names: " + this.subjectAltNames.join(", ") : "") + (this.subjectKeyIdentifier ? `
-subject key id: ${hexFromU8(this.subjectKeyIdentifier, " ")}` : "") + "\nissuer: " + _Cert.stringFromDistinguishedName(
+subject key id: ${hexFromU8(this.subjectKeyIdentifier)}` : "") + "\nissuer: " + _Cert.stringFromDistinguishedName(
     this.issuer) + (this.authorityKeyIdentifier ? `
-authority key id: ${hexFromU8(this.authorityKeyIdentifier, " ")}` : "") + "\nvalidity: " + this.validityPeriod.
-    notBefore.toISOString() + " \u2014 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ?
-    "currently valid" : "not valid"})` + (this.keyUsage ? `
+authority key id: ${hexFromU8(this.authorityKeyIdentifier)}` : "") + "\nvalidity: " + this.validityPeriod.notBefore.
+    toISOString() + " \u2014 " + this.validityPeriod.notAfter.toISOString() + ` (${this.isValidAtMoment() ? "c\
+urrently valid" : "not valid"})` + (this.keyUsage ? `
 key usage (${this.keyUsage.critical ? "critical" : "non-critical"}): ` + [...this.keyUsage.usages].join(", ") :
     "") + (this.extKeyUsage ? `
 extended key usage: TLS server \u2014 ${this.extKeyUsage.serverTls}, TLS client \u2014 ${this.extKeyUsage.clientTls}` :
@@ -2346,7 +2347,7 @@ async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
   const signatureKey = await cryptoProxy_default.importKey("spki", publicKey, { name: "ECDSA", namedCurve }, false,
   ["verify"]);
   const certVerifyResult = await cryptoProxy_default.verify({ name: "ECDSA", hash }, signatureKey, signature, signedData);
-  if (certVerifyResult !== true) throw new Error("ECDSA-SECP256R1-SHA256 certificate verify failed");
+  if (certVerifyResult !== true) throw new Error("ECDSA certificate verify failed");
 }
 
 // src/tls/verifyCerts.ts
@@ -2373,7 +2374,7 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
     if (signingCert !== void 0) {
     }
     if (signingCert === void 0) signingCert = certs[i + 1];
-    if (signingCert === void 0) throw new Error("Ran out of certificates before reaching trusted root");
+    if (signingCert === void 0) throw new Error("Ran out of certificates without reaching a trusted root");
     const signingCertIsTrustedRoot = signingCert instanceof TrustedCert;
     if (signingCert.isValidAtMoment() !== true) throw new Error("Signing certificate is not valid now");
     if (requireDigitalSigKeyUsage) {
