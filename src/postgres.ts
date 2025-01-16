@@ -132,7 +132,7 @@ export async function postgres(
     }
     await preAuthBytes.expectUint8(0, chatty && 'end of list');
 
-    if (!saslMechanisms.has('SCRAM-SHA-256-PLUS')) throw new Error('SCRAM-SHA-256 without channel binding is not supported');
+    if (!saslMechanisms.has('SCRAM-SHA-256-PLUS')) throw new Error('This software only supports SCRAM-SHA-256-PLUS (with channel binding)');
 
   } else {
     throw new Error(`Unsupported auth mechanism: ${authMechanism}`);
