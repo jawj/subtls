@@ -128,7 +128,7 @@ export async function readEncryptedHandshake(
     certs.push(cert);
     endCert();
 
-    const [endCertExt, certExtRemaining] = await hs.expectLengthUint16('certificate extensions');
+    const [endCertExt, certExtRemaining] = await hs.expectLengthUint16(chatty && 'certificate extensions');
     await hs.skipRead(certExtRemaining());
     endCertExt();
   }

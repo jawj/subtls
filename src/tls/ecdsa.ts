@@ -7,16 +7,16 @@ import cs from '../util/cryptoProxy';
 export async function ecdsaVerify(sb: ASN1Bytes /* signature */, publicKey: Uint8Array, signedData: Uint8Array, namedCurve: 'P-256' | 'P-384', hash: 'SHA-256' | 'SHA-384') {
   const [endSigDer] = await sb.expectASN1Sequence();
 
-  await sb.expectUint8(universalTypeInteger, chatty && 'integer');
+  await sb.expectUint8(universalTypeInteger, chatty && 'integer: signature — r');
   const [endSigRBytes, sigRBytesRemaining] = await sb.expectASN1Length(chatty && 'integer');
   const sigR = await sb.readBytes(sigRBytesRemaining());
-  chatty && sb.comment('signature: r');
+  chatty && sb.comment('signature — r');
   endSigRBytes();
 
-  await sb.expectUint8(universalTypeInteger, chatty && 'integer');
+  await sb.expectUint8(universalTypeInteger, chatty && 'integer: signature — s');
   const [endSigSBytes, sigSBytesRemaining] = await sb.expectASN1Length(chatty && 'integer');
   const sigS = await sb.readBytes(sigSBytesRemaining());
-  chatty && sb.comment('signature: s');
+  chatty && sb.comment('signature — s');
   endSigSBytes();
 
   endSigDer();

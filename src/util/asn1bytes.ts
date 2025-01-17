@@ -1,4 +1,4 @@
-import { constructedUniversalTypeSequence, universalTypeBitString, universalTypeBoolean, universalTypeNull, universalTypeOctetString, universalTypeOID } from '../tls/certUtils';
+import { constructedUniversalTypeSequence, universalTypeBitString, universalTypeBoolean, universalTypeGeneralizedTime, universalTypeNull, universalTypeOctetString, universalTypeOID, universalTypeUTCTime } from '../tls/certUtils';
 import { Bytes } from './bytes';
 import { hexFromU8 } from './hex';
 
@@ -24,9 +24,13 @@ export class ASN1Bytes extends Bytes {
     return this.expectReadLength(length);
   }
 
+  async expectASN1TypeAndLength(typeNum: number, typeDesc: string, comment?: string) {
+    await this.expectUint8(typeNum, chatty && (comment ? `${typeDesc}: ${comment}` : typeDesc));
+    return this.expectASN1Length(chatty && typeDesc);
+  }
+
   async readASN1OID(comment?: string) {
-    await this.expectUint8(universalTypeOID, chatty && (comment ? `OID: ${comment}` : 'OID'));
-    const [endOID, OIDRemaining] = await this.expectASN1Length(chatty && 'OID');
+    const [endOID, OIDRemaining] = await this.expectASN1TypeAndLength(universalTypeOID, 'OID', comment);
     const byte1 = await this.readUint8();
     let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
     while (OIDRemaining() > 0) {  // loop over numbers in OID
@@ -45,8 +49,7 @@ export class ASN1Bytes extends Bytes {
   }
 
   async readASN1Boolean(comment?: string) {
-    await this.expectUint8(universalTypeBoolean, chatty && (comment ? `boolean: ${comment}` : 'boolean'));
-    const [endBoolean, booleanRemaining] = await this.expectASN1Length(chatty && 'boolean');
+    const [endBoolean, booleanRemaining] = await this.expectASN1TypeAndLength(universalTypeBoolean, 'boolean', comment);
     const length = booleanRemaining();
     if (length !== 1) throw new Error(`Boolean has unexpected length: ${length}`);
     const byte = await this.readUint8();
@@ -60,8 +63,8 @@ export class ASN1Bytes extends Bytes {
     return result;
   }
 
-  async readASN1UTCTime() {
-    const [endTime, timeRemaining] = await this.expectASN1Length(chatty && 'UTC time');
+  async readASN1UTCTime(comment?: string) {
+    const [endTime, timeRemaining] = await this.expectASN1TypeAndLength(universalTypeUTCTime, 'UTC time', comment);
     const timeStr = await this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
     if (!parts) throw new Error('Unrecognised ASN.1 UTC time format');
@@ -74,8 +77,8 @@ export class ASN1Bytes extends Bytes {
     return time;
   }
 
-  async readASN1GeneralizedTime() {
-    const [endTime, timeRemaining] = await this.expectASN1Length(chatty && 'generalized time');
+  async readASN1GeneralizedTime(comment?: string) {
+    const [endTime, timeRemaining] = await this.expectASN1TypeAndLength(universalTypeGeneralizedTime, 'generalized time', comment);
     const timeStr = await this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})?([0-9]{2})?([.][0-9]+)?(Z)?([-+][0-9]+)?$/);
     if (!parts) throw new Error('Unrecognised ASN.1 generalized time format');
@@ -88,9 +91,22 @@ export class ASN1Bytes extends Bytes {
     return time;
   }
 
+  async readASN1Time(comment?: string) {
+    const startTimeType = await this.readUint8();
+    this.offset--;  // backtrack so type can be re-read
+    let t;
+    if (startTimeType === universalTypeUTCTime) {
+      t = await this.readASN1UTCTime(comment);
+    } else if (startTimeType === universalTypeGeneralizedTime) {
+      t = await this.readASN1GeneralizedTime(comment);
+    } else {
+      throw new Error(`Expected time type but got 0x${hexFromU8([startTimeType])}`);
+    }
+    return t;
+  }
+
   async readASN1BitString(comment?: string) {
-    await this.expectUint8(universalTypeBitString, chatty && (comment ? `bitstring: ${comment}` : 'bitstring'));
-    const [endBitString, bitStringRemaining] = await this.expectASN1Length(comment);
+    const [endBitString, bitStringRemaining] = await this.expectASN1TypeAndLength(universalTypeBitString, 'bitstring', comment);
     const rightPadBits = await this.readUint8(chatty && 'right-padding bits');
     const bytesLength = bitStringRemaining();
     const bitString = await this.readBytes(bytesLength);
@@ -103,17 +119,16 @@ export class ASN1Bytes extends Bytes {
       bitString[0] = bitString[0] >>> rightPadBits;
     }
     endBitString();
+    comment && this.comment(comment);
     return bitString;
   }
 
   async expectASN1Sequence(comment?: string) {
-    await this.expectUint8(constructedUniversalTypeSequence, chatty && (comment ? `sequence: ${comment}` : 'sequence'));
-    return this.expectASN1Length(comment);
+    return this.expectASN1TypeAndLength(constructedUniversalTypeSequence, 'sequence', comment);
   }
 
   async expectASN1OctetString(comment?: string) {
-    await this.expectUint8(universalTypeOctetString, chatty && (comment ? `octet string: ${comment}` : 'octet string'));
-    return this.expectASN1Length(comment);
+    return this.expectASN1TypeAndLength(universalTypeOctetString, 'octet string', comment);
   }
 
   async expectASN1DERDoc() {

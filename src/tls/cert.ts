@@ -6,7 +6,6 @@ import {
   universalTypeInteger,
   universalTypeNull,
   universalTypeOID,
-  universalTypeUTCTime,
   constructedContextSpecificType,
   contextSpecificType,
   GeneralName,
@@ -22,7 +21,6 @@ import {
   readSeqOfSetOfSeq,
   descriptionForAlgorithm,
   universalTypeIA5String,
-  universalTypeGeneralizedTime,
 } from './certUtils';
 
 import { hexFromU8, u8FromHex } from '../util/hex';
@@ -107,8 +105,8 @@ export class Cert {
       await cb.expectBytes([0xa0, 0x03, 0x02, 0x01, 0x02], chatty && 'certificate version 3');  // must be v3 to have extensions
 
       // serial number
-      await cb.expectUint8(universalTypeInteger, chatty && 'integer');
-      const [endSerialNumber, serialNumberRemaining] = await cb.expectASN1Length(chatty && 'serial number');
+      await cb.expectUint8(universalTypeInteger, chatty && 'integer: serial number');
+      const [endSerialNumber, serialNumberRemaining] = await cb.expectASN1Length(chatty && 'integer');
       cert.serialNumber = await cb.subarrayForRead(serialNumberRemaining());
       chatty && cb.comment('serial number');
       endSerialNumber();
@@ -124,30 +122,32 @@ export class Cert {
       cert.issuer = await readSeqOfSetOfSeq(cb, chatty && 'issuer');
 
       // validity
-      let notBefore, notAfter;
+      // let notBefore, notAfter;
       const [endValiditySeq] = await cb.expectASN1Sequence(chatty && 'validity');
 
-      const startTimeType = await cb.readUint8();
-      if (startTimeType === universalTypeUTCTime) {
-        chatty && cb.comment('UTC time (not before)');
-        notBefore = await cb.readASN1UTCTime();
-      } else if (startTimeType === universalTypeGeneralizedTime) {
-        chatty && cb.comment('generalized time (not before)');
-        notBefore = await cb.readASN1GeneralizedTime();
-      } else {
-        throw new Error(`Unexpected validity start type 0x${hexFromU8([startTimeType])}`);
-      }
+      // const startTimeType = await cb.readUint8();
+      // if (startTimeType === universalTypeUTCTime) {
+      //   chatty && cb.comment('UTC time (not before)');
+      //   notBefore = await cb.readASN1UTCTime();
+      // } else if (startTimeType === universalTypeGeneralizedTime) {
+      //   chatty && cb.comment('generalized time (not before)');
+      //   notBefore = await cb.readASN1GeneralizedTime();
+      // } else {
+      //   throw new Error(`Unexpected validity start type 0x${hexFromU8([startTimeType])}`);
+      // }
+      const notBefore = await cb.readASN1Time(chatty && 'not valid before');
 
-      const endTimeType = await cb.readUint8();
-      if (endTimeType === universalTypeUTCTime) {
-        chatty && cb.comment('UTC time (not after)');
-        notAfter = await cb.readASN1UTCTime();
-      } else if (endTimeType === universalTypeGeneralizedTime) {
-        chatty && cb.comment('generalized time (not after)');
-        notAfter = await cb.readASN1GeneralizedTime();
-      } else {
-        throw new Error(`Unexpected validity end type 0x${hexFromU8([endTimeType])}`);
-      }
+      // const endTimeType = await cb.readUint8();
+      // if (endTimeType === universalTypeUTCTime) {
+      //   chatty && cb.comment('UTC time (not after)');
+      //   notAfter = await cb.readASN1UTCTime();
+      // } else if (endTimeType === universalTypeGeneralizedTime) {
+      //   chatty && cb.comment('generalized time (not after)');
+      //   notAfter = await cb.readASN1GeneralizedTime();
+      // } else {
+      //   throw new Error(`Unexpected validity end type 0x${hexFromU8([endTimeType])}`);
+      // }
+      const notAfter = await cb.readASN1Time(chatty && 'not valid after');
 
       cert.validityPeriod = { notBefore, notAfter };
       endValiditySeq();
@@ -301,8 +301,8 @@ export class Cert {
 
           let basicConstraintsPathLength;
           if (constraintsSeqRemaining() > 0) {
-            await cb.expectUint8(universalTypeInteger, chatty && 'integer');
-            const maxPathLengthLength = await cb.readASN1Length(chatty && 'max path length');
+            await cb.expectUint8(universalTypeInteger, chatty && 'integer: max path length');
+            const maxPathLengthLength = await cb.readASN1Length(chatty && 'integer');
             basicConstraintsPathLength =
               maxPathLengthLength === 1 ? await cb.readUint8() :
                 maxPathLengthLength === 2 ? await cb.readUint16() :

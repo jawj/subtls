@@ -1373,9 +1373,12 @@ var ASN1Bytes = class extends Bytes {
     const length = await this.readASN1Length(comment);
     return this.expectReadLength(length);
   }
+  async expectASN1TypeAndLength(typeNum, typeDesc, comment) {
+    await this.expectUint8(typeNum, comment ? `${typeDesc}: ${comment}` : typeDesc);
+    return this.expectASN1Length(typeDesc);
+  }
   async readASN1OID(comment) {
-    await this.expectUint8(universalTypeOID, comment ? `OID: ${comment}` : "OID");
-    const [endOID, OIDRemaining] = await this.expectASN1Length("OID");
+    const [endOID, OIDRemaining] = await this.expectASN1TypeAndLength(universalTypeOID, "OID", comment);
     const byte1 = await this.readUint8();
     let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
     while (OIDRemaining() > 0) {
@@ -1393,8 +1396,7 @@ var ASN1Bytes = class extends Bytes {
     return oid;
   }
   async readASN1Boolean(comment) {
-    await this.expectUint8(universalTypeBoolean, comment ? `boolean: ${comment}` : "boolean");
-    const [endBoolean, booleanRemaining] = await this.expectASN1Length("boolean");
+    const [endBoolean, booleanRemaining] = await this.expectASN1TypeAndLength(universalTypeBoolean, "boolean", comment);
     const length = booleanRemaining();
     if (length !== 1) throw new Error(`Boolean has unexpected length: ${length}`);
     const byte = await this.readUint8();
@@ -1407,8 +1409,8 @@ var ASN1Bytes = class extends Bytes {
     endBoolean();
     return result;
   }
-  async readASN1UTCTime() {
-    const [endTime, timeRemaining] = await this.expectASN1Length("UTC time");
+  async readASN1UTCTime(comment) {
+    const [endTime, timeRemaining] = await this.expectASN1TypeAndLength(universalTypeUTCTime, "UTC time", comment);
     const timeStr = await this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
     if (!parts) throw new Error("Unrecognised ASN.1 UTC time format");
@@ -1420,8 +1422,8 @@ var ASN1Bytes = class extends Bytes {
     endTime();
     return time;
   }
-  async readASN1GeneralizedTime() {
-    const [endTime, timeRemaining] = await this.expectASN1Length("generalized time");
+  async readASN1GeneralizedTime(comment) {
+    const [endTime, timeRemaining] = await this.expectASN1TypeAndLength(universalTypeGeneralizedTime, "generalized time", comment);
     const timeStr = await this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})?([0-9]{2})?([.][0-9]+)?(Z)?([-+][0-9]+)?$/);
     if (!parts) throw new Error("Unrecognised ASN.1 generalized time format");
@@ -1433,9 +1435,21 @@ var ASN1Bytes = class extends Bytes {
     endTime();
     return time;
   }
+  async readASN1Time(comment) {
+    const startTimeType = await this.readUint8();
+    this.offset--;
+    let t;
+    if (startTimeType === universalTypeUTCTime) {
+      t = await this.readASN1UTCTime(comment);
+    } else if (startTimeType === universalTypeGeneralizedTime) {
+      t = await this.readASN1GeneralizedTime(comment);
+    } else {
+      throw new Error(`Expected time type but got 0x${hexFromU8([startTimeType])}`);
+    }
+    return t;
+  }
   async readASN1BitString(comment) {
-    await this.expectUint8(universalTypeBitString, comment ? `bitstring: ${comment}` : "bitstring");
-    const [endBitString, bitStringRemaining] = await this.expectASN1Length(comment);
+    const [endBitString, bitStringRemaining] = await this.expectASN1TypeAndLength(universalTypeBitString, "bitstring", comment);
     const rightPadBits = await this.readUint8("right-padding bits");
     const bytesLength = bitStringRemaining();
     const bitString = await this.readBytes(bytesLength);
@@ -1448,15 +1462,14 @@ var ASN1Bytes = class extends Bytes {
       bitString[0] = bitString[0] >>> rightPadBits;
     }
     endBitString();
+    comment && this.comment(comment);
     return bitString;
   }
   async expectASN1Sequence(comment) {
-    await this.expectUint8(constructedUniversalTypeSequence, comment ? `sequence: ${comment}` : "sequence");
-    return this.expectASN1Length(comment);
+    return this.expectASN1TypeAndLength(constructedUniversalTypeSequence, "sequence", comment);
   }
   async expectASN1OctetString(comment) {
-    await this.expectUint8(universalTypeOctetString, comment ? `octet string: ${comment}` : "octet string");
-    return this.expectASN1Length(comment);
+    return this.expectASN1TypeAndLength(universalTypeOctetString, "octet string", comment);
   }
   async expectASN1DERDoc() {
     return this.expectASN1OctetString("DER document");
@@ -1953,8 +1966,8 @@ var Cert = class _Cert {
       const tbsCertStartOffset = cb.offset;
       const [endCertInfoSeq] = await cb.expectASN1Sequence("certificate info");
       await cb.expectBytes([160, 3, 2, 1, 2], "certificate version 3");
-      await cb.expectUint8(universalTypeInteger, "integer");
-      const [endSerialNumber, serialNumberRemaining] = await cb.expectASN1Length("serial number");
+      await cb.expectUint8(universalTypeInteger, "integer: serial number");
+      const [endSerialNumber, serialNumberRemaining] = await cb.expectASN1Length("integer");
       cert.serialNumber = await cb.subarrayForRead(serialNumberRemaining());
       cb.comment("serial number");
       endSerialNumber();
@@ -1964,28 +1977,9 @@ var Cert = class _Cert {
       if (algoRemaining() > 0) await cb.expectASN1Null();
       endAlgo();
       cert.issuer = await readSeqOfSetOfSeq(cb, "issuer");
-      let notBefore, notAfter;
       const [endValiditySeq] = await cb.expectASN1Sequence("validity");
-      const startTimeType = await cb.readUint8();
-      if (startTimeType === universalTypeUTCTime) {
-        cb.comment("UTC time (not before)");
-        notBefore = await cb.readASN1UTCTime();
-      } else if (startTimeType === universalTypeGeneralizedTime) {
-        cb.comment("generalized time (not before)");
-        notBefore = await cb.readASN1GeneralizedTime();
-      } else {
-        throw new Error(`Unexpected validity start type 0x${hexFromU8([startTimeType])}`);
-      }
-      const endTimeType = await cb.readUint8();
-      if (endTimeType === universalTypeUTCTime) {
-        cb.comment("UTC time (not after)");
-        notAfter = await cb.readASN1UTCTime();
-      } else if (endTimeType === universalTypeGeneralizedTime) {
-        cb.comment("generalized time (not after)");
-        notAfter = await cb.readASN1GeneralizedTime();
-      } else {
-        throw new Error(`Unexpected validity end type 0x${hexFromU8([endTimeType])}`);
-      }
+      const notBefore = await cb.readASN1Time("not valid before");
+      const notAfter = await cb.readASN1Time("not valid after");
       cert.validityPeriod = { notBefore, notAfter };
       endValiditySeq();
       cert.subject = await readSeqOfSetOfSeq(cb, "subject");
@@ -2109,8 +2103,8 @@ var Cert = class _Cert {
           }
           let basicConstraintsPathLength;
           if (constraintsSeqRemaining() > 0) {
-            await cb.expectUint8(universalTypeInteger, "integer");
-            const maxPathLengthLength = await cb.readASN1Length("max path length");
+            await cb.expectUint8(universalTypeInteger, "integer: max path length");
+            const maxPathLengthLength = await cb.readASN1Length("integer");
             basicConstraintsPathLength = maxPathLengthLength === 1 ? await cb.readUint8() : maxPathLengthLength === 2 ? await cb.readUint16() : maxPathLengthLength === 3 ? await cb.readUint24() : void 0;
             if (basicConstraintsPathLength === void 0) throw new Error("Too many bytes in max path length in certificate basicConstraints");
             cb.comment("max path length");
@@ -2314,15 +2308,15 @@ var TrustedCert = class extends Cert {
 // src/tls/ecdsa.ts
 async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
   const [endSigDer] = await sb.expectASN1Sequence();
-  await sb.expectUint8(universalTypeInteger, "integer");
+  await sb.expectUint8(universalTypeInteger, "integer: signature \u2014 r");
   const [endSigRBytes, sigRBytesRemaining] = await sb.expectASN1Length("integer");
   const sigR = await sb.readBytes(sigRBytesRemaining());
-  sb.comment("signature: r");
+  sb.comment("signature \u2014 r");
   endSigRBytes();
-  await sb.expectUint8(universalTypeInteger, "integer");
+  await sb.expectUint8(universalTypeInteger, "integer: signature \u2014 s");
   const [endSigSBytes, sigSBytesRemaining] = await sb.expectASN1Length("integer");
   const sigS = await sb.readBytes(sigSBytesRemaining());
-  sb.comment("signature: s");
+  sb.comment("signature \u2014 s");
   endSigSBytes();
   endSigDer();
   const clampToLength = (x, clampLength) => x.length > clampLength ? x.subarray(x.length - clampLength) : (
