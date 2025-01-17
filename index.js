@@ -1077,6 +1077,304 @@ rg/doc/html/rfc8422#section-5.4.1))");
   return serverPublicKey;
 }
 
+// src/tls/certUtils.ts
+var universalTypeBoolean = 1;
+var universalTypeInteger = 2;
+var constructedUniversalTypeSequence = 48;
+var constructedUniversalTypeSet = 49;
+var universalTypeOID = 6;
+var universalTypePrintableString = 19;
+var universalTypeTeletexString = 20;
+var universalTypeUTF8String = 12;
+var universalTypeIA5String = 22;
+var universalTypeUTCTime = 23;
+var universalTypeGeneralizedTime = 24;
+var universalTypeNull = 5;
+var universalTypeOctetString = 4;
+var universalTypeBitString = 3;
+var constructedContextSpecificType = 163;
+var contextSpecificType = 128;
+var DNOIDMap = {
+  "2.5.4.6": "C",
+  // country
+  "2.5.4.10": "O",
+  // organisation
+  "2.5.4.11": "OU",
+  // organisational unit
+  "2.5.4.3": "CN",
+  // common name
+  "2.5.4.7": "L",
+  // locality
+  "2.5.4.8": "ST",
+  // state/province
+  "2.5.4.12": "T",
+  // title
+  "2.5.4.42": "GN",
+  // given name
+  "2.5.4.43": "I",
+  // initials
+  "2.5.4.4": "SN",
+  // surname
+  "1.2.840.113549.1.9.1": "MAIL",
+  "2.5.4.5": "SERIALNUMBER"
+};
+function intFromBitString(bs) {
+  const { length } = bs;
+  if (length > 4) throw new Error(`Bit string length ${length} would overflow JS bit operators`);
+  let result = 0;
+  let leftShift = 0;
+  for (let i = bs.length - 1; i >= 0; i--) {
+    result |= bs[i] << leftShift;
+    leftShift += 8;
+  }
+  return result;
+}
+async function readSeqOfSetOfSeq(cb, seqType) {
+  const result = {};
+  const [endSeq, seqRemaining] = await cb.expectASN1Sequence(seqType);
+  while (seqRemaining() > 0) {
+    await cb.expectUint8(constructedUniversalTypeSet, 0);
+    const [endItemSet] = await cb.expectASN1Length(0);
+    const [endItemSeq] = await cb.expectASN1Sequence();
+    const itemOID = await cb.readASN1OID();
+    const itemName = DNOIDMap[itemOID] ?? itemOID;
+    const valueType = await cb.readUint8();
+    if (valueType === universalTypePrintableString) {
+    } else if (valueType === universalTypeUTF8String) {
+    } else if (valueType === universalTypeIA5String) {
+    } else if (valueType === universalTypeTeletexString) {
+    } else {
+      throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
+    }
+    const [endItemString, itemStringRemaining] = await cb.expectASN1Length(0);
+    const itemValue = await cb.readUTF8String(itemStringRemaining());
+    endItemString();
+    endItemSeq();
+    endItemSet();
+    const existingValue = result[itemName];
+    if (existingValue === void 0) result[itemName] = itemValue;
+    else if (typeof existingValue === "string") result[itemName] = [existingValue, itemValue];
+    else existingValue.push(itemValue);
+  }
+  endSeq();
+  return result;
+}
+async function readNamesSeq(cb, typeUnionBits = 0) {
+  const names = [];
+  const [endNamesSeq, namesSeqRemaining] = await cb.expectASN1Sequence(0);
+  while (namesSeqRemaining() > 0) {
+    const type = await cb.readUint8(0);
+    const [endName, nameRemaining] = await cb.expectASN1Length(0);
+    let name;
+    if (type === (typeUnionBits | 2 /* dNSName */)) {
+      name = await cb.readUTF8String(nameRemaining());
+    } else {
+      name = await cb.readBytes(nameRemaining());
+    }
+    names.push({ name, type });
+    endName();
+  }
+  endNamesSeq();
+  return names;
+}
+function algorithmWithOID(oid) {
+  const algo = {
+    "1.2.840.113549.1.1.1": {
+      name: "RSAES-PKCS1-v1_5"
+    },
+    "1.2.840.113549.1.1.5": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.113549.1.1.11": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-256"
+      }
+    },
+    "1.2.840.113549.1.1.12": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-384"
+      }
+    },
+    "1.2.840.113549.1.1.13": {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: {
+        name: "SHA-512"
+      }
+    },
+    "1.2.840.113549.1.1.10": {
+      name: "RSA-PSS"
+    },
+    "1.2.840.113549.1.1.7": {
+      name: "RSA-OAEP"
+    },
+    "1.2.840.10045.2.1": {
+      // dupes
+      name: "ECDSA",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.10045.4.1": {
+      // dupes
+      name: "ECDSA",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.10045.4.3.2": {
+      name: "ECDSA",
+      hash: {
+        name: "SHA-256"
+      }
+    },
+    "1.2.840.10045.4.3.3": {
+      name: "ECDSA",
+      hash: {
+        name: "SHA-384"
+      }
+    },
+    "1.2.840.10045.4.3.4": {
+      name: "ECDSA",
+      hash: {
+        name: "SHA-512"
+      }
+    },
+    "1.3.133.16.840.63.0.2": {
+      name: "ECDH",
+      kdf: "SHA-1"
+    },
+    "1.3.132.1.11.1": {
+      name: "ECDH",
+      kdf: "SHA-256"
+    },
+    "1.3.132.1.11.2": {
+      name: "ECDH",
+      kdf: "SHA-384"
+    },
+    "1.3.132.1.11.3": {
+      name: "ECDH",
+      kdf: "SHA-512"
+    },
+    "2.16.840.1.101.3.4.1.2": {
+      name: "AES-CBC",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.22": {
+      name: "AES-CBC",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.42": {
+      name: "AES-CBC",
+      length: 256
+    },
+    "2.16.840.1.101.3.4.1.6": {
+      name: "AES-GCM",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.26": {
+      name: "AES-GCM",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.46": {
+      name: "AES-GCM",
+      length: 256
+    },
+    "2.16.840.1.101.3.4.1.4": {
+      name: "AES-CFB",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.24": {
+      name: "AES-CFB",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.44": {
+      name: "AES-CFB",
+      length: 256
+    },
+    "2.16.840.1.101.3.4.1.5": {
+      name: "AES-KW",
+      length: 128
+    },
+    "2.16.840.1.101.3.4.1.25": {
+      name: "AES-KW",
+      length: 192
+    },
+    "2.16.840.1.101.3.4.1.45": {
+      name: "AES-KW",
+      length: 256
+    },
+    "1.2.840.113549.2.7": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-1"
+      }
+    },
+    "1.2.840.113549.2.9": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-256"
+      }
+    },
+    "1.2.840.113549.2.10": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-384"
+      }
+    },
+    "1.2.840.113549.2.11": {
+      name: "HMAC",
+      hash: {
+        name: "SHA-512"
+      }
+    },
+    "1.2.840.113549.1.9.16.3.5": {
+      name: "DH"
+    },
+    "1.3.14.3.2.26": {
+      name: "SHA-1"
+    },
+    "2.16.840.1.101.3.4.2.1": {
+      name: "SHA-256"
+    },
+    "2.16.840.1.101.3.4.2.2": {
+      name: "SHA-384"
+    },
+    "2.16.840.1.101.3.4.2.3": {
+      name: "SHA-512"
+    },
+    "1.2.840.113549.1.5.12": {
+      name: "PBKDF2"
+    },
+    // special case: OIDs for ECC curves
+    "1.2.840.10045.3.1.7": {
+      name: "P-256"
+    },
+    "1.3.132.0.34": {
+      name: "P-384"
+    },
+    "1.3.132.0.35": {
+      name: "P-521"
+    }
+  }[oid];
+  if (algo === void 0) throw new Error(`Unsupported algorithm identifier: ${oid}`);
+  return algo;
+}
+function _descriptionForAlgorithm(algo, desc = []) {
+  Object.values(algo).forEach((value) => {
+    if (typeof value === "string") desc = [...desc, value];
+    else desc = _descriptionForAlgorithm(value, desc);
+  });
+  return desc;
+}
+function descriptionForAlgorithm(algo) {
+  return _descriptionForAlgorithm(algo).join(" / ");
+}
+
 // src/util/asn1bytes.ts
 var ASN1Bytes = class extends Bytes {
   async readASN1Length(comment) {
@@ -1097,6 +1395,7 @@ var ASN1Bytes = class extends Bytes {
     return this.expectReadLength(length);
   }
   async readASN1OID(comment) {
+    await this.expectUint8(universalTypeOID, 0);
     const [endOID, OIDRemaining] = await this.expectASN1Length(0);
     const byte1 = await this.readUint8();
     let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
@@ -1110,7 +1409,6 @@ var ASN1Bytes = class extends Bytes {
       }
       oid += `.${value}`;
     }
-    if (0) this.comment(comment.replace(/%/g, oid));
     endOID();
     return oid;
   }
@@ -1153,8 +1451,9 @@ var ASN1Bytes = class extends Bytes {
     endTime();
     return time;
   }
-  async readASN1BitString() {
-    const [endBitString, bitStringRemaining] = await this.expectASN1Length(0);
+  async readASN1BitString(comment) {
+    await this.expectUint8(universalTypeBitString, 0);
+    const [endBitString, bitStringRemaining] = await this.expectASN1Length(comment);
     const rightPadBits = await this.readUint8(0);
     const bytesLength = bitStringRemaining();
     const bitString = await this.readBytes(bytesLength);
@@ -1168,6 +1467,17 @@ var ASN1Bytes = class extends Bytes {
     }
     endBitString();
     return bitString;
+  }
+  async expectASN1Sequence(comment) {
+    await this.expectUint8(constructedUniversalTypeSequence, 0);
+    return this.expectASN1Length(comment);
+  }
+  async expectASN1OctetString(comment) {
+    await this.expectUint8(universalTypeOctetString, 0);
+    return this.expectASN1Length(comment);
+  }
+  async expectASN1DERDoc() {
+    return this.expectASN1OctetString(0);
   }
 };
 
@@ -1567,307 +1877,6 @@ var Crypter = class {
   }
 };
 
-// src/tls/certUtils.ts
-var universalTypeBoolean = 1;
-var universalTypeInteger = 2;
-var constructedUniversalTypeSequence = 48;
-var constructedUniversalTypeSet = 49;
-var universalTypeOID = 6;
-var universalTypePrintableString = 19;
-var universalTypeTeletexString = 20;
-var universalTypeUTF8String = 12;
-var universalTypeIA5String = 22;
-var universalTypeUTCTime = 23;
-var universalTypeGeneralizedTime = 24;
-var universalTypeNull = 5;
-var universalTypeOctetString = 4;
-var universalTypeBitString = 3;
-var constructedContextSpecificType = 163;
-var contextSpecificType = 128;
-var DNOIDMap = {
-  "2.5.4.6": "C",
-  // country
-  "2.5.4.10": "O",
-  // organisation
-  "2.5.4.11": "OU",
-  // organisational unit
-  "2.5.4.3": "CN",
-  // common name
-  "2.5.4.7": "L",
-  // locality
-  "2.5.4.8": "ST",
-  // state/province
-  "2.5.4.12": "T",
-  // title
-  "2.5.4.42": "GN",
-  // given name
-  "2.5.4.43": "I",
-  // initials
-  "2.5.4.4": "SN",
-  // surname
-  "1.2.840.113549.1.9.1": "MAIL",
-  "2.5.4.5": "SERIALNUMBER"
-};
-function intFromBitString(bs) {
-  const { length } = bs;
-  if (length > 4) throw new Error(`Bit string length ${length} would overflow JS bit operators`);
-  let result = 0;
-  let leftShift = 0;
-  for (let i = bs.length - 1; i >= 0; i--) {
-    result |= bs[i] << leftShift;
-    leftShift += 8;
-  }
-  return result;
-}
-async function readSeqOfSetOfSeq(cb, seqType) {
-  const result = {};
-  await cb.expectUint8(constructedUniversalTypeSequence, 0);
-  const [endSeq, seqRemaining] = await cb.expectASN1Length(0);
-  while (seqRemaining() > 0) {
-    await cb.expectUint8(constructedUniversalTypeSet, 0);
-    const [endItemSet] = await cb.expectASN1Length(0);
-    await cb.expectUint8(constructedUniversalTypeSequence, 0);
-    const [endItemSeq] = await cb.expectASN1Length(0);
-    await cb.expectUint8(universalTypeOID, 0);
-    const itemOID = await cb.readASN1OID();
-    const itemName = DNOIDMap[itemOID] ?? itemOID;
-    const valueType = await cb.readUint8();
-    if (valueType === universalTypePrintableString) {
-    } else if (valueType === universalTypeUTF8String) {
-    } else if (valueType === universalTypeIA5String) {
-    } else if (valueType === universalTypeTeletexString) {
-    } else {
-      throw new Error(`Unexpected item type in certificate ${seqType}: 0x${hexFromU8([valueType])}`);
-    }
-    const [endItemString, itemStringRemaining] = await cb.expectASN1Length(0);
-    const itemValue = await cb.readUTF8String(itemStringRemaining());
-    endItemString();
-    endItemSeq();
-    endItemSet();
-    const existingValue = result[itemName];
-    if (existingValue === void 0) result[itemName] = itemValue;
-    else if (typeof existingValue === "string") result[itemName] = [existingValue, itemValue];
-    else existingValue.push(itemValue);
-  }
-  endSeq();
-  return result;
-}
-async function readNamesSeq(cb, typeUnionBits = 0) {
-  const names = [];
-  const [endNamesSeq, namesSeqRemaining] = await cb.expectASN1Length(0);
-  while (namesSeqRemaining() > 0) {
-    const type = await cb.readUint8(0);
-    const [endName, nameRemaining] = await cb.expectASN1Length(0);
-    let name;
-    if (type === (typeUnionBits | 2 /* dNSName */)) {
-      name = await cb.readUTF8String(nameRemaining());
-    } else {
-      name = await cb.readBytes(nameRemaining());
-    }
-    names.push({ name, type });
-    endName();
-  }
-  endNamesSeq();
-  return names;
-}
-function algorithmWithOID(oid) {
-  const algo = {
-    "1.2.840.113549.1.1.1": {
-      name: "RSAES-PKCS1-v1_5"
-    },
-    "1.2.840.113549.1.1.5": {
-      name: "RSASSA-PKCS1-v1_5",
-      hash: {
-        name: "SHA-1"
-      }
-    },
-    "1.2.840.113549.1.1.11": {
-      name: "RSASSA-PKCS1-v1_5",
-      hash: {
-        name: "SHA-256"
-      }
-    },
-    "1.2.840.113549.1.1.12": {
-      name: "RSASSA-PKCS1-v1_5",
-      hash: {
-        name: "SHA-384"
-      }
-    },
-    "1.2.840.113549.1.1.13": {
-      name: "RSASSA-PKCS1-v1_5",
-      hash: {
-        name: "SHA-512"
-      }
-    },
-    "1.2.840.113549.1.1.10": {
-      name: "RSA-PSS"
-    },
-    "1.2.840.113549.1.1.7": {
-      name: "RSA-OAEP"
-    },
-    "1.2.840.10045.2.1": {
-      // dupes
-      name: "ECDSA",
-      hash: {
-        name: "SHA-1"
-      }
-    },
-    "1.2.840.10045.4.1": {
-      // dupes
-      name: "ECDSA",
-      hash: {
-        name: "SHA-1"
-      }
-    },
-    "1.2.840.10045.4.3.2": {
-      name: "ECDSA",
-      hash: {
-        name: "SHA-256"
-      }
-    },
-    "1.2.840.10045.4.3.3": {
-      name: "ECDSA",
-      hash: {
-        name: "SHA-384"
-      }
-    },
-    "1.2.840.10045.4.3.4": {
-      name: "ECDSA",
-      hash: {
-        name: "SHA-512"
-      }
-    },
-    "1.3.133.16.840.63.0.2": {
-      name: "ECDH",
-      kdf: "SHA-1"
-    },
-    "1.3.132.1.11.1": {
-      name: "ECDH",
-      kdf: "SHA-256"
-    },
-    "1.3.132.1.11.2": {
-      name: "ECDH",
-      kdf: "SHA-384"
-    },
-    "1.3.132.1.11.3": {
-      name: "ECDH",
-      kdf: "SHA-512"
-    },
-    "2.16.840.1.101.3.4.1.2": {
-      name: "AES-CBC",
-      length: 128
-    },
-    "2.16.840.1.101.3.4.1.22": {
-      name: "AES-CBC",
-      length: 192
-    },
-    "2.16.840.1.101.3.4.1.42": {
-      name: "AES-CBC",
-      length: 256
-    },
-    "2.16.840.1.101.3.4.1.6": {
-      name: "AES-GCM",
-      length: 128
-    },
-    "2.16.840.1.101.3.4.1.26": {
-      name: "AES-GCM",
-      length: 192
-    },
-    "2.16.840.1.101.3.4.1.46": {
-      name: "AES-GCM",
-      length: 256
-    },
-    "2.16.840.1.101.3.4.1.4": {
-      name: "AES-CFB",
-      length: 128
-    },
-    "2.16.840.1.101.3.4.1.24": {
-      name: "AES-CFB",
-      length: 192
-    },
-    "2.16.840.1.101.3.4.1.44": {
-      name: "AES-CFB",
-      length: 256
-    },
-    "2.16.840.1.101.3.4.1.5": {
-      name: "AES-KW",
-      length: 128
-    },
-    "2.16.840.1.101.3.4.1.25": {
-      name: "AES-KW",
-      length: 192
-    },
-    "2.16.840.1.101.3.4.1.45": {
-      name: "AES-KW",
-      length: 256
-    },
-    "1.2.840.113549.2.7": {
-      name: "HMAC",
-      hash: {
-        name: "SHA-1"
-      }
-    },
-    "1.2.840.113549.2.9": {
-      name: "HMAC",
-      hash: {
-        name: "SHA-256"
-      }
-    },
-    "1.2.840.113549.2.10": {
-      name: "HMAC",
-      hash: {
-        name: "SHA-384"
-      }
-    },
-    "1.2.840.113549.2.11": {
-      name: "HMAC",
-      hash: {
-        name: "SHA-512"
-      }
-    },
-    "1.2.840.113549.1.9.16.3.5": {
-      name: "DH"
-    },
-    "1.3.14.3.2.26": {
-      name: "SHA-1"
-    },
-    "2.16.840.1.101.3.4.2.1": {
-      name: "SHA-256"
-    },
-    "2.16.840.1.101.3.4.2.2": {
-      name: "SHA-384"
-    },
-    "2.16.840.1.101.3.4.2.3": {
-      name: "SHA-512"
-    },
-    "1.2.840.113549.1.5.12": {
-      name: "PBKDF2"
-    },
-    // special case: OIDs for ECC curves
-    "1.2.840.10045.3.1.7": {
-      name: "P-256"
-    },
-    "1.3.132.0.34": {
-      name: "P-384"
-    },
-    "1.3.132.0.35": {
-      name: "P-521"
-    }
-  }[oid];
-  if (algo === void 0) throw new Error(`Unsupported algorithm identifier: ${oid}`);
-  return algo;
-}
-function _descriptionForAlgorithm(algo, desc = []) {
-  Object.values(algo).forEach((value) => {
-    if (typeof value === "string") desc = [...desc, value];
-    else desc = _descriptionForAlgorithm(value, desc);
-  });
-  return desc;
-}
-function descriptionForAlgorithm(algo) {
-  return _descriptionForAlgorithm(algo).join(" / ");
-}
-
 // src/tls/cert.ts
 var allKeyUsages = [
   // https://www.rfc-editor.org/rfc/rfc3280#section-4.2.1.3
@@ -1924,29 +1933,24 @@ var Cert = class _Cert {
     if (certData instanceof ASN1Bytes || certData instanceof Uint8Array) {
       const cb = certData instanceof ASN1Bytes ? certData : new ASN1Bytes(certData);
       const certSeqStartOffset = cb.offset;
-      await cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endCertSeq] = await cb.expectASN1Length(0);
+      const [endCertSeq] = await cb.expectASN1Sequence(0);
       const tbsCertStartOffset = cb.offset;
-      await cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endCertInfoSeq] = await cb.expectASN1Length(0);
+      const [endCertInfoSeq] = await cb.expectASN1Sequence(0);
       await cb.expectBytes([160, 3, 2, 1, 2], 0);
       await cb.expectUint8(universalTypeInteger, 0);
       const [endSerialNumber, serialNumberRemaining] = await cb.expectASN1Length(0);
       cert.serialNumber = await cb.subarrayForRead(serialNumberRemaining());
       endSerialNumber();
-      await cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endAlgo, algoRemaining] = await cb.expectASN1Length(0);
-      await cb.expectUint8(universalTypeOID, 0);
+      const [endAlgo, algoRemaining] = await cb.expectASN1Sequence(0);
       cert.algorithm = await cb.readASN1OID();
       if (algoRemaining() > 0) {
         await cb.expectUint8(universalTypeNull, 0);
         await cb.expectUint8(0, 0);
       }
       endAlgo();
-      cert.issuer = await readSeqOfSetOfSeq(cb, "issuer");
+      cert.issuer = await readSeqOfSetOfSeq(cb, 0);
       let notBefore, notAfter;
-      await cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endValiditySeq] = await cb.expectASN1Length(0);
+      const [endValiditySeq] = await cb.expectASN1Sequence(0);
       const startTimeType = await cb.readUint8();
       if (startTimeType === universalTypeUTCTime) {
         notBefore = await cb.readASN1UTCTime();
@@ -1965,16 +1969,15 @@ var Cert = class _Cert {
       }
       cert.validityPeriod = { notBefore, notAfter };
       endValiditySeq();
-      cert.subject = await readSeqOfSetOfSeq(cb, "subject");
+      cert.subject = await readSeqOfSetOfSeq(cb, 0);
       const publicKeyStartOffset = cb.offset;
-      await cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endPublicKeySeq] = await cb.expectASN1Length(0);
-      await cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endKeyOID, keyOIDRemaining] = await cb.expectASN1Length(0);
+      const [endPublicKeySeq] = await cb.expectASN1Sequence(0);
+      const [endKeyOID, keyOIDRemaining] = await cb.expectASN1Sequence(0);
       const publicKeyOIDs = [];
       while (keyOIDRemaining() > 0) {
         const keyParamRecordType = await cb.readUint8();
         if (keyParamRecordType === universalTypeOID) {
+          cb.offset--;
           const keyOID = await cb.readASN1OID();
           publicKeyOIDs.push(keyOID);
         } else if (keyParamRecordType === universalTypeNull) {
@@ -1982,24 +1985,18 @@ var Cert = class _Cert {
         }
       }
       endKeyOID();
-      await cb.expectUint8(universalTypeBitString, 0);
       const publicKeyData = await cb.readASN1BitString();
       cert.publicKey = { identifiers: publicKeyOIDs, data: publicKeyData, all: cb.data.subarray(publicKeyStartOffset,
       cb.offset) };
       endPublicKeySeq();
       await cb.expectUint8(constructedContextSpecificType, 0);
       const [endExtsData] = await cb.expectASN1Length();
-      await cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endExts, extsRemaining] = await cb.expectASN1Length(0);
+      const [endExts, extsRemaining] = await cb.expectASN1Sequence(0);
       while (extsRemaining() > 0) {
-        await cb.expectUint8(constructedUniversalTypeSequence, 0);
-        const [endExt, extRemaining] = await cb.expectASN1Length();
-        await cb.expectUint8(universalTypeOID, 0);
-        const extOID = await cb.readASN1OID();
+        const [endExt, extRemaining] = await cb.expectASN1Sequence(0);
+        const extOID = await cb.readASN1OID("extension type");
         if (extOID === "2.5.29.17") {
-          await cb.expectUint8(universalTypeOctetString, 0);
-          const [endSanDerDoc] = await cb.expectASN1Length(0);
-          await cb.expectUint8(constructedUniversalTypeSequence, 0);
+          const [endSanDerDoc] = await cb.expectASN1DERDoc();
           const allSubjectAltNames = await readNamesSeq(cb, contextSpecificType);
           cert.subjectAltNames = allSubjectAltNames.filter((san) => san.type === (2 /* dNSName */ | contextSpecificType)).
           map((san) => san.name);
@@ -2011,10 +2008,8 @@ var Cert = class _Cert {
             keyUsageCritical = await cb.readASN1Boolean(0);
             nextType = await cb.readUint8();
           }
-          if (nextType !== universalTypeOctetString) throw new Error(`Expected 0x${hexFromU8([universalTypeOctetString])}\
-, got 0x${hexFromU8([nextType])}`);
-          const [endKeyUsageDer] = await cb.expectASN1Length(0);
-          await cb.expectUint8(universalTypeBitString, 0);
+          cb.offset--;
+          const [endKeyUsageDer] = await cb.expectASN1DERDoc();
           const keyUsageBitStr = await cb.readASN1BitString();
           const keyUsageBitmask = intFromBitString(keyUsageBitStr);
           const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & 1 << i));
@@ -2025,12 +2020,9 @@ var Cert = class _Cert {
           };
         } else if (extOID === "2.5.29.37") {
           cert.extKeyUsage = {};
-          await cb.expectUint8(universalTypeOctetString, 0);
-          const [endExtKeyUsageDer] = await cb.expectASN1Length(0);
-          await cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const [endExtKeyUsage, extKeyUsageRemaining] = await cb.expectASN1Length(0);
+          const [endExtKeyUsageDer] = await cb.expectASN1DERDoc();
+          const [endExtKeyUsage, extKeyUsageRemaining] = await cb.expectASN1Sequence(0);
           while (extKeyUsageRemaining() > 0) {
-            await cb.expectUint8(universalTypeOID, 0);
             const extKeyUsageOID = await cb.readASN1OID();
             if (extKeyUsageOID === "1.3.6.1.5.5.7.3.1") cert.extKeyUsage.serverTls = true;
             if (extKeyUsageOID === "1.3.6.1.5.5.7.3.2") cert.extKeyUsage.clientTls = true;
@@ -2038,10 +2030,8 @@ var Cert = class _Cert {
           endExtKeyUsage();
           endExtKeyUsageDer();
         } else if (extOID === "2.5.29.35") {
-          await cb.expectUint8(universalTypeOctetString, 0);
-          const [endAuthKeyIdDer] = await cb.expectASN1Length(0);
-          await cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = await cb.expectASN1Length(0);
+          const [endAuthKeyIdDer] = await cb.expectASN1DERDoc();
+          const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = await cb.expectASN1Sequence();
           while (authKeyIdSeqRemaining() > 0) {
             const authKeyIdDatumType = await cb.readUint8();
             if (authKeyIdDatumType === (contextSpecificType | 0)) {
@@ -2068,10 +2058,9 @@ e extension`);
           endAuthKeyIdSeq();
           endAuthKeyIdDer();
         } else if (extOID === "2.5.29.14") {
-          await cb.expectUint8(universalTypeOctetString, 0);
-          const [endSubjectKeyIdDer] = await cb.expectASN1Length(0);
-          await cb.expectUint8(universalTypeOctetString, 0);
-          const [endSubjectKeyId, subjectKeyIdRemaining] = await cb.expectASN1Length(0);
+          const [endSubjectKeyIdDer] = await cb.expectASN1DERDoc();
+          const [endSubjectKeyId, subjectKeyIdRemaining] = await cb.expectASN1OctetString("subject key identif\
+ier");
           cert.subjectKeyIdentifier = await cb.readBytes(subjectKeyIdRemaining());
           endSubjectKeyId();
           endSubjectKeyIdDer();
@@ -2082,11 +2071,9 @@ e extension`);
             basicConstraintsCritical = await cb.readASN1Boolean(0);
             bcNextType = await cb.readUint8();
           }
-          if (bcNextType !== universalTypeOctetString) throw new Error("Unexpected type in certificate basic c\
-onstraints");
-          const [endBasicConstraintsDer] = await cb.expectASN1Length(0);
-          await cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const [endConstraintsSeq, constraintsSeqRemaining] = await cb.expectASN1Length();
+          cb.offset--;
+          const [endBasicConstraintsDer] = await cb.expectASN1DERDoc();
+          const [endConstraintsSeq, constraintsSeqRemaining] = await cb.expectASN1Sequence();
           let basicConstraintsCa = void 0;
           if (constraintsSeqRemaining() > 0) {
             await cb.expectUint8(universalTypeBoolean, 0);
@@ -2109,14 +2096,10 @@ ertificate basicConstraints");
             pathLength: basicConstraintsPathLength
           };
         } else if (0) {
-          await cb.expectUint8(universalTypeOctetString, 0);
-          const [endAuthInfoAccessDER] = await cb.expectASN1Length(0);
-          await cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = await cb.expectASN1Length(0);
+          const [endAuthInfoAccessDER] = await cb.expectASN1DERDoc();
+          const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = await cb.expectASN1Sequence();
           while (authInfoAccessSeqRemaining() > 0) {
-            await cb.expectUint8(constructedUniversalTypeSequence, 0);
-            const [endAuthInfoAccessInnerSeq] = await cb.expectASN1Length(0);
-            await cb.expectUint8(universalTypeOID, 0);
+            const [endAuthInfoAccessInnerSeq] = await cb.expectASN1Sequence();
             const accessMethodOID = await cb.readASN1OID();
             await cb.expectUint8(contextSpecificType | 6 /* uniformResourceIdentifier */, 0);
             const [endMethodURI, methodURIRemaining] = await cb.expectASN1Length(0);
@@ -2127,23 +2110,16 @@ ertificate basicConstraints");
           endAuthInfoAccessSeq();
           endAuthInfoAccessDER();
         } else if (0) {
-          await cb.expectUint8(universalTypeOctetString, 0);
-          const [endCertPolDER] = await cb.expectASN1Length(0);
-          await cb.expectUint8(constructedUniversalTypeSequence, 0);
-          const [endCertPolSeq, certPolSeqRemaining] = await cb.expectASN1Length(0);
+          const [endCertPolDER] = await cb.expectASN1DERDoc();
+          const [endCertPolSeq, certPolSeqRemaining] = await cb.expectASN1Sequence();
           while (certPolSeqRemaining() > 0) {
-            await cb.expectUint8(constructedUniversalTypeSequence, 0);
-            const [endCertPolInnerSeq, certPolInnerSeqRemaining] = await cb.expectASN1Length(0);
-            await cb.expectUint8(universalTypeOID, 0);
-            const certPolOID = await cb.readASN1OID();
+            const [endCertPolInnerSeq, certPolInnerSeqRemaining] = await cb.expectASN1Sequence();
+            const certPolOID = await cb.readASN1OID("CertPolicyID");
             while (certPolInnerSeqRemaining() > 0) {
-              await cb.expectUint8(constructedUniversalTypeSequence, 0);
-              const [endCertPolInner2Seq, certPolInner2SeqRemaining] = await cb.expectASN1Length(0);
+              const [endCertPolInner2Seq, certPolInner2SeqRemaining] = await cb.expectASN1Sequence();
               while (certPolInner2SeqRemaining() > 0) {
-                await cb.expectUint8(constructedUniversalTypeSequence, 0);
-                const [endCertPolInner3Seq, certPolInner3SeqRemaining] = await cb.expectASN1Length(0);
-                await cb.expectUint8(universalTypeOID, 0);
-                const certPolQualOID = await cb.readASN1OID();
+                const [endCertPolInner3Seq, certPolInner3SeqRemaining] = await cb.expectASN1Sequence();
+                const certPolQualOID = await cb.readASN1OID("policyQualifierId");
                 const qualType = await cb.readUint8();
                 if (0) {
                   cb.comment("IA5String");
@@ -2171,9 +2147,7 @@ icy qualifier data");
       endExtsData();
       endCertInfoSeq();
       cert.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
-      await cb.expectUint8(constructedUniversalTypeSequence, 0);
-      const [endSigAlgo, sigAlgoRemaining] = await cb.expectASN1Length(0);
-      await cb.expectUint8(universalTypeOID, 0);
+      const [endSigAlgo, sigAlgoRemaining] = await cb.expectASN1Sequence(0);
       const sigAlgoOID = await cb.readASN1OID(0);
       if (sigAlgoRemaining() > 0) {
         await cb.expectUint8(universalTypeNull, 0);
@@ -2182,8 +2156,7 @@ icy qualifier data");
       endSigAlgo();
       if (sigAlgoOID !== cert.algorithm) throw new Error(`Certificate specifies different signature algorithms\
  inside (${cert.algorithm}) and out (${sigAlgoOID})`);
-      await cb.expectUint8(universalTypeBitString, 0);
-      cert.signature = await cb.readASN1BitString();
+      cert.signature = await cb.readASN1BitString(0);
       endCertSeq();
       cert.rawData = cb.data.subarray(certSeqStartOffset, cb.offset);
     } else {
@@ -2324,8 +2297,7 @@ var TrustedCert = class extends Cert {
 
 // src/tls/ecdsa.ts
 async function ecdsaVerify(sb, publicKey, signedData, namedCurve, hash) {
-  await sb.expectUint8(constructedUniversalTypeSequence, 0);
-  const [endSigDer] = await sb.expectASN1Length(0);
+  const [endSigDer] = await sb.expectASN1Sequence();
   await sb.expectUint8(universalTypeInteger, 0);
   const [endSigRBytes, sigRBytesRemaining] = await sb.expectASN1Length(0);
   const sigR = await sb.readBytes(sigRBytesRemaining());

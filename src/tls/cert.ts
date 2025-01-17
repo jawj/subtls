@@ -2,11 +2,9 @@
 import { ASN1Bytes } from '../util/asn1bytes';
 
 import {
-  universalTypeBitString,
   universalTypeBoolean,
   universalTypeInteger,
   universalTypeNull,
-  universalTypeOctetString,
   universalTypeOID,
   universalTypeUTCTime,
   constructedContextSpecificType,
@@ -181,7 +179,6 @@ export class Cert {
       }
       endKeyOID();
 
-      await cb.expectUint8(universalTypeBitString, chatty && 'bit string');
       const publicKeyData = await cb.readASN1BitString();
       chatty && cb.comment('public key');
 
@@ -195,13 +192,12 @@ export class Cert {
       const [endExts, extsRemaining] = await cb.expectASN1Sequence(chatty && 'certificate extensions');
 
       while (extsRemaining() > 0) {
-        const [endExt, extRemaining] = await cb.expectASN1Sequence('certificate extension');
+        const [endExt, extRemaining] = await cb.expectASN1Sequence(chatty && 'certificate extension');
         const extOID = await cb.readASN1OID('extension type');
         chatty && cb.comment(`${extOID} = ${extOIDMap[extOID]}`);
 
         if (extOID === '2.5.29.17') {  // subjectAltName
-          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endSanDerDoc] = await cb.expectASN1Length(chatty && 'DER document');
+          const [endSanDerDoc] = await cb.expectASN1DERDoc();
           const allSubjectAltNames = await readNamesSeq(cb, contextSpecificType);
           cert.subjectAltNames = allSubjectAltNames
             .filter((san: any) => san.type === (GeneralName.dNSName | contextSpecificType))
@@ -216,10 +212,8 @@ export class Cert {
             keyUsageCritical = await cb.readASN1Boolean(chatty && 'critical: %');
             nextType = await cb.readUint8();
           }
-          if (nextType !== universalTypeOctetString) throw new Error(`Expected 0x${hexFromU8([universalTypeOctetString])}, got 0x${hexFromU8([nextType])}`);
-          chatty && cb.comment('octet string');
-          const [endKeyUsageDer] = await cb.expectASN1Length(chatty && 'DER document');
-          await cb.expectUint8(universalTypeBitString, chatty && 'bit string');
+          cb.offset--;  // back up one byte since expectASN1OctetString will read the type again
+          const [endKeyUsageDer] = await cb.expectASN1DERDoc();
           const keyUsageBitStr = await cb.readASN1BitString();
           const keyUsageBitmask = intFromBitString(keyUsageBitStr);
           const keyUsageNames = new Set(allKeyUsages.filter((u, i) => keyUsageBitmask & (1 << i)));
@@ -232,8 +226,7 @@ export class Cert {
 
         } else if (extOID === '2.5.29.37') {  // extKeyUsage
           cert.extKeyUsage = {};
-          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endExtKeyUsageDer] = await cb.expectASN1Length(chatty && 'DER document');
+          const [endExtKeyUsageDer] = await cb.expectASN1DERDoc();
           const [endExtKeyUsage, extKeyUsageRemaining] = await cb.expectASN1Sequence(chatty && 'key usage OIDs');
           while (extKeyUsageRemaining() > 0) {
             const extKeyUsageOID = await cb.readASN1OID();
@@ -245,8 +238,7 @@ export class Cert {
           endExtKeyUsageDer();
 
         } else if (extOID === '2.5.29.35') {  // authorityKeyIdentifier
-          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endAuthKeyIdDer] = await cb.expectASN1Length(chatty && 'DER document');
+          const [endAuthKeyIdDer] = await cb.expectASN1DERDoc();
           const [endAuthKeyIdSeq, authKeyIdSeqRemaining] = await cb.expectASN1Sequence();
 
           while (authKeyIdSeqRemaining() > 0) {
@@ -286,10 +278,8 @@ export class Cert {
           endAuthKeyIdDer();
 
         } else if (extOID === '2.5.29.14') {  // subjectKeyIdentifier
-          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endSubjectKeyIdDer] = await cb.expectASN1Length(chatty && 'DER document');
-          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endSubjectKeyId, subjectKeyIdRemaining] = await cb.expectASN1Length(chatty && 'subject key identifier');
+          const [endSubjectKeyIdDer] = await cb.expectASN1DERDoc();
+          const [endSubjectKeyId, subjectKeyIdRemaining] = await cb.expectASN1OctetString('subject key identifier');
           cert.subjectKeyIdentifier = await cb.readBytes(subjectKeyIdRemaining());
           chatty && cb.comment('subject key identifier');
           endSubjectKeyId();
@@ -303,9 +293,8 @@ export class Cert {
             basicConstraintsCritical = await cb.readASN1Boolean(chatty && 'critical: %');
             bcNextType = await cb.readUint8();
           }
-          if (bcNextType !== universalTypeOctetString) throw new Error('Unexpected type in certificate basic constraints');
-          chatty && cb.comment('octet string');
-          const [endBasicConstraintsDer] = await cb.expectASN1Length(chatty && 'DER document');
+          cb.offset--;  // back up one byte because expectASN1OctetString will re-read the type
+          const [endBasicConstraintsDer] = await cb.expectASN1DERDoc();
           const [endConstraintsSeq, constraintsSeqRemaining] = await cb.expectASN1Sequence();
 
           let basicConstraintsCa = undefined;
@@ -337,8 +326,7 @@ export class Cert {
           };
 
         } else if (chatty && extOID === '1.3.6.1.5.5.7.1.1') {  // authorityInfoAccess -- only parsed for annotation purposes
-          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endAuthInfoAccessDER] = await cb.expectASN1Length(chatty && 'DER document');
+          const [endAuthInfoAccessDER] = await cb.expectASN1DERDoc();
           const [endAuthInfoAccessSeq, authInfoAccessSeqRemaining] = await cb.expectASN1Sequence();
 
           while (authInfoAccessSeqRemaining() > 0) {
@@ -359,8 +347,7 @@ export class Cert {
           endAuthInfoAccessDER();
 
         } else if (chatty && extOID === '2.5.29.32') {  // certificatePolicies -- only parsed for annotation purposes
-          await cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          const [endCertPolDER] = await cb.expectASN1Length(chatty && 'DER document');
+          const [endCertPolDER] = await cb.expectASN1DERDoc();
           const [endCertPolSeq, certPolSeqRemaining] = await cb.expectASN1Sequence();
 
           while (certPolSeqRemaining() > 0) {
@@ -402,11 +389,8 @@ export class Cert {
           endCertPolDER();
 
           // } else if (chatty && extOID === '2.5.29.31') {  // CRLDistributionPoints -- only parsed for annotation purposes
-          //   cb.expectUint8(universalTypeOctetString, chatty && 'octet string');
-          //   const [endCRLDPDER] = cb.expectASN1Length(chatty && 'DER document');
-
-          //   cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence (DistributionPoints)');
-          //   const [endCRLDPSeq, CRLDPRemaining] = cb.expectASN1Length(chatty && 'sequence');
+          //   const [endCRLDPDER] = cb.expectASN1DERDoc();
+          //   const [endCRLDPSeq, CRLDPRemaining] = cb.expectASN1Sequence(chatty && 'DistributionPoints');
 
           // TODO
 
@@ -443,9 +427,7 @@ export class Cert {
       if (sigAlgoOID !== cert.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${cert.algorithm}) and out (${sigAlgoOID})`);
 
       // signature
-      await cb.expectUint8(universalTypeBitString, chatty && 'bitstring (signature)');
-      cert.signature = await cb.readASN1BitString();
-      chatty && cb.comment('signature');
+      cert.signature = await cb.readASN1BitString(chatty && 'signature');
 
       endCertSeq();
 

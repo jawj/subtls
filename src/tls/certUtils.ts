@@ -143,7 +143,6 @@ export async function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType?: string) {  // u
 
 export async function readNamesSeq(cb: ASN1Bytes, typeUnionBits = 0x00) {
   const names = [];
-  // const [endNamesSeq, namesSeqRemaining] = await cb.expectASN1Length(chatty && 'names sequence');
   const [endNamesSeq, namesSeqRemaining] = await cb.expectASN1Sequence(chatty && 'names');
   while (namesSeqRemaining() > 0) {
     const type = await cb.readUint8(chatty && 'GeneralNames type');

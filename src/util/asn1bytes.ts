@@ -1,4 +1,4 @@
-import { constructedUniversalTypeSequence, universalTypeOID } from '../tls/certUtils';
+import { constructedUniversalTypeSequence, universalTypeBitString, universalTypeOctetString, universalTypeOID } from '../tls/certUtils';
 import { Bytes } from './bytes';
 import { hexFromU8 } from './hex';
 
@@ -86,8 +86,9 @@ export class ASN1Bytes extends Bytes {
     return time;
   }
 
-  async readASN1BitString() {
-    const [endBitString, bitStringRemaining] = await this.expectASN1Length(chatty && 'bit string');
+  async readASN1BitString(comment?: string) {
+    await this.expectUint8(universalTypeBitString, chatty && (comment ? `bitstring: ${comment}` : 'bitstring'));
+    const [endBitString, bitStringRemaining] = await this.expectASN1Length(comment);
     const rightPadBits = await this.readUint8(chatty && 'right-padding bits');
     const bytesLength = bitStringRemaining();
     const bitString = await this.readBytes(bytesLength);
@@ -106,5 +107,14 @@ export class ASN1Bytes extends Bytes {
   async expectASN1Sequence(comment?: string) {
     await this.expectUint8(constructedUniversalTypeSequence, chatty && (comment ? `sequence: ${comment}` : 'sequence'));
     return this.expectASN1Length(comment);
+  }
+
+  async expectASN1OctetString(comment?: string) {
+    await this.expectUint8(universalTypeOctetString, chatty && (comment ? `octet string: ${comment}` : 'octet string'));
+    return this.expectASN1Length(comment);
+  }
+
+  async expectASN1DERDoc() {
+    return this.expectASN1OctetString(chatty && 'DER document');
   }
 }

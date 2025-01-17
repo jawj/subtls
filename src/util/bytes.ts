@@ -225,7 +225,7 @@ export class Bytes {
   }
 
   async expectReadLength(length: number, indentDelta = 1) {
-    await this.ensureReadAvailable(length);
+    await this.ensureReadAvailable(length);  // not required, but should mean length has to be extended fewer times
     return this.expectLength(length, indentDelta);
   }
 
