@@ -1,12 +1,11 @@
 import { log } from '../presentation/log';
 import { concat } from '../util/array';
 import { ASN1Bytes } from '../util/asn1bytes';
-import { constructedUniversalTypeSequence, universalTypeInteger } from './certUtils';
+import { universalTypeInteger } from './certUtils';
 import cs from '../util/cryptoProxy';
 
 export async function ecdsaVerify(sb: ASN1Bytes /* signature */, publicKey: Uint8Array, signedData: Uint8Array, namedCurve: 'P-256' | 'P-384', hash: 'SHA-256' | 'SHA-384') {
-  await sb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-  const [endSigDer] = await sb.expectASN1Length(chatty && 'sequence');
+  const [endSigDer] = await sb.expectASN1Sequence();
 
   await sb.expectUint8(universalTypeInteger, chatty && 'integer');
   const [endSigRBytes, sigRBytesRemaining] = await sb.expectASN1Length(chatty && 'integer');

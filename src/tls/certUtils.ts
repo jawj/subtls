@@ -99,18 +99,14 @@ export function intFromBitString(bs: Uint8Array) {
   return result;
 }
 
-export async function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // used for issuer and subject
+export async function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType?: string) {  // used for issuer and subject
   const result: Record<string, string | string[]> = {};
-
-  await cb.expectUint8(constructedUniversalTypeSequence, chatty && `sequence (${seqType})`);
-  const [endSeq, seqRemaining] = await cb.expectASN1Length(chatty && 'sequence');
+  const [endSeq, seqRemaining] = await cb.expectASN1Sequence(seqType);
 
   while (seqRemaining() > 0) {
     await cb.expectUint8(constructedUniversalTypeSet, chatty && 'set');
     const [endItemSet] = await cb.expectASN1Length(chatty && 'set');
-
-    await cb.expectUint8(constructedUniversalTypeSequence, chatty && 'sequence');
-    const [endItemSeq] = await cb.expectASN1Length(chatty && 'sequence');
+    const [endItemSeq] = await cb.expectASN1Sequence();
 
     await cb.expectUint8(universalTypeOID, chatty && 'OID');
     const itemOID = await cb.readASN1OID();
@@ -148,7 +144,8 @@ export async function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType: string) {  // us
 
 export async function readNamesSeq(cb: ASN1Bytes, typeUnionBits = 0x00) {
   const names = [];
-  const [endNamesSeq, namesSeqRemaining] = await cb.expectASN1Length(chatty && 'names sequence');
+  // const [endNamesSeq, namesSeqRemaining] = await cb.expectASN1Length(chatty && 'names sequence');
+  const [endNamesSeq, namesSeqRemaining] = await cb.expectASN1Sequence(chatty && 'names');
   while (namesSeqRemaining() > 0) {
     const type = await cb.readUint8(chatty && 'GeneralNames type');
     const [endName, nameRemaining] = await cb.expectASN1Length(chatty && 'name');

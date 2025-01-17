@@ -1,3 +1,4 @@
+import { constructedUniversalTypeSequence } from '../tls/certUtils';
 import { Bytes } from './bytes';
 import { hexFromU8 } from './hex';
 
@@ -101,4 +102,8 @@ export class ASN1Bytes extends Bytes {
     return bitString;
   }
 
+  async expectASN1Sequence(comment?: string) {
+    await this.expectUint8(constructedUniversalTypeSequence, comment ? `sequence: ${comment}` : 'sequence');
+    return this.expectASN1Length(comment);
+  }
 }
