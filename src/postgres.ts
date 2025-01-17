@@ -371,7 +371,7 @@ export async function postgres(
     chatty && log('%c✓ server signature matches locally-generated server signature', 'color: #8c8;');
   }
 
-  chatty && log('Now the server tells us we’re in, and provides some other useful data.');
+  chatty && log('The server tells us we’re in, and provides some other useful data.');
 
   const postAuthBytes = new Bytes(read);
   await postAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
@@ -496,6 +496,11 @@ export async function postgres(
   chatty && log(...highlightBytes(endBytes.commentedString(), LogColours.client));
   chatty && log('And as sent on the wire:');
   await write(endBytes.array());
+
+  chatty && log(
+    `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
+    textColour, mutedColour, textColour, mutedColour
+  );
 
   done = true;
 }

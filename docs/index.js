@@ -2970,7 +2970,7 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
     if (remoteServerSignatureB64 !== serverSignatureB64) throw new Error("Server signature mismatch");
     log("%c\u2713 server signature matches locally-generated server signature", "color: #8c8;");
   }
-  log("Now the server tells us we\u2019re in, and provides some other useful data.");
+  log("The server tells us we\u2019re in, and provides some other useful data.");
   const postAuthBytes = new Bytes(read);
   await postAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
   const [endAuthOK] = await postAuthBytes.expectLengthUint32Incl("authentication result");
@@ -3078,6 +3078,13 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
   log(...highlightBytes(endBytes.commentedString(), "#8cc" /* client */));
   log("And as sent on the wire:");
   await write(endBytes.array());
+  log(
+    `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
+    textColour,
+    mutedColour,
+    textColour,
+    mutedColour
+  );
   done = true;
 }
 
@@ -3115,6 +3122,13 @@ Host: ${host}\r
       log(responseText);
     }
   } while (responseData);
+  log(
+    `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
+    textColour,
+    mutedColour,
+    textColour,
+    mutedColour
+  );
   return response;
 }
 
@@ -3132,9 +3146,16 @@ async function wsTransport(host, port, close = () => {
     ws2.addEventListener("close", close);
   });
   const reader = new WebSocketReadQueue(ws);
-  const read = reader.read.bind(reader);
-  const write = ws.send.bind(ws);
-  return { read, write };
+  const stats = { read: 0, written: 0 };
+  const read = (bytes, readMode) => {
+    stats.read += bytes;
+    return reader.read(bytes, readMode);
+  };
+  const write = (data) => {
+    stats.written += data.byteLength ?? data.size ?? data.length;
+    return ws.send(data);
+  };
+  return { read, write, stats };
 }
 
 // src/index.ts
@@ -3145,13 +3166,13 @@ var goBtn = qs("#go");
 var heading = qs("#heading");
 var desc = qs("#description");
 var logs = qs("#logs");
-var pg = /\?postgres(ql)?/i.test(location.search);
+var pg = /[?]postgres(ql)?/i.test(location.search);
 (pg ? pgTab : httpsTab).classList.add("active");
 (pg ? httpsTab : pgTab).classList.remove("active");
 if (pg) {
-  goBtn.value = "Ask Postgres the time, live";
-  heading.innerHTML = "Live Postgres query with TLS channel binding, byte by byte";
-  desc.innerHTML = 'This page connects to a <a href="https://neon.tech">Neon</a> PostgreSQL instance using <a href="https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256">SCRAM-SHA-256-PLUS</a> auth and issues a <span class="q">SELECT now()</span>.';
+  goBtn.value = "Ask Postgres the time, byte by byte";
+  heading.innerHTML = "See this page query Postgres, byte by byte, over TLS";
+  desc.innerHTML = 'This page connects to a <a href="https://neon.tech">Neon</a> PostgreSQL instance over TLS with <a href="https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256">channel binding</a>. Then it runs this query: <span class="q">SELECT now()</span>.';
 }
 var logAndRethrow = (e) => {
   log(`%cError: ${e.message}%c`, `color: ${"#c88" /* header */}`, textColour);

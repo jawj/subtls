@@ -5,23 +5,23 @@ import wsTransport from './util/wsTransport';
 import { LogColours } from './presentation/appearance';
 import { textColour } from './presentation/highlights';
 
-const qs = (sel: string) => document.querySelector(sel)!;
+const qs = <E extends Element = Element>(sel: string) => document.querySelector(sel) as E;
 const pgTab = qs('#postgres');
 const httpsTab = qs('#https');
-const goBtn = qs('#go') as HTMLButtonElement;
-const heading = qs('#heading') as HTMLHeadingElement;
+const goBtn = qs<HTMLButtonElement>('#go');
+const heading = qs('#heading');
 const desc = qs('#description');
 const logs = qs('#logs');
 
-const pg = /\?postgres(ql)?/i.test(location.search);
+const pg = /[?]postgres(ql)?/i.test(location.search);
 
 (pg ? pgTab : httpsTab).classList.add('active');
 (pg ? httpsTab : pgTab).classList.remove('active');
 
 if (pg) {
-  goBtn.value = 'Ask Postgres the time, live';
-  heading.innerHTML = 'Live Postgres query with TLS channel binding, byte by byte';
-  desc.innerHTML = 'This page connects to a <a href="https://neon.tech">Neon</a> PostgreSQL instance using <a href="https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256">SCRAM-SHA-256-PLUS</a> auth and issues a <span class="q">SELECT now()</span>.';
+  goBtn.value = 'Ask Postgres the time, byte by byte';
+  heading.innerHTML = 'See this page query Postgres, byte by byte, over TLS';
+  desc.innerHTML = 'This page connects to a <a href="https://neon.tech">Neon</a> PostgreSQL instance over TLS with <a href="https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256">channel binding</a>. Then it runs this query: <span class="q">SELECT now()</span>.';
 }
 
 const logAndRethrow = (e: any) => {

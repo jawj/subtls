@@ -1,6 +1,6 @@
 import { Bytes } from './util/bytes';
 import { LogColours } from './presentation/appearance';
-import { highlightBytes } from './presentation/highlights';
+import { highlightBytes, mutedColour, textColour } from './presentation/highlights';
 import { log } from './presentation/log';
 import { startTls } from './tls/startTls';
 import type wsTransport from './util/wsTransport';
@@ -43,6 +43,11 @@ export async function https(urlStr: string, method: string, transportFactory: ty
     }
   } while (responseData);
 
-  chatty || log(`time taken: ${Date.now() - t0}ms`);
+  chatty || log(`time taken: ${Date.now() - t0}ms`);  // don't show this in chatty mode since almost all time is spent logging
+  chatty && log(
+    `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
+    textColour, mutedColour, textColour, mutedColour
+  );
+
   return response;
 }
