@@ -1393,15 +1393,17 @@ var ASN1Bytes = class extends Bytes {
     return oid;
   }
   async readASN1Boolean(comment) {
+    await this.expectUint8(universalTypeBoolean, comment ? `boolean: ${comment}` : "boolean");
     const [endBoolean, booleanRemaining] = await this.expectASN1Length("boolean");
     const length = booleanRemaining();
-    if (length !== 1) throw new Error(`Boolean has weird length: ${length}`);
+    if (length !== 1) throw new Error(`Boolean has unexpected length: ${length}`);
     const byte = await this.readUint8();
-    let result;
-    if (byte === 255) result = true;
-    else if (byte === 0) result = false;
-    else throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
-    if (comment) this.comment(comment.replace(/%/g, String(result)));
+    const result = {
+      255: true,
+      0: false
+    }[byte];
+    if (result === void 0) throw new Error(`Boolean has unexpected value: 0x${hexFromU8([byte])}`);
+    this.comment(String(result));
     endBoolean();
     return result;
   }
@@ -1458,6 +1460,10 @@ var ASN1Bytes = class extends Bytes {
   }
   async expectASN1DERDoc() {
     return this.expectASN1OctetString("DER document");
+  }
+  async expectASN1Null() {
+    await this.expectUint8(universalTypeNull, "null type");
+    await this.expectUint8(0, "null length");
   }
 };
 
@@ -1955,10 +1961,7 @@ var Cert = class _Cert {
       const [endAlgo, algoRemaining] = await cb.expectASN1Sequence("algorithm");
       cert.algorithm = await cb.readASN1OID();
       cb.comment(`${cert.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(cert.algorithm))}`);
-      if (algoRemaining() > 0) {
-        await cb.expectUint8(universalTypeNull, "null");
-        await cb.expectUint8(0, "null length");
-      }
+      if (algoRemaining() > 0) await cb.expectASN1Null();
       endAlgo();
       cert.issuer = await readSeqOfSetOfSeq(cb, "issuer");
       let notBefore, notAfter;
@@ -1992,14 +1995,13 @@ var Cert = class _Cert {
       const publicKeyOIDs = [];
       while (keyOIDRemaining() > 0) {
         const keyParamRecordType = await cb.readUint8();
+        cb.offset--;
         if (keyParamRecordType === universalTypeOID) {
-          cb.offset--;
           const keyOID = await cb.readASN1OID();
           cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`);
           publicKeyOIDs.push(keyOID);
         } else if (keyParamRecordType === universalTypeNull) {
-          cb.comment("null");
-          await cb.expectUint8(0, "null length");
+          await cb.expectASN1Null();
         }
       }
       endKeyOID();
@@ -2022,12 +2024,12 @@ var Cert = class _Cert {
         } else if (extOID === "2.5.29.15") {
           let keyUsageCritical;
           let nextType = await cb.readUint8();
-          if (nextType === universalTypeBoolean) {
-            cb.comment("boolean");
-            keyUsageCritical = await cb.readASN1Boolean("critical: %");
-            nextType = await cb.readUint8();
-          }
           cb.offset--;
+          if (nextType === universalTypeBoolean) {
+            keyUsageCritical = await cb.readASN1Boolean("critical");
+            nextType = await cb.readUint8();
+            cb.offset--;
+          }
           const [endKeyUsageDer] = await cb.expectASN1DERDoc();
           const keyUsageBitStr = await cb.readASN1BitString();
           const keyUsageBitmask = intFromBitString(keyUsageBitStr);
@@ -2093,18 +2095,17 @@ var Cert = class _Cert {
         } else if (extOID === "2.5.29.19") {
           let basicConstraintsCritical;
           let bcNextType = await cb.readUint8();
-          if (bcNextType === universalTypeBoolean) {
-            cb.comment("boolean");
-            basicConstraintsCritical = await cb.readASN1Boolean("critical: %");
-            bcNextType = await cb.readUint8();
-          }
           cb.offset--;
+          if (bcNextType === universalTypeBoolean) {
+            basicConstraintsCritical = await cb.readASN1Boolean("critical");
+            bcNextType = await cb.readUint8();
+            cb.offset--;
+          }
           const [endBasicConstraintsDer] = await cb.expectASN1DERDoc();
           const [endConstraintsSeq, constraintsSeqRemaining] = await cb.expectASN1Sequence();
           let basicConstraintsCa = void 0;
           if (constraintsSeqRemaining() > 0) {
-            await cb.expectUint8(universalTypeBoolean, "boolean");
-            basicConstraintsCa = await cb.readASN1Boolean("certificate authority: %");
+            basicConstraintsCa = await cb.readASN1Boolean("certificate authority");
           }
           let basicConstraintsPathLength;
           if (constraintsSeqRemaining() > 0) {
@@ -2177,10 +2178,7 @@ var Cert = class _Cert {
       cert.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
       const [endSigAlgo, sigAlgoRemaining] = await cb.expectASN1Sequence("signature algorithm");
       const sigAlgoOID = await cb.readASN1OID("must be same as algorithm in certificate above");
-      if (sigAlgoRemaining() > 0) {
-        await cb.expectUint8(universalTypeNull, "null");
-        await cb.expectUint8(0, "null length");
-      }
+      if (sigAlgoRemaining() > 0) await cb.expectASN1Null();
       endSigAlgo();
       if (sigAlgoOID !== cert.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${cert.algorithm}) and out (${sigAlgoOID})`);
       cert.signature = await cb.readASN1BitString("signature");

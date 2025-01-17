@@ -1,4 +1,4 @@
-import { constructedUniversalTypeSequence, universalTypeBitString, universalTypeOctetString, universalTypeOID } from '../tls/certUtils';
+import { constructedUniversalTypeSequence, universalTypeBitString, universalTypeBoolean, universalTypeNull, universalTypeOctetString, universalTypeOID } from '../tls/certUtils';
 import { Bytes } from './bytes';
 import { hexFromU8 } from './hex';
 
@@ -45,15 +45,17 @@ export class ASN1Bytes extends Bytes {
   }
 
   async readASN1Boolean(comment?: string) {
+    await this.expectUint8(universalTypeBoolean, chatty && (comment ? `boolean: ${comment}` : 'boolean'));
     const [endBoolean, booleanRemaining] = await this.expectASN1Length(chatty && 'boolean');
     const length = booleanRemaining();
-    if (length !== 1) throw new Error(`Boolean has weird length: ${length}`);
+    if (length !== 1) throw new Error(`Boolean has unexpected length: ${length}`);
     const byte = await this.readUint8();
-    let result;
-    if (byte === 0xff) result = true;
-    else if (byte === 0x00) result = false;
-    else throw new Error(`Boolean has weird value: 0x${hexFromU8([byte])}`);
-    if (chatty && comment) this.comment(comment.replace(/%/g, String(result)));
+    const result = {
+      0xff: true,
+      0x00: false,
+    }[byte];
+    if (result === undefined) throw new Error(`Boolean has unexpected value: 0x${hexFromU8([byte])}`);
+    chatty && this.comment(String(result));
     endBoolean();
     return result;
   }
@@ -116,5 +118,10 @@ export class ASN1Bytes extends Bytes {
 
   async expectASN1DERDoc() {
     return this.expectASN1OctetString(chatty && 'DER document');
+  }
+
+  async expectASN1Null() {
+    await this.expectUint8(universalTypeNull, chatty && 'null type');
+    await this.expectUint8(0x00, chatty && 'null length');
   }
 }

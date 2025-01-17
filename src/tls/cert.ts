@@ -117,10 +117,7 @@ export class Cert {
       const [endAlgo, algoRemaining] = await cb.expectASN1Sequence(chatty && 'algorithm');
       cert.algorithm = await cb.readASN1OID();
       chatty && cb.comment(`${cert.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(cert.algorithm))}`);
-      if (algoRemaining() > 0) {  // null parameters
-        await cb.expectUint8(universalTypeNull, chatty && 'null');
-        await cb.expectUint8(0x00, chatty && 'null length');
-      }
+      if (algoRemaining() > 0) await cb.expectASN1Null();  // null parameters
       endAlgo();
 
       // issuer
@@ -166,15 +163,15 @@ export class Cert {
       const publicKeyOIDs: string[] = [];
       while (keyOIDRemaining() > 0) {
         const keyParamRecordType = await cb.readUint8();
+        cb.offset--;  // back up one byte, because we're about to check the type again
+
         if (keyParamRecordType === universalTypeOID) {
-          cb.offset--;  // back up one byte, because readASN1OID will check for an OID type again
           const keyOID = await cb.readASN1OID();
           chatty && cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`);
           publicKeyOIDs.push(keyOID);
 
         } else if (keyParamRecordType === universalTypeNull) {
-          chatty && cb.comment('null');
-          await cb.expectUint8(0x00, chatty && 'null length');
+          await cb.expectASN1Null();
         }
       }
       endKeyOID();
@@ -207,12 +204,12 @@ export class Cert {
         } else if (extOID === '2.5.29.15') {  // keyUsage
           let keyUsageCritical;
           let nextType = await cb.readUint8();
+          cb.offset--;  // back up one byte since we're about to read the type again
           if (nextType === universalTypeBoolean) {
-            chatty && cb.comment('boolean');
-            keyUsageCritical = await cb.readASN1Boolean(chatty && 'critical: %');
+            keyUsageCritical = await cb.readASN1Boolean(chatty && 'critical');
             nextType = await cb.readUint8();
+            cb.offset--;  // back up one byte since we're about to read the type again
           }
-          cb.offset--;  // back up one byte since expectASN1OctetString will read the type again
           const [endKeyUsageDer] = await cb.expectASN1DERDoc();
           const keyUsageBitStr = await cb.readASN1BitString();
           const keyUsageBitmask = intFromBitString(keyUsageBitStr);
@@ -288,19 +285,18 @@ export class Cert {
         } else if (extOID === '2.5.29.19') {  // basicConstraints
           let basicConstraintsCritical;
           let bcNextType = await cb.readUint8();
-          if (bcNextType === universalTypeBoolean) {
-            chatty && cb.comment('boolean');
-            basicConstraintsCritical = await cb.readASN1Boolean(chatty && 'critical: %');
-            bcNextType = await cb.readUint8();
-          }
           cb.offset--;  // back up one byte because expectASN1OctetString will re-read the type
+          if (bcNextType === universalTypeBoolean) {
+            basicConstraintsCritical = await cb.readASN1Boolean(chatty && 'critical');
+            bcNextType = await cb.readUint8();
+            cb.offset--;  // back up one byte because expectASN1OctetString will re-read the type
+          }
           const [endBasicConstraintsDer] = await cb.expectASN1DERDoc();
           const [endConstraintsSeq, constraintsSeqRemaining] = await cb.expectASN1Sequence();
 
           let basicConstraintsCa = undefined;
           if (constraintsSeqRemaining() > 0) {
-            await cb.expectUint8(universalTypeBoolean, chatty && 'boolean');
-            basicConstraintsCa = await cb.readASN1Boolean(chatty && 'certificate authority: %');
+            basicConstraintsCa = await cb.readASN1Boolean(chatty && 'certificate authority');
           }
 
           let basicConstraintsPathLength;
@@ -419,11 +415,9 @@ export class Cert {
       // signature algorithm
       const [endSigAlgo, sigAlgoRemaining] = await cb.expectASN1Sequence(chatty && 'signature algorithm');
       const sigAlgoOID = await cb.readASN1OID(chatty && 'must be same as algorithm in certificate above');
-      if (sigAlgoRemaining() > 0) {
-        await cb.expectUint8(universalTypeNull, chatty && 'null');
-        await cb.expectUint8(0x00, chatty && 'null length');
-      }
+      if (sigAlgoRemaining() > 0) await cb.expectASN1Null();
       endSigAlgo();
+
       if (sigAlgoOID !== cert.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${cert.algorithm}) and out (${sigAlgoOID})`);
 
       // signature
