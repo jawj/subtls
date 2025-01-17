@@ -15,6 +15,9 @@ h1 {
 }
 
 #tabs {
+  font-size: 80%;
+  letter-spacing: 1px;
+  text-transform: uppercase;
   border-bottom: 1px solid #aaa;
   background: #aaa;
   padding: 1ex 5ex 0;
@@ -22,7 +25,7 @@ h1 {
 
 #tabs a.tab {
   display: inline-block;
-  padding: .75ex 2.5ex .65ex;
+  padding: 1.4ex 3ex 1.2ex;
   position: relative;
   top: 1px;
   background: #eee;
