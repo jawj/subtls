@@ -38,6 +38,56 @@ var b64ChPad = 61;
 var b64ChUrl = b64ChStd.slice();
 b64ChUrl[62] = 45;
 b64ChUrl[63] = 95;
+var ccl;
+var ccu;
+function _toHex(in8, { alphabet, scratchArr } = {}) {
+  if (!ccl) {
+    ccl = new Uint16Array(256);
+    ccu = new Uint16Array(256);
+    if (littleEndian) for (let i2 = 0; i2 < 256; i2++) {
+      ccl[i2] = hexCharsLower[i2 & 15] << 8 | hexCharsLower[i2 >>> 4];
+      ccu[i2] = hexCharsUpper[i2 & 15] << 8 | hexCharsUpper[i2 >>> 4];
+    }
+    else for (let i2 = 0; i2 < 256; i2++) {
+      ccl[i2] = hexCharsLower[i2 & 15] | hexCharsLower[i2 >>> 4] << 8;
+      ccu[i2] = hexCharsUpper[i2 & 15] | hexCharsUpper[i2 >>> 4] << 8;
+    }
+  }
+  if (in8.byteOffset % 4 !== 0) in8 = new Uint8Array(in8);
+  const len = in8.length, halfLen = len >>> 1, quarterLen = len >>> 2, out16 = scratchArr || new Uint16Array(len), in32 = new Uint32Array(
+    in8.buffer,
+    in8.byteOffset,
+    quarterLen
+  ), out32 = new Uint32Array(out16.buffer, out16.byteOffset, halfLen), cc = alphabet === "upper" ? ccu : ccl;
+  let i = 0, j = 0, v;
+  if (littleEndian) while (i < quarterLen) {
+    v = in32[i++];
+    out32[j++] = cc[v >>> 8 & 255] << 16 | cc[v & 255];
+    out32[j++] = cc[v >>> 24] << 16 | cc[v >>> 16 & 255];
+  }
+  else while (i < quarterLen) {
+    v = in32[i++];
+    out32[j++] = cc[v >>> 24] << 16 | cc[v >>> 16 & 255];
+    out32[j++] = cc[v >>> 8 & 255] << 16 | cc[v & 255];
+  }
+  i <<= 2;
+  while (i < len) out16[i] = cc[in8[i++]];
+  const hex = td.decode(out16.subarray(0, len));
+  return hex;
+}
+function _toHexChunked(d, options = {}) {
+  let hex = "", len = d.length, chunkWords = chunkBytes >>> 1, chunks = Math.ceil(len / chunkWords), scratchArr = new Uint16Array(
+    chunks > 1 ? chunkWords : len
+  );
+  for (let i = 0; i < chunks; i++) {
+    const start = i * chunkWords, end = start + chunkWords;
+    hex += _toHex(d.subarray(start, end), __spreadProps(__spreadValues({}, options), { scratchArr }));
+  }
+  return hex;
+}
+function toHex(d, options = {}) {
+  return options.alphabet !== "upper" && typeof d.toHex === "function" ? d.toHex() : _toHexChunked(d, options);
+}
 var chpairsStd;
 var chpairsUrl;
 function _toBase64(d, { omitPadding, alphabet, scratchArr } = {}) {
@@ -923,7 +973,37 @@ function u8FromHex(hex) {
   return new Uint8Array(Array.from(hex.matchAll(/[0-9a-f]/g)).map((hex2) => parseInt(hex2[0], 16)));
 }
 function hexFromU8(u8, spacer = "") {
-  return [...u8].map((n) => n.toString(16).padStart(2, "0")).join(spacer);
+  if (!(u8 instanceof Uint8Array)) u8 = new Uint8Array(u8);
+  if (spacer === "") return toHex(u8);
+  if (spacer === " ") return toHexSpaced(u8);
+  throw new Error("Spacer may only be empty or a single space");
+}
+var te2 = new TextEncoder();
+var td2 = new TextDecoder();
+var littleEndian2 = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+var hexChars = te2.encode("0123456789abcdef");
+var ccEvens = new Uint16Array(256);
+var ccOdds = new Uint32Array(256);
+if (littleEndian2) for (let i = 0; i < 256; i++) {
+  ccEvens[i] = hexChars[i & 15] << 8 | hexChars[i >>> 4];
+  ccOdds[i] = 32 << 16 | hexChars[i >>> 4] << 24 | hexChars[i & 15] | 32 << 8;
+}
+else for (let i = 0; i < 256; i++) {
+  ccEvens[i] = hexChars[i & 15] | hexChars[i >>> 4] << 8;
+  ccOdds[i] = 32 << 24 | hexChars[i >>> 4] << 16 | hexChars[i & 15] << 8 | 32;
+}
+function toHexSpaced(in8) {
+  const bytes = in8.length;
+  const out16 = new Uint16Array(bytes * 1.5 << 0);
+  let outIndex = 0;
+  for (let i = 0; i < bytes; i += 2) {
+    out16[outIndex++] = ccEvens[in8[i]];
+    const ccOdd = ccOdds[in8[i + 1]];
+    out16[outIndex++] = ccOdd >>> 16;
+    out16[outIndex++] = ccOdd & 65535;
+  }
+  const out8 = new Uint8Array(out16.buffer);
+  return td2.decode(out8.subarray(0, bytes * 3 - 1));
 }
 
 // src/tls/parseServerHello.ts
@@ -2723,7 +2803,7 @@ function parseAsHTTP(url, parseQueryString = false) {
 }
 
 // src/postgres.ts
-var te2 = new TextEncoder();
+var te3 = new TextEncoder();
 async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false) {
   const t0 = Date.now();
   const url = parseAsHTTP(urlStr);
@@ -2862,12 +2942,12 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
     log(...highlightColonList(`The hash we present is determined by the certificate\u2019s algorithm (unless that\u2019s MD5 or SHA-1, in which case it\u2019s upgraded to SHA-256). For this particular certificate, it\u2019s: ${hashAlgo}.`));
     const hashedCert = new Uint8Array(await cryptoProxy_default.digest(hashAlgo, userCert.rawData));
     log(...highlightColonList(`certificate hash: ${hexFromU8(hashedCert)}`));
-    const cbindMessageB64 = toBase64(concat(te2.encode(gs2Header), hashedCert));
+    const cbindMessageB64 = toBase64(concat(te3.encode(gs2Header), hashedCert));
     const clientFinalMessageWithoutProof = `c=${cbindMessageB64},r=${nonceStr}`;
     log(`The channel-binding data (c) consists of the channel-binding header we sent before (${gs2Header}), followed by this binary hash, all base64-encoded. That completes the client-final-message-without-proof.`);
     log(...highlightColonList(`client-final-message-without-proof: ${clientFinalMessageWithoutProof}`));
     const salt = fromBase64(saltB64);
-    const passwordBytes = te2.encode(password);
+    const passwordBytes = te3.encode(password);
     log("So: what about the proof? Well, there are a few steps to this.");
     log("One of SCRAM authentication\u2019s goals is to make it hard to brute-force a user\u2019s password even given access to their stored credentials. That\u2019s done by requiring time-consuming sequential calculations via [PBKDF2](https://en.wikipedia.org/wiki/PBKDF2).");
     log("So we now calculate a long chain of SHA-256 HMACs using the password and the salt, and XOR each result with the previous one. This is [operation Hi(str, salt, i) in RFC 5802](https://datatracker.ietf.org/doc/html/rfc5802#section-2.2).");
@@ -2894,7 +2974,7 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
       false,
       ["sign"]
     );
-    const clientKey = new Uint8Array(await cryptoProxy_default.sign("HMAC", ckHmacKey, te2.encode("Client Key")));
+    const clientKey = new Uint8Array(await cryptoProxy_default.sign("HMAC", ckHmacKey, te3.encode("Client Key")));
     log('Next, we generate the ClientKey. It\u2019s an HMAC of the string "Client Key" using that SaltedPassword.');
     log(...highlightColonList(`ClientKey: ${hexFromU8(clientKey)}`));
     const storedKey = new Uint8Array(await cryptoProxy_default.digest("SHA-256", clientKey));
@@ -2912,7 +2992,7 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
       false,
       ["sign"]
     );
-    const clientSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", csHmacKey, te2.encode(authMessage)));
+    const clientSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", csHmacKey, te3.encode(authMessage)));
     log(...highlightColonList(`ClientSignature: ${hexFromU8(clientSignature)}`));
     log("And at last we can calculate the proof (p), by XORing this ClientSignature with the ClientKey.");
     const clientProof = clientKey.map((x, i) => x ^ clientSignature[i]);
@@ -2948,7 +3028,7 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
       false,
       ["sign"]
     );
-    const serverKey = new Uint8Array(await cryptoProxy_default.sign("HMAC", skHmacKey, te2.encode("Server Key")));
+    const serverKey = new Uint8Array(await cryptoProxy_default.sign("HMAC", skHmacKey, te3.encode("Server Key")));
     log(...highlightColonList(`ServerKey: ${hexFromU8(serverKey)}`));
     log("Then we make the ServerSignature, as an HMAC of the AuthMessage (as defined above) using the ServerKey.");
     const ssbHmacKey = await cryptoProxy_default.importKey(
@@ -2958,7 +3038,7 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
       false,
       ["sign"]
     );
-    const serverSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", ssbHmacKey, te2.encode(authMessage)));
+    const serverSignature = new Uint8Array(await cryptoProxy_default.sign("HMAC", ssbHmacKey, te3.encode(authMessage)));
     log(...highlightColonList(`ServerSignature: ${hexFromU8(serverSignature)}`));
     const serverSignatureB64 = toBase64(serverSignature);
     log(...highlightColonList(`ServerSignature, base64-encoded: ${serverSignatureB64}`));
