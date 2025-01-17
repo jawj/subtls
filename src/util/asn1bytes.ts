@@ -135,8 +135,8 @@ export class ASN1Bytes extends Bytes {
     return this.expectASN1OctetString(chatty && 'DER document');
   }
 
-  async expectASN1Null() {
-    await this.expectUint8(universalTypeNull, chatty && 'null type');
-    await this.expectUint8(0x00, chatty && 'null length');
+  async expectASN1Null(comment?: string) {
+    const [endNull] = await this.expectASN1TypeAndLength(universalTypeNull, 'null', comment);
+    endNull();
   }
 }

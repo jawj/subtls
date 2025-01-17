@@ -115,7 +115,9 @@ export class Cert {
       const [endAlgo, algoRemaining] = await cb.expectASN1Sequence(chatty && 'algorithm');
       cert.algorithm = await cb.readASN1OID();
       chatty && cb.comment(`${cert.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(cert.algorithm))}`);
-      if (algoRemaining() > 0) await cb.expectASN1Null();  // null parameters
+      if (algoRemaining() > 0) {
+        await cb.expectASN1Null('no algorithm parameters');
+      }
       endAlgo();
 
       // issuer
@@ -415,7 +417,9 @@ export class Cert {
       // signature algorithm
       const [endSigAlgo, sigAlgoRemaining] = await cb.expectASN1Sequence(chatty && 'signature algorithm');
       const sigAlgoOID = await cb.readASN1OID(chatty && 'must be same as algorithm in certificate above');
-      if (sigAlgoRemaining() > 0) await cb.expectASN1Null();
+      if (sigAlgoRemaining() > 0) {
+        await cb.expectASN1Null('no algorithm parameters');
+      }
       endSigAlgo();
 
       if (sigAlgoOID !== cert.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${cert.algorithm}) and out (${sigAlgoOID})`);

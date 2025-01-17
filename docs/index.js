@@ -1474,9 +1474,9 @@ var ASN1Bytes = class extends Bytes {
   async expectASN1DERDoc() {
     return this.expectASN1OctetString("DER document");
   }
-  async expectASN1Null() {
-    await this.expectUint8(universalTypeNull, "null type");
-    await this.expectUint8(0, "null length");
+  async expectASN1Null(comment) {
+    const [endNull] = await this.expectASN1TypeAndLength(universalTypeNull, "null", comment);
+    endNull();
   }
 };
 
@@ -1974,7 +1974,9 @@ var Cert = class _Cert {
       const [endAlgo, algoRemaining] = await cb.expectASN1Sequence("algorithm");
       cert.algorithm = await cb.readASN1OID();
       cb.comment(`${cert.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(cert.algorithm))}`);
-      if (algoRemaining() > 0) await cb.expectASN1Null();
+      if (algoRemaining() > 0) {
+        await cb.expectASN1Null("no algorithm parameters");
+      }
       endAlgo();
       cert.issuer = await readSeqOfSetOfSeq(cb, "issuer");
       const [endValiditySeq] = await cb.expectASN1Sequence("validity");
@@ -2172,7 +2174,9 @@ var Cert = class _Cert {
       cert.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
       const [endSigAlgo, sigAlgoRemaining] = await cb.expectASN1Sequence("signature algorithm");
       const sigAlgoOID = await cb.readASN1OID("must be same as algorithm in certificate above");
-      if (sigAlgoRemaining() > 0) await cb.expectASN1Null();
+      if (sigAlgoRemaining() > 0) {
+        await cb.expectASN1Null("no algorithm parameters");
+      }
       endSigAlgo();
       if (sigAlgoOID !== cert.algorithm) throw new Error(`Certificate specifies different signature algorithms inside (${cert.algorithm}) and out (${sigAlgoOID})`);
       cert.signature = await cb.readASN1BitString("signature");
