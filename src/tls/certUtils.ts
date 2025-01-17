@@ -108,7 +108,6 @@ export async function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType?: string) {  // u
     const [endItemSet] = await cb.expectASN1Length(chatty && 'set');
     const [endItemSeq] = await cb.expectASN1Sequence();
 
-    await cb.expectUint8(universalTypeOID, chatty && 'OID');
     const itemOID = await cb.readASN1OID();
     const itemName = DNOIDMap[itemOID] ?? itemOID;
     chatty && cb.comment(`${itemOID} = ${itemName}`);

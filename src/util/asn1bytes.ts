@@ -1,4 +1,4 @@
-import { constructedUniversalTypeSequence } from '../tls/certUtils';
+import { constructedUniversalTypeSequence, universalTypeOID } from '../tls/certUtils';
 import { Bytes } from './bytes';
 import { hexFromU8 } from './hex';
 
@@ -24,7 +24,8 @@ export class ASN1Bytes extends Bytes {
     return this.expectReadLength(length);
   }
 
-  async readASN1OID(comment?: string) {  // starting with length (i.e. after OID type value)
+  async readASN1OID(comment?: string) {
+    await this.expectUint8(universalTypeOID, chatty && (comment ? `OID: ${comment}` : 'OID'));
     const [endOID, OIDRemaining] = await this.expectASN1Length(chatty && 'OID');
     const byte1 = await this.readUint8();
     let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
@@ -38,7 +39,7 @@ export class ASN1Bytes extends Bytes {
       }
       oid += `.${value}`;
     }
-    if (chatty && comment) this.comment(comment.replace(/%/g, oid));
+    chatty && this.comment(oid);
     endOID();
     return oid;
   }
@@ -103,7 +104,7 @@ export class ASN1Bytes extends Bytes {
   }
 
   async expectASN1Sequence(comment?: string) {
-    await this.expectUint8(constructedUniversalTypeSequence, comment ? `sequence: ${comment}` : 'sequence');
+    await this.expectUint8(constructedUniversalTypeSequence, chatty && (comment ? `sequence: ${comment}` : 'sequence'));
     return this.expectASN1Length(comment);
   }
 }

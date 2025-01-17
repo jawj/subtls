@@ -117,7 +117,6 @@ export class Cert {
 
       // algorithm
       const [endAlgo, algoRemaining] = await cb.expectASN1Sequence(chatty && 'algorithm');
-      await cb.expectUint8(universalTypeOID, chatty && 'OID');
       cert.algorithm = await cb.readASN1OID();
       chatty && cb.comment(`${cert.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(cert.algorithm))}`);
       if (algoRemaining() > 0) {  // null parameters
@@ -170,7 +169,7 @@ export class Cert {
       while (keyOIDRemaining() > 0) {
         const keyParamRecordType = await cb.readUint8();
         if (keyParamRecordType === universalTypeOID) {
-          chatty && cb.comment('OID');
+          cb.offset--;  // back up one byte, because readASN1OID will check for an OID type again
           const keyOID = await cb.readASN1OID();
           chatty && cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`);
           publicKeyOIDs.push(keyOID);
@@ -197,8 +196,7 @@ export class Cert {
 
       while (extsRemaining() > 0) {
         const [endExt, extRemaining] = await cb.expectASN1Sequence('certificate extension');
-        await cb.expectUint8(universalTypeOID, chatty && 'OID (extension type)');
-        const extOID = await cb.readASN1OID();
+        const extOID = await cb.readASN1OID('extension type');
         chatty && cb.comment(`${extOID} = ${extOIDMap[extOID]}`);
 
         if (extOID === '2.5.29.17') {  // subjectAltName
@@ -238,7 +236,6 @@ export class Cert {
           const [endExtKeyUsageDer] = await cb.expectASN1Length(chatty && 'DER document');
           const [endExtKeyUsage, extKeyUsageRemaining] = await cb.expectASN1Sequence(chatty && 'key usage OIDs');
           while (extKeyUsageRemaining() > 0) {
-            await cb.expectUint8(universalTypeOID, chatty && 'OID');
             const extKeyUsageOID = await cb.readASN1OID();
             chatty && cb.comment(`${extKeyUsageOID} = ${extKeyUsageOIDMap[extKeyUsageOID]}`);
             if (extKeyUsageOID === '1.3.6.1.5.5.7.3.1') cert.extKeyUsage.serverTls = true;
@@ -347,7 +344,6 @@ export class Cert {
           while (authInfoAccessSeqRemaining() > 0) {
             const [endAuthInfoAccessInnerSeq] = await cb.expectASN1Sequence();
 
-            await cb.expectUint8(universalTypeOID, chatty && 'OID');
             const accessMethodOID = await cb.readASN1OID();
             chatty && cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? 'unknown method'} `);
 
@@ -370,8 +366,7 @@ export class Cert {
           while (certPolSeqRemaining() > 0) {
             const [endCertPolInnerSeq, certPolInnerSeqRemaining] = await cb.expectASN1Sequence();
 
-            await cb.expectUint8(universalTypeOID, chatty && 'OID (CertPolicyID)');
-            const certPolOID = await cb.readASN1OID();
+            const certPolOID = await cb.readASN1OID('CertPolicyID');
             chatty && cb.comment(`${certPolOID} = policy: ${certPolOIDMap[certPolOID] ?? 'unknown policy'} `);
 
             while (certPolInnerSeqRemaining() > 0) {
@@ -380,8 +375,7 @@ export class Cert {
               while (certPolInner2SeqRemaining() > 0) {
                 const [endCertPolInner3Seq, certPolInner3SeqRemaining] = await cb.expectASN1Sequence();
 
-                await cb.expectUint8(universalTypeOID, chatty && 'OID (policyQualifierId)');
-                const certPolQualOID = await cb.readASN1OID();
+                const certPolQualOID = await cb.readASN1OID('policyQualifierId');
                 chatty && cb.comment(`${certPolQualOID} = qualifier: ${certPolQualOIDMap[certPolQualOID] ?? 'unknown qualifier'} `);
 
                 const qualType = await cb.readUint8();
@@ -440,8 +434,7 @@ export class Cert {
 
       // signature algorithm
       const [endSigAlgo, sigAlgoRemaining] = await cb.expectASN1Sequence(chatty && 'signature algorithm');
-      await cb.expectUint8(universalTypeOID, chatty && 'OID');
-      const sigAlgoOID = await cb.readASN1OID(chatty && '% (must be same as above)');
+      const sigAlgoOID = await cb.readASN1OID(chatty && 'must be same as algorithm in certificate above');
       if (sigAlgoRemaining() > 0) {
         await cb.expectUint8(universalTypeNull, chatty && 'null');
         await cb.expectUint8(0x00, chatty && 'null length');
