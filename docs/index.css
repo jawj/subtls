@@ -15,17 +15,17 @@ h1 {
 }
 
 #tabs {
-  font-size: 80%;
-  letter-spacing: 1px;
-  text-transform: uppercase;
   border-bottom: 1px solid #aaa;
   background: #aaa;
-  padding: 1ex 5ex 0;
+  padding: 1.5ex 5ex 0;
 }
 
 #tabs a.tab {
+  font-size: 80%;
+  letter-spacing: 1px;
+  text-transform: uppercase;
   display: inline-block;
-  padding: 1.4ex 3ex 1.2ex;
+  padding: 1.45ex 3ex 1.2ex;
   position: relative;
   top: 1px;
   background: #eee;
