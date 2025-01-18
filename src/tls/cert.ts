@@ -114,7 +114,7 @@ export class Cert {
       // algorithm
       const [endAlgo, algoRemaining] = await cb.expectASN1Sequence(chatty && 'algorithm');
       cert.algorithm = await cb.readASN1OID();
-      chatty && cb.comment(`${cert.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(cert.algorithm))}`);
+      chatty && cb.comment(`= ${descriptionForAlgorithm(algorithmWithOID(cert.algorithm))}`);
       if (algoRemaining() > 0) {
         await cb.expectASN1Null('no algorithm parameters');
       }
@@ -169,7 +169,7 @@ export class Cert {
 
         if (keyParamRecordType === universalTypeOID) {
           const keyOID = await cb.readASN1OID();
-          chatty && cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`);
+          chatty && cb.comment(`= ${keyOIDMap[keyOID]}`);
           publicKeyOIDs.push(keyOID);
 
         } else if (keyParamRecordType === universalTypeNull) {
@@ -193,7 +193,7 @@ export class Cert {
       while (extsRemaining() > 0) {
         const [endExt, extRemaining] = await cb.expectASN1Sequence(chatty && 'certificate extension');
         const extOID = await cb.readASN1OID('extension type');
-        chatty && cb.comment(`${extOID} = ${extOIDMap[extOID]}`);
+        chatty && cb.comment(`= ${extOIDMap[extOID]}`);
 
         if (extOID === '2.5.29.17') {  // subjectAltName
           const [endSanDerDoc] = await cb.expectASN1DERDoc();
@@ -229,7 +229,7 @@ export class Cert {
           const [endExtKeyUsage, extKeyUsageRemaining] = await cb.expectASN1Sequence(chatty && 'key usage OIDs');
           while (extKeyUsageRemaining() > 0) {
             const extKeyUsageOID = await cb.readASN1OID();
-            chatty && cb.comment(`${extKeyUsageOID} = ${extKeyUsageOIDMap[extKeyUsageOID]}`);
+            chatty && cb.comment(`= ${extKeyUsageOIDMap[extKeyUsageOID]}`);
             if (extKeyUsageOID === '1.3.6.1.5.5.7.3.1') cert.extKeyUsage.serverTls = true;
             if (extKeyUsageOID === '1.3.6.1.5.5.7.3.2') cert.extKeyUsage.clientTls = true;
           }
@@ -331,7 +331,7 @@ export class Cert {
             const [endAuthInfoAccessInnerSeq] = await cb.expectASN1Sequence();
 
             const accessMethodOID = await cb.readASN1OID();
-            chatty && cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? 'unknown method'} `);
+            chatty && cb.comment(`= access method: ${extAccessMethodOIDMap[accessMethodOID] ?? 'unknown method'} `);
 
             await cb.expectUint8(contextSpecificType | GeneralName.uniformResourceIdentifier, chatty && 'context-specific type: URI');
             const [endMethodURI, methodURIRemaining] = await cb.expectASN1Length(chatty && 'access location');
@@ -352,7 +352,7 @@ export class Cert {
             const [endCertPolInnerSeq, certPolInnerSeqRemaining] = await cb.expectASN1Sequence();
 
             const certPolOID = await cb.readASN1OID('CertPolicyID');
-            chatty && cb.comment(`${certPolOID} = policy: ${certPolOIDMap[certPolOID] ?? 'unknown policy'} `);
+            chatty && cb.comment(`= policy: ${certPolOIDMap[certPolOID] ?? 'unknown policy'} `);
 
             while (certPolInnerSeqRemaining() > 0) {
               const [endCertPolInner2Seq, certPolInner2SeqRemaining] = await cb.expectASN1Sequence();
@@ -361,7 +361,7 @@ export class Cert {
                 const [endCertPolInner3Seq, certPolInner3SeqRemaining] = await cb.expectASN1Sequence();
 
                 const certPolQualOID = await cb.readASN1OID('policyQualifierId');
-                chatty && cb.comment(`${certPolQualOID} = qualifier: ${certPolQualOIDMap[certPolQualOID] ?? 'unknown qualifier'} `);
+                chatty && cb.comment(`= qualifier: ${certPolQualOIDMap[certPolQualOID] ?? 'unknown qualifier'} `);
 
                 const qualType = await cb.readUint8();
                 if (chatty && qualType === universalTypeIA5String) {

@@ -11,9 +11,10 @@ export default async function wsTransport(host: string, port: string | number, c
   });
   const reader = new WebSocketReadQueue(ws);
   const stats = { read: 0, written: 0 };
-  const read: typeof reader.read = (bytes, readMode) => {
-    stats.read += bytes;
-    return reader.read(bytes, readMode);
+  const read: typeof reader.read = async (bytes, readMode) => {
+    const data = await reader.read(bytes, readMode);
+    stats.read += data?.byteLength ?? 0;
+    return data;
   };
   const write: typeof ws.send = (data: any) => {
     stats.written += data.byteLength ?? data.size ?? data.length;

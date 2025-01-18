@@ -110,7 +110,7 @@ export async function readSeqOfSetOfSeq(cb: ASN1Bytes, seqType?: string) {  // u
 
     const itemOID = await cb.readASN1OID();
     const itemName = DNOIDMap[itemOID] ?? itemOID;
-    chatty && cb.comment(`${itemOID} = ${itemName}`);
+    chatty && cb.comment(`= ${itemName}`);
 
     const valueType = await cb.readUint8();
     if (valueType === universalTypePrintableString) {

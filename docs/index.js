@@ -1189,7 +1189,7 @@ async function readSeqOfSetOfSeq(cb, seqType) {
     const [endItemSeq] = await cb.expectASN1Sequence();
     const itemOID = await cb.readASN1OID();
     const itemName = DNOIDMap[itemOID] ?? itemOID;
-    cb.comment(`${itemOID} = ${itemName}`);
+    cb.comment(`= ${itemName}`);
     const valueType = await cb.readUint8();
     if (valueType === universalTypePrintableString) {
       cb.comment("printable string");
@@ -2053,7 +2053,7 @@ var Cert = class _Cert {
       endSerialNumber();
       const [endAlgo, algoRemaining] = await cb.expectASN1Sequence("algorithm");
       cert.algorithm = await cb.readASN1OID();
-      cb.comment(`${cert.algorithm} = ${descriptionForAlgorithm(algorithmWithOID(cert.algorithm))}`);
+      cb.comment(`= ${descriptionForAlgorithm(algorithmWithOID(cert.algorithm))}`);
       if (algoRemaining() > 0) {
         await cb.expectASN1Null("no algorithm parameters");
       }
@@ -2074,7 +2074,7 @@ var Cert = class _Cert {
         cb.offset--;
         if (keyParamRecordType === universalTypeOID) {
           const keyOID = await cb.readASN1OID();
-          cb.comment(`${keyOID} = ${keyOIDMap[keyOID]}`);
+          cb.comment(`= ${keyOIDMap[keyOID]}`);
           publicKeyOIDs.push(keyOID);
         } else if (keyParamRecordType === universalTypeNull) {
           await cb.expectASN1Null();
@@ -2091,7 +2091,7 @@ var Cert = class _Cert {
       while (extsRemaining() > 0) {
         const [endExt, extRemaining] = await cb.expectASN1Sequence("certificate extension");
         const extOID = await cb.readASN1OID("extension type");
-        cb.comment(`${extOID} = ${extOIDMap[extOID]}`);
+        cb.comment(`= ${extOIDMap[extOID]}`);
         if (extOID === "2.5.29.17") {
           const [endSanDerDoc] = await cb.expectASN1DERDoc();
           const allSubjectAltNames = await readNamesSeq(cb, contextSpecificType);
@@ -2122,7 +2122,7 @@ var Cert = class _Cert {
           const [endExtKeyUsage, extKeyUsageRemaining] = await cb.expectASN1Sequence("key usage OIDs");
           while (extKeyUsageRemaining() > 0) {
             const extKeyUsageOID = await cb.readASN1OID();
-            cb.comment(`${extKeyUsageOID} = ${extKeyUsageOIDMap[extKeyUsageOID]}`);
+            cb.comment(`= ${extKeyUsageOIDMap[extKeyUsageOID]}`);
             if (extKeyUsageOID === "1.3.6.1.5.5.7.3.1") cert.extKeyUsage.serverTls = true;
             if (extKeyUsageOID === "1.3.6.1.5.5.7.3.2") cert.extKeyUsage.clientTls = true;
           }
@@ -2204,7 +2204,7 @@ var Cert = class _Cert {
           while (authInfoAccessSeqRemaining() > 0) {
             const [endAuthInfoAccessInnerSeq] = await cb.expectASN1Sequence();
             const accessMethodOID = await cb.readASN1OID();
-            cb.comment(`${accessMethodOID} = access method: ${extAccessMethodOIDMap[accessMethodOID] ?? "unknown method"} `);
+            cb.comment(`= access method: ${extAccessMethodOIDMap[accessMethodOID] ?? "unknown method"} `);
             await cb.expectUint8(contextSpecificType | 6 /* uniformResourceIdentifier */, "context-specific type: URI");
             const [endMethodURI, methodURIRemaining] = await cb.expectASN1Length("access location");
             await cb.readUTF8String(methodURIRemaining());
@@ -2219,13 +2219,13 @@ var Cert = class _Cert {
           while (certPolSeqRemaining() > 0) {
             const [endCertPolInnerSeq, certPolInnerSeqRemaining] = await cb.expectASN1Sequence();
             const certPolOID = await cb.readASN1OID("CertPolicyID");
-            cb.comment(`${certPolOID} = policy: ${certPolOIDMap[certPolOID] ?? "unknown policy"} `);
+            cb.comment(`= policy: ${certPolOIDMap[certPolOID] ?? "unknown policy"} `);
             while (certPolInnerSeqRemaining() > 0) {
               const [endCertPolInner2Seq, certPolInner2SeqRemaining] = await cb.expectASN1Sequence();
               while (certPolInner2SeqRemaining() > 0) {
                 const [endCertPolInner3Seq, certPolInner3SeqRemaining] = await cb.expectASN1Sequence();
                 const certPolQualOID = await cb.readASN1OID("policyQualifierId");
-                cb.comment(`${certPolQualOID} = qualifier: ${certPolQualOIDMap[certPolQualOID] ?? "unknown qualifier"} `);
+                cb.comment(`= qualifier: ${certPolQualOIDMap[certPolQualOID] ?? "unknown qualifier"} `);
                 const qualType = await cb.readUint8();
                 if (qualType === universalTypeIA5String) {
                   cb.comment("IA5String");
@@ -3223,9 +3223,10 @@ async function wsTransport(host, port, close = () => {
   });
   const reader = new WebSocketReadQueue(ws);
   const stats = { read: 0, written: 0 };
-  const read = (bytes, readMode) => {
-    stats.read += bytes;
-    return reader.read(bytes, readMode);
+  const read = async (bytes, readMode) => {
+    const data = await reader.read(bytes, readMode);
+    stats.read += data?.byteLength ?? 0;
+    return data;
   };
   const write = (data) => {
     stats.written += data.byteLength ?? data.size ?? data.length;

@@ -8,9 +8,10 @@ export default async function tcpTransport(host: string, port: string | number, 
   socket.on('close', close);
   const reader = new SocketReadQueue(socket);
   const stats = { read: 0, written: 0 };
-  const read: typeof reader.read = (bytes, readMode) => {
-    stats.read += bytes;
-    return reader.read(bytes, readMode);
+  const read: typeof reader.read = async (bytes, readMode) => {
+    const data = await reader.read(bytes, readMode);
+    stats.read += data?.byteLength ?? 0;
+    return data;
   };
   const write: typeof socket.write = (data: any) => {
     stats.written += data.byteLength ?? data.size ?? data.length;
