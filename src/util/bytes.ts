@@ -8,6 +8,9 @@ const txtEnc = new TextEncoder();
 const txtDec = new TextDecoder();
 const emptyArray = new Uint8Array(0);
 
+const hexLookup: string[] = [];
+for (let i = 0; i < 256; i++) hexLookup[i] = i.toString(16).padStart(2, '0') + ' ';
+
 export class Bytes {
   fetchFn: undefined | ((bytes: number) => Promise<Uint8Array | undefined>);
   endOfReadableData: number;  // how much data exists to read (not used for writing)
@@ -427,7 +430,7 @@ export class Bytes {
     let s = indentChars.repeat(indent);
     const len = all ? this.data.length : this.offset;
     for (let i = 0; i < len; i++) {
-      s += this.data[i].toString(16).padStart(2, '0') + ' ';
+      s += hexLookup[this.data[i]];
       const comment = this.comments[i + 1];
       indent = this.indents[i + 1] ?? indent;
       if (comment) {
