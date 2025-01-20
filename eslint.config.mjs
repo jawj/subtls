@@ -6,7 +6,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {
-    ignores: ['docs/*', 'index.d.ts', 'index.js'],
+    ignores: ['docs/*', 'declarations/*', 'index.d.ts', 'index.js'],
     languageOptions: {
       parserOptions: {
         projectService: {

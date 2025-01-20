@@ -7,11 +7,17 @@ export declare const allKeyUsages: readonly ["digitalSignature", "nonRepudiation
 export declare class ASN1Bytes extends Bytes {
     readASN1Length(comment?: string): Promise<number>;
     expectASN1Length(comment?: string): Promise<readonly [() => void, () => number]>;
+    expectASN1TypeAndLength(typeNum: number, typeDesc: string, comment?: string): Promise<readonly [() => void, () => number]>;
     readASN1OID(comment?: string): Promise<string>;
     readASN1Boolean(comment?: string): Promise<boolean>;
-    readASN1UTCTime(): Promise<Date>;
-    readASN1GeneralizedTime(): Promise<Date>;
-    readASN1BitString(): Promise<Uint8Array<ArrayBuffer>>;
+    readASN1UTCTime(comment?: string): Promise<Date>;
+    readASN1GeneralizedTime(comment?: string): Promise<Date>;
+    readASN1Time(comment?: string): Promise<Date>;
+    readASN1BitString(comment?: string): Promise<Uint8Array<ArrayBuffer>>;
+    expectASN1Sequence(comment?: string): Promise<readonly [() => void, () => number]>;
+    expectASN1OctetString(comment?: string): Promise<readonly [() => void, () => number]>;
+    expectASN1DERDoc(): Promise<readonly [() => void, () => number]>;
+    expectASN1Null(comment?: string): Promise<void>;
 }
 
 export declare class Bytes {
