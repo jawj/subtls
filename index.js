@@ -530,6 +530,8 @@ var growthFactor = 2;
 var txtEnc = new TextEncoder();
 var txtDec = new TextDecoder();
 var emptyArray = new Uint8Array(0);
+var hexLookup = [];
+for (let i = 0; i < 256; i++) hexLookup[i] = i.toString(16).padStart(2, "0") + " ";
 var Bytes = class {
   /**
    * @param data -
@@ -880,7 +882,7 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
     let s = indentChars.repeat(indent);
     const len = all ? this.data.length : this.offset;
     for (let i = 0; i < len; i++) {
-      s += this.data[i].toString(16).padStart(2, "0") + " ";
+      s += hexLookup[this.data[i]];
       const comment = this.comments[i + 1];
       indent = this.indents[i + 1] ?? indent;
       if (comment) {
@@ -989,7 +991,37 @@ function u8FromHex(hex) {
   return new Uint8Array(Array.from(hex.matchAll(/[0-9a-f]/g)).map((hex2) => parseInt(hex2[0], 16)));
 }
 function hexFromU8(u8, spacer = "") {
-  return [...u8].map((n) => n.toString(16).padStart(2, "0")).join(spacer);
+  if (!(u8 instanceof Uint8Array)) u8 = new Uint8Array(u8);
+  if (spacer === "") return toHex(u8);
+  if (spacer === " ") return toHexSpaced(u8);
+  throw new Error("Spacer may only be empty or a single space");
+}
+var te2 = new TextEncoder();
+var td2 = new TextDecoder();
+var littleEndian2 = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+var hexChars = te2.encode("0123456789abcdef");
+var ccEvens = new Uint16Array(256);
+var ccOdds = new Uint32Array(256);
+if (littleEndian2) for (let i = 0; i < 256; i++) {
+  ccEvens[i] = hexChars[i & 15] << 8 | hexChars[i >>> 4];
+  ccOdds[i] = 32 << 16 | hexChars[i >>> 4] << 24 | hexChars[i & 15] | 32 << 8;
+}
+else for (let i = 0; i < 256; i++) {
+  ccEvens[i] = hexChars[i & 15] | hexChars[i >>> 4] << 8;
+  ccOdds[i] = 32 << 24 | hexChars[i >>> 4] << 16 | hexChars[i & 15] << 8 | 32;
+}
+function toHexSpaced(in8) {
+  const bytes = in8.length;
+  const out16 = new Uint16Array(bytes * 1.5 << 0);
+  let outIndex = 0;
+  for (let i = 0; i < bytes; i += 2) {
+    out16[outIndex++] = ccEvens[in8[i]];
+    const ccOdd = ccOdds[in8[i + 1]];
+    out16[outIndex++] = ccOdd >>> 16;
+    out16[outIndex++] = ccOdd & 65535;
+  }
+  const out8 = new Uint8Array(out16.buffer);
+  return td2.decode(out8.subarray(0, bytes * 3 - 1));
 }
 
 // src/tls/parseServerHello.ts
@@ -1394,9 +1426,12 @@ var ASN1Bytes = class extends Bytes {
     const length = await this.readASN1Length(comment);
     return this.expectReadLength(length);
   }
+  async expectASN1TypeAndLength(typeNum, typeDesc, comment) {
+    await this.expectUint8(typeNum, 0);
+    return this.expectASN1Length(0);
+  }
   async readASN1OID(comment) {
-    await this.expectUint8(universalTypeOID, 0);
-    const [endOID, OIDRemaining] = await this.expectASN1Length(0);
+    const [endOID, OIDRemaining] = await this.expectASN1TypeAndLength(universalTypeOID, "OID", comment);
     const byte1 = await this.readUint8();
     let oid = `${Math.floor(byte1 / 40)}.${byte1 % 40}`;
     while (OIDRemaining() > 0) {
@@ -1413,8 +1448,8 @@ var ASN1Bytes = class extends Bytes {
     return oid;
   }
   async readASN1Boolean(comment) {
-    await this.expectUint8(universalTypeBoolean, 0);
-    const [endBoolean, booleanRemaining] = await this.expectASN1Length(0);
+    const [endBoolean, booleanRemaining] = await this.expectASN1TypeAndLength(universalTypeBoolean, "boolean",
+    comment);
     const length = booleanRemaining();
     if (length !== 1) throw new Error(`Boolean has unexpected length: ${length}`);
     const byte = await this.readUint8();
@@ -1426,8 +1461,8 @@ var ASN1Bytes = class extends Bytes {
     endBoolean();
     return result;
   }
-  async readASN1UTCTime() {
-    const [endTime, timeRemaining] = await this.expectASN1Length(0);
+  async readASN1UTCTime(comment) {
+    const [endTime, timeRemaining] = await this.expectASN1TypeAndLength(universalTypeUTCTime, "UTC time", comment);
     const timeStr = await this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/);
     if (!parts) throw new Error("Unrecognised ASN.1 UTC time format");
@@ -1438,8 +1473,9 @@ var ASN1Bytes = class extends Bytes {
     endTime();
     return time;
   }
-  async readASN1GeneralizedTime() {
-    const [endTime, timeRemaining] = await this.expectASN1Length(0);
+  async readASN1GeneralizedTime(comment) {
+    const [endTime, timeRemaining] = await this.expectASN1TypeAndLength(universalTypeGeneralizedTime, "general\
+ized time", comment);
     const timeStr = await this.readUTF8String(timeRemaining());
     const parts = timeStr.match(/^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})?([0-9]{2})?([.][0-9]+)?(Z)?([-+][0-9]+)?$/);
     if (!parts) throw new Error("Unrecognised ASN.1 generalized time format");
@@ -1452,9 +1488,22 @@ var ASN1Bytes = class extends Bytes {
     endTime();
     return time;
   }
+  async readASN1Time(comment) {
+    const startTimeType = await this.readUint8();
+    this.offset--;
+    let t;
+    if (startTimeType === universalTypeUTCTime) {
+      t = await this.readASN1UTCTime(comment);
+    } else if (startTimeType === universalTypeGeneralizedTime) {
+      t = await this.readASN1GeneralizedTime(comment);
+    } else {
+      throw new Error(`Expected time type but got 0x${hexFromU8([startTimeType])}`);
+    }
+    return t;
+  }
   async readASN1BitString(comment) {
-    await this.expectUint8(universalTypeBitString, 0);
-    const [endBitString, bitStringRemaining] = await this.expectASN1Length(comment);
+    const [endBitString, bitStringRemaining] = await this.expectASN1TypeAndLength(universalTypeBitString, "bit\
+string", comment);
     const rightPadBits = await this.readUint8(0);
     const bytesLength = bitStringRemaining();
     const bitString = await this.readBytes(bytesLength);
@@ -1467,22 +1516,21 @@ var ASN1Bytes = class extends Bytes {
       bitString[0] = bitString[0] >>> rightPadBits;
     }
     endBitString();
+    comment && this.comment(comment);
     return bitString;
   }
   async expectASN1Sequence(comment) {
-    await this.expectUint8(constructedUniversalTypeSequence, 0);
-    return this.expectASN1Length(comment);
+    return this.expectASN1TypeAndLength(constructedUniversalTypeSequence, "sequence", comment);
   }
   async expectASN1OctetString(comment) {
-    await this.expectUint8(universalTypeOctetString, 0);
-    return this.expectASN1Length(comment);
+    return this.expectASN1TypeAndLength(universalTypeOctetString, "octet string", comment);
   }
   async expectASN1DERDoc() {
     return this.expectASN1OctetString(0);
   }
-  async expectASN1Null() {
-    await this.expectUint8(universalTypeNull, 0);
-    await this.expectUint8(0, 0);
+  async expectASN1Null(comment) {
+    const [endNull] = await this.expectASN1TypeAndLength(universalTypeNull, "null", comment);
+    endNull();
   }
 };
 
@@ -1948,27 +1996,14 @@ var Cert = class _Cert {
       endSerialNumber();
       const [endAlgo, algoRemaining] = await cb.expectASN1Sequence(0);
       cert.algorithm = await cb.readASN1OID();
-      if (algoRemaining() > 0) await cb.expectASN1Null();
+      if (algoRemaining() > 0) {
+        await cb.expectASN1Null("no algorithm parameters");
+      }
       endAlgo();
       cert.issuer = await readSeqOfSetOfSeq(cb, 0);
-      let notBefore, notAfter;
       const [endValiditySeq] = await cb.expectASN1Sequence(0);
-      const startTimeType = await cb.readUint8();
-      if (startTimeType === universalTypeUTCTime) {
-        notBefore = await cb.readASN1UTCTime();
-      } else if (startTimeType === universalTypeGeneralizedTime) {
-        notBefore = await cb.readASN1GeneralizedTime();
-      } else {
-        throw new Error(`Unexpected validity start type 0x${hexFromU8([startTimeType])}`);
-      }
-      const endTimeType = await cb.readUint8();
-      if (endTimeType === universalTypeUTCTime) {
-        notAfter = await cb.readASN1UTCTime();
-      } else if (endTimeType === universalTypeGeneralizedTime) {
-        notAfter = await cb.readASN1GeneralizedTime();
-      } else {
-        throw new Error(`Unexpected validity end type 0x${hexFromU8([endTimeType])}`);
-      }
+      const notBefore = await cb.readASN1Time(0);
+      const notAfter = await cb.readASN1Time(0);
       cert.validityPeriod = { notBefore, notAfter };
       endValiditySeq();
       cert.subject = await readSeqOfSetOfSeq(cb, 0);
@@ -2152,7 +2187,9 @@ icy qualifier data");
       cert.signedData = cb.data.subarray(tbsCertStartOffset, cb.offset);
       const [endSigAlgo, sigAlgoRemaining] = await cb.expectASN1Sequence(0);
       const sigAlgoOID = await cb.readASN1OID(0);
-      if (sigAlgoRemaining() > 0) await cb.expectASN1Null();
+      if (sigAlgoRemaining() > 0) {
+        await cb.expectASN1Null("no algorithm parameters");
+      }
       endSigAlgo();
       if (sigAlgoOID !== cert.algorithm) throw new Error(`Certificate specifies different signature algorithms\
  inside (${cert.algorithm}) and out (${sigAlgoOID})`);
@@ -2448,7 +2485,7 @@ async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsD
     const cert = await Cert.create(hs);
     certs.push(cert);
     endCert();
-    const [endCertExt, certExtRemaining] = await hs.expectLengthUint16("certificate extensions");
+    const [endCertExt, certExtRemaining] = await hs.expectLengthUint16(0);
     await hs.skipRead(certExtRemaining());
     endCertExt();
   }
