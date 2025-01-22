@@ -140,7 +140,7 @@ export async function readEncryptedTlsRecord(read: (length: number) => Promise<U
   chatty && log('... decrypted payload (see below) ... %s%c  %s', type.toString(16).padStart(2, '0'), `color: ${LogColours.server}`, `actual decrypted record type: ${(RecordTypeName as any)[type]}`);
 
   if (type === RecordType.Handshake && record[0] === 0x04) {  // new session ticket message: always ignore these
-    await parseSessionTicket(record);
+    chatty && await parseSessionTicket(record);
     return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
 
