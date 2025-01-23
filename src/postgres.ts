@@ -8,18 +8,19 @@ import { getRandomValues } from './util/cryptoRandom';
 import cs from './util/cryptoProxy';
 import type wsTransport from './util/wsTransport';
 import type tcpTransport from './util/tcpTransport';
-import { getRootCertsDatabase } from './util/rootCerts';
 import { hexFromU8 } from './util/hex';
 import { concat } from './util/array';
 import { algorithmWithOID } from './tls/certUtils';
 import { parseAsHTTP } from './util/parseURL';
 import { LazyReadFunctionReadQueue } from './util/readQueue';
+import type { getRootCertsDatabase } from './util/rootCerts';
 
 const te = new TextEncoder();
 
 export async function postgres(
   urlStr: string,
   transportFactory: typeof wsTransport | typeof tcpTransport,
+  rootCertsPromise: ReturnType<typeof getRootCertsDatabase>,
   pipelinedPasswordAuth = false,
 ) {
   const t0 = Date.now();
@@ -63,7 +64,7 @@ export async function postgres(
 
   // TLS connection
 
-  const rootCerts = await getRootCertsDatabase();
+  const rootCerts = await rootCertsPromise;
   const { read: readChunk, write, userCert } = await startTls(host, rootCerts, transport.read, transport.write, {
     useSNI: !pipelinedPasswordAuth,
     requireServerTlsExtKeyUsage: false,

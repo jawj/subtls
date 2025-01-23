@@ -2786,34 +2786,6 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   return { read, write, userCert };
 }
 
-// src/util/rootCerts.ts
-var txtDec2 = new TextDecoder();
-async function getFile(name) {
-  try {
-    const response = await fetch(name);
-    const buf = await response.arrayBuffer();
-    return buf;
-  } catch {
-    const fs = await import("fs/promises");
-    const buf = await fs.readFile(`docs/${name}`);
-    return buf.buffer;
-  }
-}
-async function getRootCertsIndex() {
-  const file = await getFile("certs.index.json");
-  const rootCertsIndex = JSON.parse(txtDec2.decode(file));
-  return rootCertsIndex;
-}
-async function getRootCertsData() {
-  const file = await getFile("certs.bin");
-  const rootCertsData = new Uint8Array(file);
-  return rootCertsData;
-}
-async function getRootCertsDatabase() {
-  const [index, data] = await Promise.all([getRootCertsIndex(), getRootCertsData()]);
-  return { index, data };
-}
-
 // src/util/parseURL.ts
 function parseAsHTTP(url, parseQueryString = false) {
   const { protocol } = new URL(url);
@@ -2827,7 +2799,7 @@ function parseAsHTTP(url, parseQueryString = false) {
 
 // src/postgres.ts
 var te3 = new TextEncoder();
-async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false) {
+async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPasswordAuth = false) {
   const t0 = Date.now();
   const url = parseAsHTTP(urlStr);
   const host = url.hostname;
@@ -2855,7 +2827,7 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
   const byte = new Bytes(SorN);
   await byte.expectUint8(83, '"S" = SSL connection supported');
   log(...highlightBytes(byte.commentedString(), "#88c" /* server */));
-  const rootCerts = await getRootCertsDatabase();
+  const rootCerts = await rootCertsPromise2;
   const { read: readChunk, write, userCert } = await startTls(host, rootCerts, transport.read, transport.write, {
     useSNI: !pipelinedPasswordAuth,
     requireServerTlsExtKeyUsage: false,
@@ -3191,8 +3163,8 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
 }
 
 // src/https.ts
-var txtDec3 = new TextDecoder();
-async function https(urlStr, method, transportFactory, {
+var txtDec2 = new TextDecoder();
+async function https(urlStr, method, transportFactory, rootCertsPromise2, {
   headers = {},
   httpVersion = "1.0",
   socketOptions = {}
@@ -3209,7 +3181,7 @@ async function https(urlStr, method, transportFactory, {
     },
     ...socketOptions
   });
-  const rootCerts = await getRootCertsDatabase();
+  const rootCerts = await rootCertsPromise2;
   const { read, write } = await startTls(host, rootCerts, transport.read, transport.write);
   log("Here\u2019s a GET request:");
   const request = new Bytes();
@@ -3226,7 +3198,7 @@ async function https(urlStr, method, transportFactory, {
   do {
     responseData = await read();
     if (responseData) {
-      const responseText = txtDec3.decode(responseData);
+      const responseText = txtDec2.decode(responseData);
       response += responseText;
       log(responseText);
     }
@@ -3270,7 +3242,36 @@ async function wsTransport(host, port, {
   return { read, write, stats };
 }
 
+// src/util/rootCerts.ts
+var txtDec3 = new TextDecoder();
+async function getFile(name) {
+  try {
+    const response = await fetch(name);
+    const buf = await response.arrayBuffer();
+    return buf;
+  } catch {
+    const fs = await import("fs/promises");
+    const buf = await fs.readFile(`docs/${name}`);
+    return buf.buffer;
+  }
+}
+async function getRootCertsIndex() {
+  const file = await getFile("certs.index.json");
+  const rootCertsIndex = JSON.parse(txtDec3.decode(file));
+  return rootCertsIndex;
+}
+async function getRootCertsData() {
+  const file = await getFile("certs.binary.txt");
+  const rootCertsData = new Uint8Array(file);
+  return rootCertsData;
+}
+async function getRootCertsDatabase() {
+  const [index, data] = await Promise.all([getRootCertsIndex(), getRootCertsData()]);
+  return { index, data };
+}
+
 // src/index.ts
+var rootCertsPromise = getRootCertsDatabase();
 var qs = (sel) => document.querySelector(sel);
 var pgTab = qs("#postgres");
 var httpsTab = qs("#https");
@@ -3295,9 +3296,9 @@ goBtn.addEventListener("click", () => {
   let urlStr = location.hash.slice(1);
   if (pg) {
     if (!urlStr.startsWith("postgres")) urlStr = "postgresql://frodo:correct-horse-battery-staple@ep-crimson-sound-a8nnh11s-pooler.eastus2.azure.neon.tech/neondb";
-    postgres(urlStr, wsTransport, false).catch(logAndRethrow);
+    postgres(urlStr, wsTransport, rootCertsPromise, false).catch(logAndRethrow);
   } else {
     if (!urlStr.startsWith("https")) urlStr = "https://bytebybyte.dev";
-    https(urlStr, "GET", wsTransport).catch(logAndRethrow);
+    https(urlStr, "GET", wsTransport, rootCertsPromise).catch(logAndRethrow);
   }
 });

@@ -21,6 +21,7 @@ export async function https(
   urlStr: string,
   method: string,
   transportFactory: typeof wsTransport | typeof tcpTransport,
+  rootCertsPromise: ReturnType<typeof getRootCertsDatabase>,
   {
     headers = {},
     httpVersion = '1.0',
@@ -43,7 +44,7 @@ export async function https(
     ...socketOptions,
   });
 
-  const rootCerts = await getRootCertsDatabase();
+  const rootCerts = await rootCertsPromise;
   const { read, write } = await startTls(host, rootCerts, transport.read, transport.write);
 
   chatty && log('Here’s a GET request:');

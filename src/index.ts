@@ -4,6 +4,9 @@ import { log } from './presentation/log';
 import wsTransport from './util/wsTransport';
 import { LogColours } from './presentation/appearance';
 import { textColour } from './presentation/highlights';
+import { getRootCertsDatabase } from './util/rootCerts';
+
+const rootCertsPromise = getRootCertsDatabase();
 
 const qs = <E extends Element = Element>(sel: string) => document.querySelector(sel) as E;
 const pgTab = qs('#postgres');
@@ -35,10 +38,10 @@ goBtn.addEventListener('click', () => {
 
   if (pg) {
     if (!urlStr.startsWith('postgres')) urlStr = 'postgresql://frodo:correct-horse-battery-staple@ep-crimson-sound-a8nnh11s-pooler.eastus2.azure.neon.tech/neondb';
-    postgres(urlStr, wsTransport, false).catch(logAndRethrow);
+    postgres(urlStr, wsTransport, rootCertsPromise, false).catch(logAndRethrow);
 
   } else {
     if (!urlStr.startsWith('https')) urlStr = 'https://bytebybyte.dev';
-    https(urlStr, 'GET', wsTransport).catch(logAndRethrow);
+    https(urlStr, 'GET', wsTransport, rootCertsPromise).catch(logAndRethrow);
   }
 });

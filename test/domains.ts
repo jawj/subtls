@@ -1,12 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { https, tcpTransport } from '../src/export';
+import { getRootCertsDatabase } from '../src/util/rootCerts';
 
 const file = 'test/cloudflare-radar_top-1000-domains_20250113-20250120.csv';
 const domainsTxt = await readFile(file, { encoding: 'utf-8' });
 const domains = domainsTxt.match(/.*[.].*/g)!;
-const w = process.stdout.write.bind(process.stdout);
-
 const padRight = (s: string, n: number, ch = ' ') => s + ch.repeat(Math.max(1, n - s.length));
+const rootCertsPromise = getRootCertsDatabase();
+const w = process.stdout.write.bind(process.stdout);
 
 for (const domain of domains) for (const prefix of ['', 'www.']) {
   const host = prefix + domain;
@@ -14,7 +15,7 @@ for (const domain of domains) for (const prefix of ['', 'www.']) {
 
   try {
     const response = await new Promise<string>((resolve, reject) =>
-      void https('https://' + host, 'GET', tcpTransport, {
+      void https('https://' + host, 'GET', tcpTransport, rootCertsPromise, {
         httpVersion: '1.1',
         headers: { Connection: 'close' },
         socketOptions: {
