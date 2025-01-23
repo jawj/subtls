@@ -4,7 +4,7 @@ A TypeScript TLS 1.3 client with limited scope.
 
 * Built using the JS [SubtleCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto), with no external dependencies (except [hextreme](https://github.com/jawj/hextreme/), by the same author)
 * Not fully compliant with [the spec](https://www.rfc-editor.org/rfc/rfc8446)
-* **Not intended for production use**
+* **Not currently intended for production use**
 
 ## Annotations
 
