@@ -462,7 +462,7 @@ var Bytes = class {
     }
     const newData = await this.fetchFn(bytes);
     if (newData === void 0 || newData.length < bytes) {
-      const e = new Error(`Not enough data returned by read function: requested ${bytes} byte(s), received ${newData === void 0 ? "EOF" : `${newData.length} byte(s)`}`);
+      const e = new Error(`Not enough data: requested ${bytes} byte(s), received ${newData === void 0 ? "EOF" : `${newData.length} byte(s)`}`);
       e._bytes_error_reason = "EOF";
       throw e;
     }
@@ -1730,6 +1730,12 @@ var AlertRecordDescName = {
 };
 
 // src/tls/errors.ts
+var TLSError = class extends Error {
+  constructor(message) {
+    super(message);
+    __publicField(this, "name", "TLSError");
+  }
+};
 var TLSFatalAlertError = class extends Error {
   constructor(message, alertCode) {
     super(message);
@@ -1741,6 +1747,11 @@ var TLSFatalAlertError = class extends Error {
 // src/tls/tlsRecord.ts
 var maxPlaintextRecordLength = 1 << 14;
 var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
+var tlsVersionNames = {
+  771: "1.2 (or 1.3 for middlebox compatibility)",
+  770: "1.1",
+  769: "1.0"
+};
 async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordLength) {
   const nextByte = await read(1, 1 /* PEEK */);
   if (nextByte === void 0) return;
@@ -1748,7 +1759,8 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
   const type = await record.readUint8();
   record.comment(`record type: ${RecordTypeName[type]}`);
   if (!(type in RecordTypeName)) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
-  await record.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
+  const tlsVersion = await record.readUint16();
+  record.comment(`TLS version ${tlsVersionNames[tlsVersion] ?? "(invalid, or SSLv3 or earlier)"}`);
   const [, recordRemaining] = await record.expectLengthUint16("TLS record");
   const length = recordRemaining();
   if (length > maxLength) throw new Error(`Record too long: ${length} bytes`);
@@ -1766,6 +1778,7 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
   } else if (alertLevel === 1) {
     return readTlsRecord(read, expectedType, maxLength);
   }
+  if (tlsVersion !== 771) throw new TLSError(`Unsupported TLS version 0x${tlsVersion.toString(16)} in TLS record header`);
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   const rawHeader = record.array();
   const content = await record.subarrayForRead(length);

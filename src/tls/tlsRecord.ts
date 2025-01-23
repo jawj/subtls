@@ -9,10 +9,16 @@ import { appendLog, log } from '../presentation/log';
 import { hexFromU8 } from '../util/hex';
 import { LazyReadFunctionReadQueue, ReadMode } from '../util/readQueue';
 import { RecordType, RecordTypeName, AlertRecordLevelName, AlertRecordDescName } from './tlsRecordUtils';
-import { TLSFatalAlertError } from './errors';
+import { TLSError, TLSFatalAlertError } from './errors';
 
 const maxPlaintextRecordLength = 1 << 14;
 const maxCiphertextRecordLength = maxPlaintextRecordLength + 1 /* record type */ + 255 /* max aead */;
+
+const tlsVersionNames: Record<number, string> = {
+  0x0303: '1.2 (or 1.3 for middlebox compatibility)',
+  0x0302: '1.1',
+  0x0301: '1.0',
+};
 
 export async function readTlsRecord(read: (length: number, readMode?: ReadMode) => Promise<Uint8Array | undefined>, expectedType?: RecordType, maxLength = maxPlaintextRecordLength) {
   // make sure there's at least one byte of data still available, but don't consume it
@@ -25,7 +31,8 @@ export async function readTlsRecord(read: (length: number, readMode?: ReadMode) 
   chatty && record.comment(`record type: ${RecordTypeName[type]}`);
   if (!(type in RecordTypeName)) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
 
-  await record.expectUint16(0x0303, 'TLS record version 1.2 (middlebox compatibility)');
+  const tlsVersion = await record.readUint16();
+  chatty && record.comment(`TLS version ${tlsVersionNames[tlsVersion] ?? '(invalid, or SSLv3 or earlier)'}`);
 
   const [, recordRemaining] = await record.expectLengthUint16('TLS record');
   const length = recordRemaining();
@@ -51,6 +58,7 @@ export async function readTlsRecord(read: (length: number, readMode?: ReadMode) 
     return readTlsRecord(read, expectedType, maxLength);  // ignore and continue
   }
 
+  if (tlsVersion !== 0x0303) throw new TLSError(`Unsupported TLS version 0x${tlsVersion.toString(16)} in TLS record header`);
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
 
   const rawHeader = record.array();
