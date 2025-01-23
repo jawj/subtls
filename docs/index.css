@@ -66,6 +66,7 @@ code,
 .hex {
   font: 400 11px/1.5 Monaco, Menlo, Consolas, monospace;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   color: #777;
 }
 
