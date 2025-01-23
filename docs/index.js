@@ -3147,11 +3147,12 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
   const endTerminate = endBytes.writeLengthUint32Incl();
   endTerminate();
   endBytes.comment("(and therefore end here too)");
-  log("Last of all, we send a termination command. Before encryption, that\u2019s:");
+  log("Job done. We send a termination command. Before encryption, that\u2019s:");
   log(...highlightBytes(endBytes.commentedString(), "#8cc" /* client */));
   log("And as sent on the wire:");
   await write(endBytes.array());
   done = true;
+  log("The server should now send a TLS close-notify alert, then disconnect.");
   await readChunk();
   log(
     `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,

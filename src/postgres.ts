@@ -496,13 +496,14 @@ export async function postgres(
   endTerminate();
   chatty && endBytes.comment('(and therefore end here too)');
 
-  chatty && log('Last of all, we send a termination command. Before encryption, that’s:');
+  chatty && log('Job done. We send a termination command. Before encryption, that’s:');
   chatty && log(...highlightBytes(endBytes.commentedString(), LogColours.client));
   chatty && log('And as sent on the wire:');
   await write(endBytes.array());
 
   done = true;  // don't throw when the connection is closed
 
+  chatty && log('The server should now send a TLS close-notify alert, then disconnect.');
   await readChunk();  // flush out the close notify message
 
   chatty && log(
