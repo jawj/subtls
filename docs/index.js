@@ -2839,7 +2839,7 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
   const transport = await transportFactory(host, port, {
     close: () => {
       if (!done) throw new Error("Unexpected connection close");
-      log("Connection closed");
+      log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");
     }
   });
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
@@ -3179,6 +3179,8 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
   log(...highlightBytes(endBytes.commentedString(), "#8cc" /* client */));
   log("And as sent on the wire:");
   await write(endBytes.array());
+  done = true;
+  await readChunk();
   log(
     `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
     textColour,
@@ -3186,7 +3188,6 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
     textColour,
     mutedColour
   );
-  done = true;
 }
 
 // src/https.ts

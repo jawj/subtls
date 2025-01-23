@@ -38,7 +38,7 @@ export async function postgres(
   const transport = await transportFactory(host, port, {
     close: () => {
       if (!done) throw new Error('Unexpected connection close');
-      chatty && log('Connection closed');
+      chatty && log('Connection closed (this message may appear out of order, before the last data has been decrypted and logged)');
     }
   });
 
@@ -500,10 +500,12 @@ export async function postgres(
   chatty && log('And as sent on the wire:');
   await write(endBytes.array());
 
+  done = true;  // don't throw when the connection is closed
+
+  await readChunk();  // flush out the close notify message
+
   chatty && log(
     `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
     textColour, mutedColour, textColour, mutedColour
   );
-
-  done = true;
 }
