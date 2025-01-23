@@ -21,13 +21,11 @@ h1 {
 }
 
 #tabs a.tab {
-  font-size: 80%;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  display: inline-block;
-  padding: 1.45ex 3ex 1.2ex;
   position: relative;
   top: 1px;
+  font: 11px/.8 Monaco, Menlo, Consolas, monospace;
+  display: inline-block;
+  padding: 12px 18px 10px;
   background: #eee;
   border-bottom: 1px solid #aaa;
   border-top-left-radius: 2ex;
