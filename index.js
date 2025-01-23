@@ -1540,35 +1540,6 @@ var appendLog = Symbol("append");
 // src/presentation/highlights.ts
 var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
 
-// src/tls/sessionTicket.ts
-async function parseSessionTicket(record) {
-  if (0) {
-    const ticket = new Bytes2(record);
-    await ticket.expectUint8(4, "session ticket message, per [RFC 8846 \xA74.6.1](https://datatracker.ietf.org/do\
-c/html/rfc8446#section-4.6.1) (we do nothing with these)");
-    const [endTicketRecord] = await ticket.expectLengthUint24("session ticket message");
-    const ticketSeconds = await ticket.readUint32();
-    ticket.comment(`ticket lifetime in seconds: ${ticketSeconds} = ${ticketSeconds / 3600} hours`);
-    await ticket.readUint32("ticket age add");
-    const [endTicketNonce, ticketNonceRemaining] = await ticket.expectLengthUint8("ticket nonce");
-    await ticket.readBytes(ticketNonceRemaining());
-    ticket.comment("ticket nonce");
-    endTicketNonce();
-    const [endTicket, ticketRemaining] = await ticket.expectLengthUint16("ticket");
-    await ticket.readBytes(ticketRemaining());
-    ticket.comment("ticket");
-    endTicket();
-    const [endTicketExts, ticketExtsRemaining] = await ticket.expectLengthUint16("ticket extensions");
-    if (ticketExtsRemaining() > 0) {
-      await ticket.readBytes(ticketExtsRemaining());
-      ticket.comment("ticket extensions (ignored)");
-    }
-    endTicketExts();
-    endTicketRecord();
-    log(...highlightBytes(ticket.commentedString(), LogColours.server));
-  }
-}
-
 // src/util/readQueue.ts
 var ReadMode = /* @__PURE__ */ ((ReadMode2) => {
   ReadMode2[ReadMode2["CONSUME"] = 0] = "CONSUME";
@@ -1691,7 +1662,7 @@ var LazyReadFunctionReadQueue = class extends ReadQueue {
   }
 };
 
-// src/tls/tlsRecord.ts
+// src/tls/tlsRecordUtils.ts
 var RecordTypeName = {
   [20 /* ChangeCipherSpec */]: "ChangeCipherSpec",
   [21 /* Alert */]: "Alert",
@@ -1699,6 +1670,52 @@ var RecordTypeName = {
   [23 /* Application */]: "Application",
   [24 /* Heartbeat */]: "Heartbeat"
 };
+var AlertRecordDescName = {
+  0: "close_notify",
+  10: "unexpected_message",
+  20: "bad_record_mac",
+  22: "record_overflow",
+  40: "handshake_failure",
+  42: "bad_certificate",
+  43: "unsupported_certificate",
+  44: "certificate_revoked",
+  45: "certificate_expired",
+  46: "certificate_unknown",
+  47: "illegal_parameter",
+  48: "unknown_ca",
+  49: "access_denied",
+  50: "decode_error",
+  51: "decrypt_error",
+  70: "protocol_version",
+  71: "insufficient_security",
+  80: "internal_error",
+  86: "inappropriate_fallback",
+  90: "user_canceled",
+  109: "missing_extension",
+  110: "unsupported_extension",
+  112: "unrecognized_name",
+  113: "bad_certificate_status_response",
+  115: "unknown_psk_identity",
+  116: "certificate_required",
+  120: "no_application_protocol"
+};
+
+// src/tls/errors.ts
+var TLSError = class extends Error {
+  constructor(message) {
+    super(message);
+    __publicField(this, "name", "TLSError");
+  }
+};
+var TLSFatalAlertError = class extends Error {
+  constructor(message, alertCode) {
+    super(message);
+    this.alertCode = alertCode;
+    __publicField(this, "name", "TLSFatalAlertError");
+  }
+};
+
+// src/tls/tlsRecord.ts
 var maxPlaintextRecordLength = 1 << 14;
 var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
 async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordLength) {
@@ -1711,13 +1728,17 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
   const [, recordRemaining] = await record.expectLengthUint16("TLS record");
   const length = recordRemaining();
   if (length > maxLength) throw new Error(`Record too long: ${length} bytes`);
-  let alertLevel;
+  let alertLevel, alertCode, alertDesc;
   if (type === 21 /* Alert */) {
     alertLevel = await record.readUint8(0);
-    const desc = await record.readUint8(0);
+    alertCode = await record.readUint8(0);
+    alertDesc = AlertRecordDescName[alertCode];
   }
-  if (alertLevel === 2) throw new Error("Fatal alert message received");
-  else if (alertLevel === 1) return readTlsRecord(read, expectedType, maxLength);
+  if (alertLevel === 2) {
+    throw new TLSFatalAlertError(`Fatal TLS alert message received: ${alertDesc}`, alertCode ?? -1);
+  } else if (alertLevel === 1) {
+    return readTlsRecord(read, expectedType, maxLength);
+  }
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(
   16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   const rawHeader = record.array();
@@ -1753,7 +1774,6 @@ async function readEncryptedTlsRecord(read, decrypter, expectedType) {
     if (closeNotify) return void 0;
   }
   if (type === 22 /* Handshake */ && record[0] === 4) {
-    await parseSessionTicket(record);
     return readEncryptedTlsRecord(read, decrypter, expectedType);
   }
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(
@@ -2675,6 +2695,125 @@ function stableStringify(x, replacer = (_, v) => v, indent) {
   );
   return JSON.stringify(x, deterministicReplacer, indent);
 }
+
+// src/util/rootCerts.ts
+var txtDec2 = new TextDecoder();
+async function getFile(name) {
+  try {
+    const response = await fetch(name);
+    const buf = await response.arrayBuffer();
+    return buf;
+  } catch {
+    const fs = await import("fs/promises");
+    const buf = await fs.readFile(`docs/${name}`);
+    return buf.buffer;
+  }
+}
+async function getRootCertsIndex() {
+  const file = await getFile("certs.index.json");
+  const rootCertsIndex = JSON.parse(txtDec2.decode(file));
+  return rootCertsIndex;
+}
+async function getRootCertsData() {
+  const file = await getFile("certs.bin");
+  const rootCertsData = new Uint8Array(file);
+  return rootCertsData;
+}
+async function getRootCertsDatabase() {
+  const [index, data] = await Promise.all([getRootCertsIndex(), getRootCertsData()]);
+  return { index, data };
+}
+
+// src/https.ts
+var txtDec3 = new TextDecoder();
+async function https(urlStr, method, transportFactory, {
+  headers = {},
+  httpVersion = "1.0",
+  timeout = 0
+} = {}) {
+  const url = new URL(urlStr);
+  if (url.protocol !== "https:") throw new Error("Wrong protocol");
+  const host = url.hostname;
+  headers["Host"] ?? (headers["Host"] = host);
+  const port = url.port || 443;
+  const reqPath = url.pathname + url.search;
+  const transport = await transportFactory(host, port, () => {
+  }, timeout);
+  const rootCerts = await getRootCertsDatabase();
+  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write);
+  const request = new Bytes();
+  request.writeUTF8String(`${method} ${reqPath} HTTP/${httpVersion}\r
+`);
+  request.writeUTF8String(Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n"));
+  request.writeUTF8String("\r\n");
+  await write(request.array());
+  let responseData;
+  let response = "";
+  do {
+    responseData = await read();
+    if (responseData) {
+      const responseText = txtDec3.decode(responseData);
+      response += responseText;
+    }
+  } while (responseData);
+  return response;
+}
+
+// src/util/wsTransport.ts
+async function wsTransport(host, port, close = () => {
+}) {
+  const ws = await new Promise((resolve) => {
+    const wsURL = location.hostname === "localhost" ? "ws://localhost:6544" : "wss://subtls-wsproxy.jawj.worke\
+rs.dev";
+    const ws2 = new WebSocket(`${wsURL}/?address=${host}:${port}`);
+    ws2.binaryType = "arraybuffer";
+    ws2.addEventListener("open", () => resolve(ws2));
+    ws2.addEventListener("error", (err) => {
+      console.log("ws error:", err);
+    });
+    ws2.addEventListener("close", close);
+  });
+  const reader = new WebSocketReadQueue(ws);
+  const stats = { read: 0, written: 0 };
+  const read = async (bytes, readMode) => {
+    const data = await reader.read(bytes, readMode);
+    stats.read += data?.byteLength ?? 0;
+    return data;
+  };
+  const write = (data) => {
+    stats.written += data.byteLength ?? data.size ?? data.length;
+    return ws.send(data);
+  };
+  return { read, write, stats };
+}
+
+// src/util/tcpTransport.ts
+import { Socket } from "net";
+async function tcpTransport(host, port, close = () => {
+}, timeout = 0) {
+  const socket = new Socket();
+  socket.setTimeout(timeout);
+  socket.on("error", (err) => {
+    console.log("socket error:", err);
+  });
+  socket.on("close", close);
+  socket.on("timeout", () => {
+    throw new Error("Socket timeout");
+  });
+  await new Promise((resolve) => socket.connect(Number(port), host, resolve));
+  const reader = new SocketReadQueue(socket);
+  const stats = { read: 0, written: 0 };
+  const read = async (bytes, readMode) => {
+    const data = await reader.read(bytes, readMode);
+    stats.read += data?.byteLength ?? 0;
+    return data;
+  };
+  const write = (data) => {
+    stats.written += data.byteLength ?? data.size ?? data.length;
+    return socket.write(data);
+  };
+  return { read, write, stats };
+}
 export {
   ASN1Bytes,
   Bytes,
@@ -2683,6 +2822,8 @@ export {
   ReadMode,
   ReadQueue,
   SocketReadQueue,
+  TLSError,
+  TLSFatalAlertError,
   TrustedCert,
   WebSocketReadQueue,
   _fromBase64,
@@ -2696,9 +2837,12 @@ export {
   fromBase64,
   fromHex,
   hexFromU8,
+  https,
   stableStringify,
   startTls,
+  tcpTransport,
   toBase64,
   toHex,
-  u8FromHex
+  u8FromHex,
+  wsTransport
 };

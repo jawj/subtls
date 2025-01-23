@@ -1,6 +1,16 @@
 import { WebSocketReadQueue } from './readQueue';
 
-export default async function wsTransport(host: string, port: string | number, close = () => { }) {
+export interface WebSocketOptions {
+  close?: () => void;
+}
+
+export default async function wsTransport(
+  host: string,
+  port: string | number,
+  {
+    close = () => { }
+  }: WebSocketOptions
+) {
   const ws = await new Promise<WebSocket>(resolve => {
     const wsURL = location.hostname === 'localhost' ? 'ws://localhost:6544' : 'wss://subtls-wsproxy.jawj.workers.dev';
     const ws = new WebSocket(`${wsURL}/?address=${host}:${port}`);

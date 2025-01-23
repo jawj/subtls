@@ -1,7 +1,8 @@
 import { fromBase64 } from 'hextreme';
 import makeClientHello from './makeClientHello';
 import parseServerHello from './parseServerHello';
-import { bytesFromEncryptedTlsRecords, bytesFromTlsRecords, makeEncryptedTlsRecords, readEncryptedTlsRecord, RecordType } from './tlsRecord';
+import { bytesFromEncryptedTlsRecords, bytesFromTlsRecords, makeEncryptedTlsRecords, readEncryptedTlsRecord } from './tlsRecord';
+import { RecordType } from './tlsRecordUtils';
 import { getApplicationKeys, getHandshakeKeys } from './keys';
 import { hkdfExpandLabel } from './hkdf';
 import { Crypter } from './aesgcm';

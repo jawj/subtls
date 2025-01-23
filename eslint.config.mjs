@@ -10,7 +10,7 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['*.mjs'],
+          allowDefaultProject: ['*.mjs', 'test/*.ts', 'subtls-wsproxy/*.ts'],
           defaultProject: 'tsconfig.json',
         },
         tsconfigRootDir: import.meta.dirname,

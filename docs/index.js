@@ -462,12 +462,7 @@ var Bytes = class {
     }
     const newData = await this.fetchFn(bytes);
     if (newData === void 0 || newData.length < bytes) {
-      const e = new Error(`Not enough data returned by read function. 
-  data.length:       ${this.data.length}
-  endOfReadableData: ${this.endOfReadableData}
-  offset:            ${this.offset}
-  bytes requested:   ${bytes}
-  bytes returned:    ${newData && newData.length}`);
+      const e = new Error(`Not enough data returned by read function: requested ${bytes} byte(s), received ${newData === void 0 ? "EOF" : `${newData.length} byte(s)`}`);
       e._bytes_error_reason = "EOF";
       throw e;
     }
@@ -580,22 +575,22 @@ var Bytes = class {
   async expectUint8(expectedValue, comment) {
     const actualValue = await this.readUint8();
     if (comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u8 ${expectedValue}, got ${actualValue}`);
   }
   async expectUint16(expectedValue, comment) {
     const actualValue = await this.readUint16();
     if (comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u16 ${expectedValue}, got ${actualValue}`);
   }
   async expectUint24(expectedValue, comment) {
     const actualValue = await this.readUint24();
     if (comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u24 ${expectedValue}, got ${actualValue}`);
   }
   async expectUint32(expectedValue, comment) {
     const actualValue = await this.readUint32();
     if (comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u32 ${expectedValue}, got ${actualValue}`);
   }
   async expectReadLength(length, indentDelta = 1) {
     await this.ensureReadAvailable(length);
@@ -1564,30 +1559,28 @@ var ASN1Bytes = class extends Bytes {
 
 // src/tls/sessionTicket.ts
 async function parseSessionTicket(record) {
-  if (1) {
-    const ticket = new Bytes(record);
-    await ticket.expectUint8(4, "session ticket message, per [RFC 8846 \xA74.6.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.1) (we do nothing with these)");
-    const [endTicketRecord] = await ticket.expectLengthUint24("session ticket message");
-    const ticketSeconds = await ticket.readUint32();
-    ticket.comment(`ticket lifetime in seconds: ${ticketSeconds} = ${ticketSeconds / 3600} hours`);
-    await ticket.readUint32("ticket age add");
-    const [endTicketNonce, ticketNonceRemaining] = await ticket.expectLengthUint8("ticket nonce");
-    await ticket.readBytes(ticketNonceRemaining());
-    ticket.comment("ticket nonce");
-    endTicketNonce();
-    const [endTicket, ticketRemaining] = await ticket.expectLengthUint16("ticket");
-    await ticket.readBytes(ticketRemaining());
-    ticket.comment("ticket");
-    endTicket();
-    const [endTicketExts, ticketExtsRemaining] = await ticket.expectLengthUint16("ticket extensions");
-    if (ticketExtsRemaining() > 0) {
-      await ticket.readBytes(ticketExtsRemaining());
-      ticket.comment("ticket extensions (ignored)");
-    }
-    endTicketExts();
-    endTicketRecord();
-    log(...highlightBytes(ticket.commentedString(), "#88c" /* server */));
+  const ticket = new Bytes(record);
+  await ticket.expectUint8(4, "session ticket message, per [RFC 8846 \xA74.6.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.1) (we do nothing with these)");
+  const [endTicketRecord] = await ticket.expectLengthUint24("session ticket message");
+  const ticketSeconds = await ticket.readUint32();
+  ticket.comment(`ticket lifetime in seconds: ${ticketSeconds} = ${ticketSeconds / 3600} hours`);
+  await ticket.readUint32("ticket age add");
+  const [endTicketNonce, ticketNonceRemaining] = await ticket.expectLengthUint8("ticket nonce");
+  await ticket.readBytes(ticketNonceRemaining());
+  ticket.comment("ticket nonce");
+  endTicketNonce();
+  const [endTicket, ticketRemaining] = await ticket.expectLengthUint16("ticket");
+  await ticket.readBytes(ticketRemaining());
+  ticket.comment("ticket");
+  endTicket();
+  const [endTicketExts, ticketExtsRemaining] = await ticket.expectLengthUint16("ticket extensions");
+  if (ticketExtsRemaining() > 0) {
+    await ticket.readBytes(ticketExtsRemaining());
+    ticket.comment("ticket extensions (ignored)");
   }
+  endTicketExts();
+  endTicketRecord();
+  log(...highlightBytes(ticket.commentedString(), "#88c" /* server */));
 }
 
 // src/util/readQueue.ts
@@ -1694,7 +1687,7 @@ var LazyReadFunctionReadQueue = class extends ReadQueue {
   }
 };
 
-// src/tls/tlsRecord.ts
+// src/tls/tlsRecordUtils.ts
 var RecordTypeName = {
   [20 /* ChangeCipherSpec */]: "ChangeCipherSpec",
   [21 /* Alert */]: "Alert",
@@ -1735,6 +1728,17 @@ var AlertRecordDescName = {
   116: "certificate_required",
   120: "no_application_protocol"
 };
+
+// src/tls/errors.ts
+var TLSFatalAlertError = class extends Error {
+  constructor(message, alertCode) {
+    super(message);
+    this.alertCode = alertCode;
+    __publicField(this, "name", "TLSFatalAlertError");
+  }
+};
+
+// src/tls/tlsRecord.ts
 var maxPlaintextRecordLength = 1 << 14;
 var maxCiphertextRecordLength = maxPlaintextRecordLength + 1 + 255;
 async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordLength) {
@@ -1748,16 +1752,20 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
   const [, recordRemaining] = await record.expectLengthUint16("TLS record");
   const length = recordRemaining();
   if (length > maxLength) throw new Error(`Record too long: ${length} bytes`);
-  let alertLevel;
+  let alertLevel, alertCode, alertDesc;
   if (type === 21 /* Alert */) {
     alertLevel = await record.readUint8("alert level:");
     record.comment(AlertRecordLevelName[alertLevel] ?? "unknown");
-    const desc2 = await record.readUint8("alert description:");
-    record.comment(AlertRecordDescName[desc2] ?? "unknown");
+    alertCode = await record.readUint8("alert description:");
+    alertDesc = AlertRecordDescName[alertCode];
+    record.comment(alertDesc ?? "unknown");
   }
   log(...highlightBytes(record.commentedString(), type === 21 /* Alert */ ? "#c88" /* header */ : "#88c" /* server */));
-  if (alertLevel === 2) throw new Error("Fatal alert message received");
-  else if (alertLevel === 1) return readTlsRecord(read, expectedType, maxLength);
+  if (alertLevel === 2) {
+    throw new TLSFatalAlertError(`Fatal TLS alert message received: ${alertDesc}`, alertCode ?? -1);
+  } else if (alertLevel === 1) {
+    return readTlsRecord(read, expectedType, maxLength);
+  }
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   const rawHeader = record.array();
   const content = await record.subarrayForRead(length);
@@ -2815,9 +2823,11 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
   const user = url.username;
   const password = pipelinedPasswordAuth ? `project=${host.match(/^[^.]+/)[0]};${url.password}` : url.password;
   let done = false;
-  const transport = await transportFactory(host, port, () => {
-    if (!done) throw new Error("Unexpected connection close");
-    log("Connection closed");
+  const transport = await transportFactory(host, port, {
+    close: () => {
+      if (!done) throw new Error("Unexpected connection close");
+      log("Connection closed");
+    }
   });
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
   const sslRequest = new Bytes(8);
@@ -3168,24 +3178,31 @@ async function postgres(urlStr, transportFactory, pipelinedPasswordAuth = false)
 
 // src/https.ts
 var txtDec3 = new TextDecoder();
-async function https(urlStr, method, transportFactory) {
-  const t0 = Date.now();
+async function https(urlStr, method, transportFactory, {
+  headers = {},
+  httpVersion = "1.0",
+  socketOptions = {}
+} = {}) {
   const url = new URL(urlStr);
   if (url.protocol !== "https:") throw new Error("Wrong protocol");
   const host = url.hostname;
+  headers["Host"] ?? (headers["Host"] = host);
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
-  const transport = await transportFactory(host, port, () => {
-    log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");
+  const transport = await transportFactory(host, port, {
+    close: () => {
+      log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");
+    },
+    ...socketOptions
   });
   const rootCerts = await getRootCertsDatabase();
   const { read, write } = await startTls(host, rootCerts, transport.read, transport.write);
   log("Here\u2019s a GET request:");
   const request = new Bytes();
-  request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
-Host: ${host}\r
-\r
+  request.writeUTF8String(`${method} ${reqPath} HTTP/${httpVersion}\r
 `);
+  request.writeUTF8String(Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n"));
+  request.writeUTF8String("\r\n\r\n");
   log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
   log("Which goes to the server encrypted like so:");
   await write(request.array());
@@ -3211,7 +3228,9 @@ Host: ${host}\r
 }
 
 // src/util/wsTransport.ts
-async function wsTransport(host, port, close = () => {
+async function wsTransport(host, port, {
+  close = () => {
+  }
 }) {
   const ws = await new Promise((resolve) => {
     const wsURL = location.hostname === "localhost" ? "ws://localhost:6544" : "wss://subtls-wsproxy.jawj.workers.dev";

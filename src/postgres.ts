@@ -7,6 +7,7 @@ import { startTls } from './tls/startTls';
 import { getRandomValues } from './util/cryptoRandom';
 import cs from './util/cryptoProxy';
 import type wsTransport from './util/wsTransport';
+import type tcpTransport from './util/tcpTransport';
 import { getRootCertsDatabase } from './util/rootCerts';
 import { hexFromU8 } from './util/hex';
 import { concat } from './util/array';
@@ -18,7 +19,7 @@ const te = new TextEncoder();
 
 export async function postgres(
   urlStr: string,
-  transportFactory: typeof wsTransport,
+  transportFactory: typeof wsTransport | typeof tcpTransport,
   pipelinedPasswordAuth = false,
 ) {
   const t0 = Date.now();
@@ -34,9 +35,11 @@ export async function postgres(
     url.password;
 
   let done = false;
-  const transport = await transportFactory(host, port, () => {
-    if (!done) throw new Error('Unexpected connection close');
-    chatty && log('Connection closed');
+  const transport = await transportFactory(host, port, {
+    close: () => {
+      if (!done) throw new Error('Unexpected connection close');
+      chatty && log('Connection closed');
+    }
   });
 
   // SSLRequest

@@ -8,57 +8,8 @@ import { highlightBytes } from '../presentation/highlights';
 import { appendLog, log } from '../presentation/log';
 import { hexFromU8 } from '../util/hex';
 import { LazyReadFunctionReadQueue, ReadMode } from '../util/readQueue';
-
-export enum RecordType {
-  ChangeCipherSpec = 0x14,
-  Alert = 0x15,
-  Handshake = 0x16,
-  Application = 0x17,
-  Heartbeat = 0x18,
-}
-
-export const RecordTypeName = {
-  [RecordType.ChangeCipherSpec]: 'ChangeCipherSpec',
-  [RecordType.Alert]: 'Alert',
-  [RecordType.Handshake]: 'Handshake',
-  [RecordType.Application]: 'Application',
-  [RecordType.Heartbeat]: 'Heartbeat',
-} as const;
-
-export const AlertRecordLevelName = {
-  1: 'warning',
-  2: 'fatal',
-} as Record<number, string>;
-
-export const AlertRecordDescName = {
-  0: 'close_notify',
-  10: 'unexpected_message',
-  20: 'bad_record_mac',
-  22: 'record_overflow',
-  40: 'handshake_failure',
-  42: 'bad_certificate',
-  43: 'unsupported_certificate',
-  44: 'certificate_revoked',
-  45: 'certificate_expired',
-  46: 'certificate_unknown',
-  47: 'illegal_parameter',
-  48: 'unknown_ca',
-  49: 'access_denied',
-  50: 'decode_error',
-  51: 'decrypt_error',
-  70: 'protocol_version',
-  71: 'insufficient_security',
-  80: 'internal_error',
-  86: 'inappropriate_fallback',
-  90: 'user_canceled',
-  109: 'missing_extension',
-  110: 'unsupported_extension',
-  112: 'unrecognized_name',
-  113: 'bad_certificate_status_response',
-  115: 'unknown_psk_identity',
-  116: 'certificate_required',
-  120: 'no_application_protocol',
-} as Record<number, string>;
+import { RecordType, RecordTypeName, AlertRecordLevelName, AlertRecordDescName } from './tlsRecordUtils';
+import { TLSFatalAlertError } from './errors';
 
 const maxPlaintextRecordLength = 1 << 14;
 const maxCiphertextRecordLength = maxPlaintextRecordLength + 1 /* record type */ + 255 /* max aead */;
@@ -81,19 +32,24 @@ export async function readTlsRecord(read: (length: number, readMode?: ReadMode) 
 
   if (length > maxLength) throw new Error(`Record too long: ${length} bytes`);
 
-  let alertLevel;
+  let alertLevel, alertCode, alertDesc;
   if (type === RecordType.Alert) {
     alertLevel = await record.readUint8(chatty && 'alert level:');
     chatty && record.comment(AlertRecordLevelName[alertLevel] ?? 'unknown');
 
-    const desc = await record.readUint8(chatty && 'alert description:');
-    chatty && record.comment(AlertRecordDescName[desc] ?? 'unknown');
+    alertCode = await record.readUint8(chatty && 'alert description:') as keyof typeof AlertRecordDescName;
+    alertDesc = AlertRecordDescName[alertCode];
+    chatty && record.comment(alertDesc ?? 'unknown');
   }
 
   chatty && log(...highlightBytes(record.commentedString(), type === RecordType.Alert ? LogColours.header : LogColours.server));
 
-  if (alertLevel === 2) throw new Error('Fatal alert message received');
-  else if (alertLevel === 1) return readTlsRecord(read, expectedType, maxLength);  // ignore and continue
+  if (alertLevel === 2) {
+    throw new TLSFatalAlertError(`Fatal TLS alert message received: ${alertDesc}`, alertCode ?? -1);
+
+  } else if (alertLevel === 1) {
+    return readTlsRecord(read, expectedType, maxLength);  // ignore and continue
+  }
 
   if (expectedType !== undefined && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(16).padStart(2, '0')} (expected 0x${expectedType.toString(16).padStart(2, '0')})`);
 

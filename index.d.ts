@@ -179,6 +179,14 @@ export declare type DistinguishedName = Record<string, string | string[]>;
 
 export declare function hexFromU8(u8: Uint8Array | number[], spacer?: string): string;
 
+export declare function https(urlStr: string, method: string, transportFactory: typeof wsTransport | typeof tcpTransport, { headers, httpVersion, timeout, }?: HTTPSOptions): Promise<string>;
+
+declare interface HTTPSOptions {
+    headers?: Record<string, string>;
+    httpVersion?: string;
+    timeout?: number;
+}
+
 export declare class LazyReadFunctionReadQueue extends ReadQueue {
     protected readFn: () => Promise<Uint8Array | undefined>;
     protected dataIsExhausted: boolean;
@@ -238,6 +246,29 @@ export declare function startTls(host: string, rootCertsDatabase: RootCertsDatab
     readonly userCert: Cert;
 }>;
 
+export declare function tcpTransport(host: string, port: string | number, close?: () => void, timeout?: number): Promise<{
+    read: (bytes: number, readMode?: ReadMode) => Promise<Uint8Array<ArrayBufferLike> | undefined>;
+    write: {
+        (buffer: Uint8Array | string, cb?: (err?: Error) => void): boolean;
+        (str: Uint8Array | string, encoding?: BufferEncoding, cb?: (err?: Error) => void): boolean;
+    };
+    stats: {
+        read: number;
+        written: number;
+    };
+}>;
+
+export declare class TLSError extends Error {
+    name: string;
+    constructor(message: string);
+}
+
+export declare class TLSFatalAlertError extends Error {
+    alertCode: number;
+    name: string;
+    constructor(message: string, alertCode: number);
+}
+
 export declare class TrustedCert extends Cert {
     static databaseFromPEM(pem: string): Promise<RootCertsDatabase>;
     static findInDatabase(subjectOrSubjectKeyId: DistinguishedName | string, db: RootCertsDatabase): Promise<Cert | undefined>;
@@ -250,6 +281,15 @@ export declare class WebSocketReadQueue extends ReadQueue {
     constructor(socket: WebSocket);
     moreDataMayFollow(): boolean;
 }
+
+export declare function wsTransport(host: string, port: string | number, close?: () => void): Promise<{
+    read: (bytes: number, readMode?: ReadMode) => Promise<Uint8Array<ArrayBufferLike> | undefined>;
+    write: (data: string | ArrayBufferLike | Blob | ArrayBufferView) => void;
+    stats: {
+        read: number;
+        written: number;
+    };
+}>;
 
 
 export * from "hextreme";

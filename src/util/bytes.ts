@@ -70,12 +70,7 @@ export class Bytes {
     }
     const newData = await this.fetchFn(bytes);
     if (newData === undefined || newData.length < bytes) {
-      const e = new Error(`Not enough data returned by read function. 
-  data.length:       ${this.data.length}
-  endOfReadableData: ${this.endOfReadableData}
-  offset:            ${this.offset}
-  bytes requested:   ${bytes}
-  bytes returned:    ${newData && newData.length}`);
+      const e = new Error(`Not enough data returned by read function: requested ${bytes} byte(s), received ${newData === undefined ? 'EOF' : `${newData.length} byte(s)`}`);
       (e as any)._bytes_error_reason = 'EOF';
       throw e;
     }
@@ -206,25 +201,25 @@ export class Bytes {
   async expectUint8(expectedValue: number, comment?: string) {
     const actualValue = await this.readUint8();
     if (chatty && comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u8 ${expectedValue}, got ${actualValue}`);
   }
 
   async expectUint16(expectedValue: number, comment?: string) {
     const actualValue = await this.readUint16();
     if (chatty && comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u16 ${expectedValue}, got ${actualValue}`);
   }
 
   async expectUint24(expectedValue: number, comment?: string) {
     const actualValue = await this.readUint24();
     if (chatty && comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u24 ${expectedValue}, got ${actualValue}`);
   }
 
   async expectUint32(expectedValue: number, comment?: string) {
     const actualValue = await this.readUint32();
     if (chatty && comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u32 ${expectedValue}, got ${actualValue}`);
   }
 
   async expectReadLength(length: number, indentDelta = 1) {
