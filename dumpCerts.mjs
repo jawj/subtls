@@ -11,5 +11,5 @@ import { TrustedCert } from './index.js';
 const pem = await readFile('/dev/stdin', { encoding: 'utf8' });
 const { index, data } = await TrustedCert.databaseFromPEM(pem);
 
-await writeFile('docs/certs.bin', data);
+await writeFile('docs/certs.binary.txt', data);  // GitHub pages doesn't `transfer-encoding: gzip` a .bin file
 await writeFile('docs/certs.index.json', JSON.stringify(index), { encoding: 'utf8' });

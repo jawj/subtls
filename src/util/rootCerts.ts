@@ -21,7 +21,7 @@ async function getRootCertsIndex() {
 }
 
 async function getRootCertsData() {
-  const file = await getFile('certs.bin');
+  const file = await getFile('certs.binary.txt');
   const rootCertsData = new Uint8Array(file);
   return rootCertsData;
 }
