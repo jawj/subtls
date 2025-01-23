@@ -70,7 +70,7 @@ export class Bytes {
     }
     const newData = await this.fetchFn(bytes);
     if (newData === undefined || newData.length < bytes) {
-      const e = new Error(`Not enough data returned by read function: requested ${bytes} byte(s), received ${newData === undefined ? 'EOF' : `${newData.length} byte(s)`}`);
+      const e = new Error(`Not enough data: requested ${bytes} byte(s), received ${newData === undefined ? 'EOF' : `${newData.length} byte(s)`}`);
       (e as any)._bytes_error_reason = 'EOF';
       throw e;
     }

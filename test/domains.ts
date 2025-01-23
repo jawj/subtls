@@ -24,12 +24,16 @@ for (const domain of domains) for (const prefix of ['', 'www.']) {
       }).then(resolve, reject)
     );
 
-    w('\x1b[0;32m' + response.slice(0, response.indexOf('\n')) + '\x1b[0;0m\n');
+    w('\x1b[0;32m' + response.slice(0, response.indexOf('\n')) + '\x1b[0;0m\n');  // green
 
   } catch (err: any) {
     const e: Error = err;
     const color =
-      e.message === 'socket timeout' || e.message.startsWith('getaddrinfo') || e.message.indexOf('protocol_version') !== -1 ? '0' : // white
+      e.message === 'socket timeout' ||
+        e.message.startsWith('getaddrinfo E') ||
+        e.message.startsWith('connect E') ||
+        e.message.startsWith('read E') ||
+        e.message.indexOf('protocol_version') !== -1 ? '0' : // white
         e.message.startsWith('Fatal TLS alert') ? '31' : // red
           '33';  // yellow
 
