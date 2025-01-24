@@ -30,41 +30,45 @@ export default async function parseServerHello(h: Bytes, sessionId: Uint8Array) 
   const [endExtensions, extensionsRemaining] = await h.expectLengthUint16(chatty && 'extensions');
   while (extensionsRemaining() > 0) {
     const extensionType = await h.readUint16(chatty && 'extension type:');
-    chatty && h.comment(
-      extensionType === 0x002b ? 'TLS version' :
-        extensionType === 0x0033 ? 'key share' :
-          'unknown');
+    const extensionTypeName = {
+      0x002b: 'TLS version',
+      0x0033: 'key share',
+    }[extensionType] ?? 'unknown';
+    chatty && h.comment(extensionTypeName);
 
     const [endExtension] = await h.expectLengthUint16(chatty && 'extension');
 
-    if (extensionType === 0x002b) {
-      await h.expectUint16(0x0304, chatty && 'TLS version: 1.3');
-      tlsVersionSpecified = true;
+    switch (extensionType) {
+      case 0x002b:
+        await h.expectUint16(0x0304, chatty && 'TLS version: 1.3');
+        tlsVersionSpecified = true;
+        break;
 
-    } else if (extensionType === 0x0033) {
-      await h.expectUint16(0x0017, chatty && 'key share type: secp256r1 (NIST P-256)');
-      const [endKeyShare, keyShareRemaining] = await h.expectLengthUint16('key share');
-      const keyShareLength = keyShareRemaining();
-      if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
-      if (chatty) {
-        await h.expectUint8(4, 'legacy point format: always 4, which means uncompressed ([RFC 8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 §5.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))');
-        const x = await h.readBytes(32);
-        h.comment('x coordinate');
-        const y = await h.readBytes(32);
-        h.comment('y coordinate');
-        serverPublicKey = concat([4], x, y);
-      } else {
-        serverPublicKey = await h.readBytes(keyShareLength);
+      case 0x0033: {
+        await h.expectUint16(0x0017, chatty && 'key share type: secp256r1 (NIST P-256)');
+        const [endKeyShare, keyShareRemaining] = await h.expectLengthUint16('key share');
+        const keyShareLength = keyShareRemaining();
+        if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
+        if (chatty) {
+          await h.expectUint8(4, 'legacy point format: always 4, which means uncompressed ([RFC 8446 §4.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 §5.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))');
+          const x = await h.readBytes(32);
+          h.comment('x coordinate');
+          const y = await h.readBytes(32);
+          h.comment('y coordinate');
+          serverPublicKey = concat([4], x, y);
+        } else {
+          serverPublicKey = await h.readBytes(keyShareLength);
+        }
+        // TODO: will SubtleCrypto validate this for us when deriving the shared secret, or must we do it?
+        // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2
+        // + e.g. https://neilmadden.blog/2017/05/17/so-how-do-you-validate-nist-ecdh-public-keys/
+        endKeyShare();
+        break;
       }
-      // TODO: will SubtleCrypto validate this for us when deriving the shared secret, or must we do it?
-      // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2
-      // + e.g. https://neilmadden.blog/2017/05/17/so-how-do-you-validate-nist-ecdh-public-keys/
-      endKeyShare();
 
-    } else {
-      throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`);
+      default:
+        throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`);
     }
-
     endExtension();
   }
 

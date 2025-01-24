@@ -11,7 +11,7 @@ import { WebSocketOptions } from './util/wsTransport';
 
 const txtDec = new TextDecoder();
 
-interface HTTPSOptions {
+export interface HTTPSOptions {
   headers?: Record<string, string>;
   httpVersion?: string;
   socketOptions?: SocketOptions | WebSocketOptions;
@@ -45,7 +45,7 @@ export async function https(
   });
 
   const rootCerts = await rootCertsPromise;
-  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write);
+  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: ['http/1.1'] });
 
   chatty && log('Here’s a GET request:');
   const request = new Bytes();

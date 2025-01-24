@@ -885,7 +885,7 @@ async function getRandomValues(...args) {
 }
 
 // src/tls/makeClientHello.ts
-async function makeClientHello(host, publicKey, sessionId, useSNI = true) {
+async function makeClientHello(host, publicKey, sessionId, useSNI = true, protocolsForALPN) {
   const h = new Bytes();
   h.writeUint8(22, "record type: handshake");
   h.writeUint16(769, "TLS legacy record version 1.0 ([RFC 8446 \xA75.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))");
@@ -916,6 +916,18 @@ async function makeClientHello(host, publicKey, sessionId, useSNI = true) {
     endHostname();
     endSNI();
     endSNIExt();
+  }
+  if (protocolsForALPN) {
+    h.writeUint16(16, "extension type: Application-Layer Protocol Negotiation, or ALPN ([RFC 7301](https://datatracker.ietf.org/doc/html/rfc7301))");
+    const endALPNExt = h.writeLengthUint16("ALPN data");
+    const endALPN = h.writeLengthUint16("protocols");
+    for (const protocol of protocolsForALPN) {
+      const endProtocol = h.writeLengthUint8("protocol");
+      h.writeUTF8String(protocol);
+      endProtocol();
+    }
+    endALPN();
+    endALPNExt();
   }
   h.writeUint16(11, "extension type: supported Elliptic Curve point formats (for middlebox compatibility, from TLS 1.2: [RFC 8422 \xA75.1.2](https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2))");
   const endFormatTypesExt = h.writeLengthUint16("point formats data");
@@ -1055,31 +1067,37 @@ async function parseServerHello(h, sessionId) {
   const [endExtensions, extensionsRemaining] = await h.expectLengthUint16("extensions");
   while (extensionsRemaining() > 0) {
     const extensionType = await h.readUint16("extension type:");
-    h.comment(
-      extensionType === 43 ? "TLS version" : extensionType === 51 ? "key share" : "unknown"
-    );
+    const extensionTypeName = {
+      43: "TLS version",
+      51: "key share"
+    }[extensionType] ?? "unknown";
+    h.comment(extensionTypeName);
     const [endExtension] = await h.expectLengthUint16("extension");
-    if (extensionType === 43) {
-      await h.expectUint16(772, "TLS version: 1.3");
-      tlsVersionSpecified = true;
-    } else if (extensionType === 51) {
-      await h.expectUint16(23, "key share type: secp256r1 (NIST P-256)");
-      const [endKeyShare, keyShareRemaining] = await h.expectLengthUint16("key share");
-      const keyShareLength = keyShareRemaining();
-      if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
-      if (1) {
-        await h.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
-        const x = await h.readBytes(32);
-        h.comment("x coordinate");
-        const y = await h.readBytes(32);
-        h.comment("y coordinate");
-        serverPublicKey = concat([4], x, y);
-      } else {
-        serverPublicKey = await h.readBytes(keyShareLength);
+    switch (extensionType) {
+      case 43:
+        await h.expectUint16(772, "TLS version: 1.3");
+        tlsVersionSpecified = true;
+        break;
+      case 51: {
+        await h.expectUint16(23, "key share type: secp256r1 (NIST P-256)");
+        const [endKeyShare, keyShareRemaining] = await h.expectLengthUint16("key share");
+        const keyShareLength = keyShareRemaining();
+        if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
+        if (1) {
+          await h.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.org/doc/html/rfc8422#section-5.4.1))");
+          const x = await h.readBytes(32);
+          h.comment("x coordinate");
+          const y = await h.readBytes(32);
+          h.comment("y coordinate");
+          serverPublicKey = concat([4], x, y);
+        } else {
+          serverPublicKey = await h.readBytes(keyShareLength);
+        }
+        endKeyShare();
+        break;
       }
-      endKeyShare();
-    } else {
-      throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`);
+      default:
+        throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`);
     }
     endExtension();
   }
@@ -2530,41 +2548,55 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
 // src/tls/readEncryptedHandshake.ts
 var txtEnc3 = new TextEncoder();
 async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
+  let protocolFromALPN = void 0;
   await hs.expectUint8(8, "handshake record type: encrypted extensions ([RFC 8446 \xA74.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))");
   const [eeMessageEnd] = await hs.expectLengthUint24();
   const [extEnd, extRemaining] = await hs.expectLengthUint16("extensions");
   while (extRemaining() > 0) {
     const extType = await hs.readUint16("extension type:");
-    if (extType === 0) {
-      hs.comment("SNI");
-      await hs.expectUint16(0, "no extension data ([RFC 6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
-    } else if (extType === 10) {
-      hs.comment("supported groups ([RFC 8446 \xA74.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2), [\xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
-      const [endGroupsData] = await hs.expectLengthUint16("groups data");
-      const [endGroups, groupsRemaining] = await hs.expectLengthUint16("groups");
-      hs.comment("(most preferred first)");
-      while (groupsRemaining() > 0) {
-        const group = await hs.readUint16();
-        if (1) {
-          const groupName = {
-            23: "secp256r1",
-            24: "secp384r1",
-            25: "secp521r1",
-            29: "x25519",
-            30: "x448",
-            256: "ffdhe2048",
-            257: "ffdhe3072",
-            258: "ffdhe4096",
-            259: "ffdhe6144",
-            260: "ffdhe8192"
-          }[group] ?? "unrecognised group";
-          hs.comment(`group: ${groupName}`);
-        }
+    switch (extType) {
+      case 0:
+        hs.comment("SNI");
+        await hs.expectUint16(0, "no extension data ([RFC 6066 \xA73](https://datatracker.ietf.org/doc/html/rfc6066#section-3))");
+        break;
+      case 16: {
+        hs.comment("ALPN");
+        const [endALPN] = await hs.expectLengthUint16("ALPN data");
+        const [endProtocols, protocolsRemaining] = await hs.expectLengthUint16("protocols (but there can be only one)");
+        protocolFromALPN = await hs.readUTF8String(protocolsRemaining());
+        endProtocols();
+        endALPN();
+        break;
       }
-      endGroups();
-      endGroupsData();
-    } else {
-      throw new Error(`Unsupported server encrypted extension type 0x${hexFromU8([extType]).padStart(4, "0")}`);
+      case 10: {
+        hs.comment("supported groups ([RFC 8446 \xA74.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2), [\xA74.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))");
+        const [endGroupsData] = await hs.expectLengthUint16("groups data");
+        const [endGroups, groupsRemaining] = await hs.expectLengthUint16("groups");
+        hs.comment("(most preferred first)");
+        while (groupsRemaining() > 0) {
+          const group = await hs.readUint16();
+          if (1) {
+            const groupName = {
+              23: "secp256r1",
+              24: "secp384r1",
+              25: "secp521r1",
+              29: "x25519",
+              30: "x448",
+              256: "ffdhe2048",
+              257: "ffdhe3072",
+              258: "ffdhe4096",
+              259: "ffdhe6144",
+              260: "ffdhe8192"
+            }[group] ?? "unrecognised group";
+            hs.comment(`group: ${groupName}`);
+          }
+        }
+        endGroups();
+        endGroupsData();
+        break;
+      }
+      default:
+        throw new Error(`Unsupported server encrypted extension type 0x${hexFromU8([extType]).padStart(4, "0")}`);
     }
   }
   extEnd();
@@ -2652,11 +2684,11 @@ async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsD
   log(...highlightBytes(hs.commentedString(), "#88c" /* server */));
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot) throw new Error("Validated certificate chain did not end in a trusted root");
-  return { handshakeData: hs.data.subarray(0, hs.offset), clientCertRequested, userCert };
+  return { handshakeData: hs.data.subarray(0, hs.offset), clientCertRequested, userCert, protocolFromALPN };
 }
 
 // src/tls/startTls.ts
-async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { useSNI, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData } = {}) {
+async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData } = {}) {
   useSNI ?? (useSNI = true);
   requireServerTlsExtKeyUsage ?? (requireServerTlsExtKeyUsage = true);
   requireDigitalSigKeyUsage ?? (requireDigitalSigKeyUsage = true);
@@ -2675,7 +2707,7 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   log("Now we have a public/private key pair, we can start the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)). This includes the public key:");
   const sessionId = new Uint8Array(32);
   await getRandomValues(sessionId);
-  const clientHello = await makeClientHello(host, rawPublicKey, sessionId, useSNI);
+  const clientHello = await makeClientHello(host, rawPublicKey, sessionId, useSNI, protocolsForALPN);
   log(...highlightBytes(clientHello.commentedString(), "#8cc" /* client */));
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
@@ -3183,7 +3215,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
     ...socketOptions
   });
   const rootCerts = await rootCertsPromise2;
-  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write);
+  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: ["http/1.1"] });
   log("Here\u2019s a GET request:");
   const request = new Bytes();
   request.writeUTF8String(`${method} ${reqPath} HTTP/${httpVersion}\r

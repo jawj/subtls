@@ -1,7 +1,7 @@
 import { Bytes } from '../util/bytes';
 import { getRandomValues } from '../util/cryptoRandom';
 
-export default async function makeClientHello(host: string, publicKey: Uint8Array, sessionId: Uint8Array, useSNI = true) {
+export default async function makeClientHello(host: string, publicKey: Uint8Array, sessionId: Uint8Array, useSNI = true, protocolsForALPN?: string[]) {
   const h = new Bytes();
 
   h.writeUint8(0x16, chatty && 'record type: handshake');
@@ -41,6 +41,19 @@ export default async function makeClientHello(host: string, publicKey: Uint8Arra
     endHostname();
     endSNI();
     endSNIExt();
+  }
+
+  if (protocolsForALPN) {
+    h.writeUint16(0x0010, chatty && 'extension type: Application-Layer Protocol Negotiation, or ALPN ([RFC 7301](https://datatracker.ietf.org/doc/html/rfc7301))');
+    const endALPNExt = h.writeLengthUint16(chatty && 'ALPN data');
+    const endALPN = h.writeLengthUint16(chatty && 'protocols');
+    for (const protocol of protocolsForALPN) {
+      const endProtocol = h.writeLengthUint8(chatty && 'protocol');
+      h.writeUTF8String(protocol);
+      endProtocol();
+    }
+    endALPN();
+    endALPNExt();
   }
 
   h.writeUint16(0x000b, chatty && 'extension type: supported Elliptic Curve point formats (for middlebox compatibility, from TLS 1.2: [RFC 8422 §5.1.2](https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2))');

@@ -587,12 +587,8 @@ var Bytes = class {
     }
     const newData = await this.fetchFn(bytes);
     if (newData === void 0 || newData.length < bytes) {
-      const e = new Error(`Not enough data returned by read function. 
-  data.length:       ${this.data.length}
-  endOfReadableData: ${this.endOfReadableData}
-  offset:            ${this.offset}
-  bytes requested:   ${bytes}
-  bytes returned:    ${newData && newData.length}`);
+      const e = new Error(`Not enough data: requested ${bytes} byte(s), received ${newData === void 0 ? "EOF" :
+      `${newData.length} byte(s)`}`);
       e._bytes_error_reason = "EOF";
       throw e;
     }
@@ -707,22 +703,22 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
   async expectUint8(expectedValue, comment) {
     const actualValue = await this.readUint8();
     if (0) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u8 ${expectedValue}, got ${actualValue}`);
   }
   async expectUint16(expectedValue, comment) {
     const actualValue = await this.readUint16();
     if (0) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u16 ${expectedValue}, got ${actualValue}`);
   }
   async expectUint24(expectedValue, comment) {
     const actualValue = await this.readUint24();
     if (0) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u24 ${expectedValue}, got ${actualValue}`);
   }
   async expectUint32(expectedValue, comment) {
     const actualValue = await this.readUint32();
     if (0) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected ${expectedValue}, got ${actualValue}`);
+    if (actualValue !== expectedValue) throw new Error(`Expected u32 ${expectedValue}, got ${actualValue}`);
   }
   async expectReadLength(length, indentDelta = 1) {
     await this.ensureReadAvailable(length);
@@ -906,7 +902,7 @@ async function getRandomValues(...args) {
 }
 
 // src/tls/makeClientHello.ts
-async function makeClientHello(host, publicKey, sessionId, useSNI = true) {
+async function makeClientHello(host, publicKey, sessionId, useSNI = true, protocolsForALPN) {
   const h = new Bytes();
   h.writeUint8(22, 0);
   h.writeUint16(769, 0);
@@ -935,6 +931,18 @@ async function makeClientHello(host, publicKey, sessionId, useSNI = true) {
     endHostname();
     endSNI();
     endSNIExt();
+  }
+  if (protocolsForALPN) {
+    h.writeUint16(16, 0);
+    const endALPNExt = h.writeLengthUint16(0);
+    const endALPN = h.writeLengthUint16(0);
+    for (const protocol of protocolsForALPN) {
+      const endProtocol = h.writeLengthUint8(0);
+      h.writeUTF8String(protocol);
+      endProtocol();
+    }
+    endALPN();
+    endALPNExt();
   }
   h.writeUint16(11, 0);
   const endFormatTypesExt = h.writeLengthUint16(0);
@@ -1075,30 +1083,38 @@ async function parseServerHello(h, sessionId) {
   const [endExtensions, extensionsRemaining] = await h.expectLengthUint16(0);
   while (extensionsRemaining() > 0) {
     const extensionType = await h.readUint16(0);
+    const extensionTypeName = {
+      43: "TLS version",
+      51: "key share"
+    }[extensionType] ?? "unknown";
     const [endExtension] = await h.expectLengthUint16(0);
-    if (extensionType === 43) {
-      await h.expectUint16(772, 0);
-      tlsVersionSpecified = true;
-    } else if (extensionType === 51) {
-      await h.expectUint16(23, 0);
-      const [endKeyShare, keyShareRemaining] = await h.expectLengthUint16("key share");
-      const keyShareLength = keyShareRemaining();
-      if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
-      if (0) {
-        await h.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2](h\
-ttps://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf.o\
-rg/doc/html/rfc8422#section-5.4.1))");
-        const x = await h.readBytes(32);
-        h.comment("x coordinate");
-        const y = await h.readBytes(32);
-        h.comment("y coordinate");
-        serverPublicKey = concat2([4], x, y);
-      } else {
-        serverPublicKey = await h.readBytes(keyShareLength);
+    switch (extensionType) {
+      case 43:
+        await h.expectUint16(772, 0);
+        tlsVersionSpecified = true;
+        break;
+      case 51: {
+        await h.expectUint16(23, 0);
+        const [endKeyShare, keyShareRemaining] = await h.expectLengthUint16("key share");
+        const keyShareLength = keyShareRemaining();
+        if (keyShareLength !== 65) throw new Error(`Expected 65 bytes of key share, but got ${keyShareLength}`);
+        if (0) {
+          await h.expectUint8(4, "legacy point format: always 4, which means uncompressed ([RFC 8446 \xA74.2.8.2]\
+(https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.8.2) and [RFC 8422 \xA75.4.1](https://datatracker.ietf\
+.org/doc/html/rfc8422#section-5.4.1))");
+          const x = await h.readBytes(32);
+          h.comment("x coordinate");
+          const y = await h.readBytes(32);
+          h.comment("y coordinate");
+          serverPublicKey = concat2([4], x, y);
+        } else {
+          serverPublicKey = await h.readBytes(keyShareLength);
+        }
+        endKeyShare();
+        break;
       }
-      endKeyShare();
-    } else {
-      throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`);
+      default:
+        throw new Error(`Unexpected extension 0x${hexFromU8([extensionType])}`);
     }
     endExtension();
   }
@@ -1724,7 +1740,7 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
   const record = new Bytes(read);
   const type = await record.readUint8();
   if (!(type in RecordTypeName)) throw new Error(`Illegal TLS record type 0x${type.toString(16)}`);
-  await record.expectUint16(771, "TLS record version 1.2 (middlebox compatibility)");
+  const tlsVersion = await record.readUint16();
   const [, recordRemaining] = await record.expectLengthUint16("TLS record");
   const length = recordRemaining();
   if (length > maxLength) throw new Error(`Record too long: ${length} bytes`);
@@ -1739,6 +1755,8 @@ async function readTlsRecord(read, expectedType, maxLength = maxPlaintextRecordL
   } else if (alertLevel === 1) {
     return readTlsRecord(read, expectedType, maxLength);
   }
+  if (tlsVersion !== 771) throw new TLSError(`Unsupported TLS version 0x${tlsVersion.toString(16)} in TLS reco\
+rd header`);
   if (expectedType !== void 0 && type !== expectedType) throw new Error(`Unexpected TLS record type 0x${type.toString(
   16).padStart(2, "0")} (expected 0x${expectedType.toString(16).padStart(2, "0")})`);
   const rawHeader = record.array();
@@ -2447,38 +2465,51 @@ SSA-PKCS1-v1_5", hash }, false, ["verify"]);
 // src/tls/readEncryptedHandshake.ts
 var txtEnc3 = new TextEncoder();
 async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
+  let protocolFromALPN = void 0;
   await hs.expectUint8(8, 0);
   const [eeMessageEnd] = await hs.expectLengthUint24();
   const [extEnd, extRemaining] = await hs.expectLengthUint16(0);
   while (extRemaining() > 0) {
     const extType = await hs.readUint16(0);
-    if (extType === 0) {
-      await hs.expectUint16(0, 0);
-    } else if (extType === 10) {
-      const [endGroupsData] = await hs.expectLengthUint16(0);
-      const [endGroups, groupsRemaining] = await hs.expectLengthUint16(0);
-      while (groupsRemaining() > 0) {
-        const group = await hs.readUint16();
-        if (0) {
-          const groupName = {
-            23: "secp256r1",
-            24: "secp384r1",
-            25: "secp521r1",
-            29: "x25519",
-            30: "x448",
-            256: "ffdhe2048",
-            257: "ffdhe3072",
-            258: "ffdhe4096",
-            259: "ffdhe6144",
-            260: "ffdhe8192"
-          }[group] ?? "unrecognised group";
-          hs.comment(`group: ${groupName}`);
-        }
+    switch (extType) {
+      case 0:
+        await hs.expectUint16(0, 0);
+        break;
+      case 16: {
+        const [endALPN] = await hs.expectLengthUint16(0);
+        const [endProtocols, protocolsRemaining] = await hs.expectLengthUint16(0);
+        protocolFromALPN = await hs.readUTF8String(protocolsRemaining());
+        endProtocols();
+        endALPN();
+        break;
       }
-      endGroups();
-      endGroupsData();
-    } else {
-      throw new Error(`Unsupported server encrypted extension type 0x${hexFromU8([extType]).padStart(4, "0")}`);
+      case 10: {
+        const [endGroupsData] = await hs.expectLengthUint16(0);
+        const [endGroups, groupsRemaining] = await hs.expectLengthUint16(0);
+        while (groupsRemaining() > 0) {
+          const group = await hs.readUint16();
+          if (0) {
+            const groupName = {
+              23: "secp256r1",
+              24: "secp384r1",
+              25: "secp521r1",
+              29: "x25519",
+              30: "x448",
+              256: "ffdhe2048",
+              257: "ffdhe3072",
+              258: "ffdhe4096",
+              259: "ffdhe6144",
+              260: "ffdhe8192"
+            }[group] ?? "unrecognised group";
+            hs.comment(`group: ${groupName}`);
+          }
+        }
+        endGroups();
+        endGroupsData();
+        break;
+      }
+      default:
+        throw new Error(`Unsupported server encrypted extension type 0x${hexFromU8([extType]).padStart(4, "0")}`);
     }
   }
   extEnd();
@@ -2560,11 +2591,11 @@ async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsD
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage,
   requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot) throw new Error("Validated certificate chain did not end in a trusted root");
-  return { handshakeData: hs.data.subarray(0, hs.offset), clientCertRequested, userCert };
+  return { handshakeData: hs.data.subarray(0, hs.offset), clientCertRequested, userCert, protocolFromALPN };
 }
 
 // src/tls/startTls.ts
-async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { useSNI, requireServerTlsExtKeyUsage,
+async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage,
 requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData } = {}) {
   useSNI ?? (useSNI = true);
   requireServerTlsExtKeyUsage ?? (requireServerTlsExtKeyUsage = true);
@@ -2587,7 +2618,7 @@ s.xargs.org). It\u2019s identified by coordinates x and y.");
   }
   const sessionId = new Uint8Array(32);
   await getRandomValues(sessionId);
-  const clientHello = await makeClientHello(host, rawPublicKey, sessionId, useSNI);
+  const clientHello = await makeClientHello(host, rawPublicKey, sessionId, useSNI, protocolsForALPN);
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
   networkWrite(initialData);
@@ -2686,16 +2717,6 @@ SHA-256" } }, false, ["sign"]);
   return { read, write, userCert };
 }
 
-// src/util/stableStringify.ts
-function stableStringify(x, replacer = (_, v) => v, indent) {
-  const deterministicReplacer = (k, v) => replacer(
-    k,
-    typeof v !== "object" || v === null || Array.isArray(v) ? v : Object.fromEntries(Object.entries(v).sort(([
-    ka], [kb]) => ka < kb ? -1 : ka > kb ? 1 : 0))
-  );
-  return JSON.stringify(x, deterministicReplacer, indent);
-}
-
 // src/util/rootCerts.ts
 var txtDec2 = new TextDecoder();
 async function getFile(name) {
@@ -2715,7 +2736,7 @@ async function getRootCertsIndex() {
   return rootCertsIndex;
 }
 async function getRootCertsData() {
-  const file = await getFile("certs.bin");
+  const file = await getFile("certs.binary.txt");
   const rootCertsData = new Uint8Array(file);
   return rootCertsData;
 }
@@ -2724,12 +2745,22 @@ async function getRootCertsDatabase() {
   return { index, data };
 }
 
+// src/util/stableStringify.ts
+function stableStringify(x, replacer = (_, v) => v, indent) {
+  const deterministicReplacer = (k, v) => replacer(
+    k,
+    typeof v !== "object" || v === null || Array.isArray(v) ? v : Object.fromEntries(Object.entries(v).sort(([
+    ka], [kb]) => ka < kb ? -1 : ka > kb ? 1 : 0))
+  );
+  return JSON.stringify(x, deterministicReplacer, indent);
+}
+
 // src/https.ts
 var txtDec3 = new TextDecoder();
-async function https(urlStr, method, transportFactory, {
+async function https(urlStr, method, transportFactory, rootCertsPromise, {
   headers = {},
   httpVersion = "1.0",
-  timeout = 0
+  socketOptions = {}
 } = {}) {
   const url = new URL(urlStr);
   if (url.protocol !== "https:") throw new Error("Wrong protocol");
@@ -2737,15 +2768,19 @@ async function https(urlStr, method, transportFactory, {
   headers["Host"] ?? (headers["Host"] = host);
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
-  const transport = await transportFactory(host, port, () => {
-  }, timeout);
-  const rootCerts = await getRootCertsDatabase();
-  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write);
+  const transport = await transportFactory(host, port, {
+    close: () => {
+    },
+    ...socketOptions
+  });
+  const rootCerts = await rootCertsPromise;
+  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: [
+  "http/1.1"] });
   const request = new Bytes();
   request.writeUTF8String(`${method} ${reqPath} HTTP/${httpVersion}\r
 `);
   request.writeUTF8String(Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n"));
-  request.writeUTF8String("\r\n");
+  request.writeUTF8String("\r\n\r\n");
   await write(request.array());
   let responseData;
   let response = "";
@@ -2760,7 +2795,9 @@ async function https(urlStr, method, transportFactory, {
 }
 
 // src/util/wsTransport.ts
-async function wsTransport(host, port, close = () => {
+async function wsTransport(host, port, {
+  close = () => {
+  }
 }) {
   const ws = await new Promise((resolve) => {
     const wsURL = location.hostname === "localhost" ? "ws://localhost:6544" : "wss://subtls-wsproxy.jawj.worke\
@@ -2788,19 +2825,26 @@ rs.dev";
 }
 
 // src/util/tcpTransport.ts
-import { Socket } from "net";
-async function tcpTransport(host, port, close = () => {
-}, timeout = 0) {
-  const socket = new Socket();
-  socket.setTimeout(timeout);
-  socket.on("error", (err) => {
-    console.log("socket error:", err);
+import { connect } from "net";
+async function tcpTransport(host, port, { close, timeout, error }) {
+  const socket = connect(Number(port), host);
+  socket.on("error", (e) => {
+    if (error) error(e);
+    else console.error("socket error:", e);
+    socket.destroy();
   });
-  socket.on("close", close);
-  socket.on("timeout", () => {
-    throw new Error("Socket timeout");
+  if (close) socket.on("close", close);
+  if (timeout) {
+    const [timeoutMs, timeoutFn] = timeout;
+    socket.setTimeout(timeoutMs);
+    socket.on("timeout", () => {
+      timeoutFn();
+      socket.destroy();
+    });
+  }
+  await new Promise((resolve) => {
+    socket.on("connect", resolve);
   });
-  await new Promise((resolve) => socket.connect(Number(port), host, resolve));
   const reader = new SocketReadQueue(socket);
   const stats = { read: 0, written: 0 };
   const read = async (bytes, readMode) => {
@@ -2836,6 +2880,7 @@ export {
   allKeyUsages,
   fromBase64,
   fromHex,
+  getRootCertsDatabase,
   hexFromU8,
   https,
   stableStringify,

@@ -22,8 +22,9 @@ export async function startTls(
   rootCertsDatabase: RootCertsDatabase | string,
   networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
   networkWrite: (data: Uint8Array) => void,
-  { useSNI, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData }: {
+  { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData }: {
     useSNI?: boolean,
+    protocolsForALPN?: string[],
     requireServerTlsExtKeyUsage?: boolean,
     requireDigitalSigKeyUsage?: boolean,
     writePreData?: Uint8Array,
@@ -56,7 +57,7 @@ export async function startTls(
   const sessionId = new Uint8Array(32);
   await getRandomValues(sessionId);
 
-  const clientHello = await makeClientHello(host, rawPublicKey, sessionId, useSNI);
+  const clientHello = await makeClientHello(host, rawPublicKey, sessionId, useSNI, protocolsForALPN);
   chatty && log(...highlightBytes(clientHello.commentedString(), LogColours.client));
   const clientHelloData = clientHello.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;

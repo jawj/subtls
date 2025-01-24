@@ -22,6 +22,7 @@ export async function readEncryptedHandshake(
   requireServerTlsExtKeyUsage = true,
   requireDigitalSigKeyUsage = true,
 ) {
+  let protocolFromALPN = undefined;
 
   await hs.expectUint8(0x08, chatty && 'handshake record type: encrypted extensions ([RFC 8446 §4.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))');
   const [eeMessageEnd] = await hs.expectLengthUint24();
@@ -30,62 +31,76 @@ export async function readEncryptedHandshake(
   while (extRemaining() > 0) {
     const extType = await hs.readUint16(chatty && 'extension type:');
 
-    if (extType === 0x0000) {
-      /*
-      "A server that receives a client hello containing the "server_name"
-      extension MAY use the information contained in the extension to guide
-      its selection of an appropriate certificate to return to the client,
-      and / or other aspects of security policy. In this event, the server
-      SHALL include an extension of type "server_name" in the (extended)
-      server hello. The "extension_data" field of this extension SHALL be empty.
-      - https://datatracker.ietf.org/doc/html/rfc6066#section-3
-      */
-      chatty && hs.comment('SNI');
-      await hs.expectUint16(0x0000, chatty && 'no extension data ([RFC 6066 §3](https://datatracker.ietf.org/doc/html/rfc6066#section-3))');
+    switch (extType) {
+      case 0x0000:
+        /*
+        "A server that receives a client hello containing the "server_name"
+        extension MAY use the information contained in the extension to guide
+        its selection of an appropriate certificate to return to the client,
+        and / or other aspects of security policy. In this event, the server
+        SHALL include an extension of type "server_name" in the (extended)
+        server hello. The "extension_data" field of this extension SHALL be empty.
+        - https://datatracker.ietf.org/doc/html/rfc6066#section-3
+        */
+        chatty && hs.comment('SNI');
+        await hs.expectUint16(0x0000, chatty && 'no extension data ([RFC 6066 §3](https://datatracker.ietf.org/doc/html/rfc6066#section-3))');
+        break;
 
-    } else if (extType === 0x000a) {
-      /*
-      As of TLS 1.3, servers are permitted to send the "supported_groups"
-      extension to the client.  Clients MUST NOT act upon any information
-      found in "supported_groups" prior to successful completion of the
-      handshake but MAY use the information learned from a successfully
-      completed handshake to change what groups they use in their
-      "key_share" extension in subsequent connections.  If the server has a
-      group it prefers to the ones in the "key_share" extension but is
-      still willing to accept the ClientHello, it SHOULD send
-      "supported_groups" to update the client's view of its preferences;
-      this extension SHOULD contain all groups the server supports,
-      regardless of whether they are currently supported by the client.
-      - https://www.rfc-editor.org/rfc/rfc8446#section-4.2
-      */
-      chatty && hs.comment('supported groups ([RFC 8446 §4.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2), [§4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
-      const [endGroupsData] = await hs.expectLengthUint16(chatty && 'groups data');
-      const [endGroups, groupsRemaining] = await hs.expectLengthUint16(chatty && 'groups');
-      chatty && hs.comment('(most preferred first)');
-
-      while (groupsRemaining() > 0) {
-        const group = await hs.readUint16();
-        if (chatty) {
-          const groupName = {
-            0x0017: 'secp256r1',
-            0x0018: 'secp384r1',
-            0x0019: 'secp521r1',
-            0x001D: 'x25519',
-            0x001E: 'x448',
-            0x0100: 'ffdhe2048',
-            0x0101: 'ffdhe3072',
-            0x0102: 'ffdhe4096',
-            0x0103: 'ffdhe6144',
-            0x0104: 'ffdhe8192',
-          }[group] ?? 'unrecognised group';
-          hs.comment(`group: ${groupName}`);
-        }
+      case 0x0010: {
+        chatty && hs.comment('ALPN');
+        const [endALPN] = await hs.expectLengthUint16(chatty && 'ALPN data');
+        const [endProtocols, protocolsRemaining] = await hs.expectLengthUint16(chatty && 'protocols (but there can be only one)');
+        protocolFromALPN = await hs.readUTF8String(protocolsRemaining());
+        endProtocols();
+        endALPN();
+        break;
       }
-      endGroups();
-      endGroupsData();
 
-    } else {
-      throw new Error(`Unsupported server encrypted extension type 0x${hexFromU8([extType]).padStart(4, '0')}`);
+      case 0x000a: {
+        /*
+        As of TLS 1.3, servers are permitted to send the "supported_groups"
+        extension to the client.  Clients MUST NOT act upon any information
+        found in "supported_groups" prior to successful completion of the
+        handshake but MAY use the information learned from a successfully
+        completed handshake to change what groups they use in their
+        "key_share" extension in subsequent connections.  If the server has a
+        group it prefers to the ones in the "key_share" extension but is
+        still willing to accept the ClientHello, it SHOULD send
+        "supported_groups" to update the client's view of its preferences;
+        this extension SHOULD contain all groups the server supports,
+        regardless of whether they are currently supported by the client.
+        - https://www.rfc-editor.org/rfc/rfc8446#section-4.2
+        */
+        chatty && hs.comment('supported groups ([RFC 8446 §4.2](https://www.rfc-editor.org/rfc/rfc8446#section-4.2), [§4.2.7](https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7))');
+        const [endGroupsData] = await hs.expectLengthUint16(chatty && 'groups data');
+        const [endGroups, groupsRemaining] = await hs.expectLengthUint16(chatty && 'groups');
+        chatty && hs.comment('(most preferred first)');
+
+        while (groupsRemaining() > 0) {
+          const group = await hs.readUint16();
+          if (chatty) {
+            const groupName = {
+              0x0017: 'secp256r1',
+              0x0018: 'secp384r1',
+              0x0019: 'secp521r1',
+              0x001d: 'x25519',
+              0x001e: 'x448',
+              0x0100: 'ffdhe2048',
+              0x0101: 'ffdhe3072',
+              0x0102: 'ffdhe4096',
+              0x0103: 'ffdhe6144',
+              0x0104: 'ffdhe8192',
+            }[group] ?? 'unrecognised group';
+            hs.comment(`group: ${groupName}`);
+          }
+        }
+        endGroups();
+        endGroupsData();
+        break;
+      }
+
+      default:
+        throw new Error(`Unsupported server encrypted extension type 0x${hexFromU8([extType]).padStart(4, '0')}`);
     }
   }
   extEnd();
@@ -210,5 +225,5 @@ export async function readEncryptedHandshake(
   const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
   if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in a trusted root');
 
-  return { handshakeData: hs.data.subarray(0, hs.offset), clientCertRequested, userCert } as const;
+  return { handshakeData: hs.data.subarray(0, hs.offset), clientCertRequested, userCert, protocolFromALPN } as const;
 }

@@ -177,14 +177,19 @@ export declare interface DataRequest {
 
 export declare type DistinguishedName = Record<string, string | string[]>;
 
+export declare function getRootCertsDatabase(): Promise<{
+    index: any;
+    data: Uint8Array<ArrayBufferLike>;
+}>;
+
 export declare function hexFromU8(u8: Uint8Array | number[], spacer?: string): string;
 
-export declare function https(urlStr: string, method: string, transportFactory: typeof wsTransport | typeof tcpTransport, { headers, httpVersion, timeout, }?: HTTPSOptions): Promise<string>;
+export declare function https(urlStr: string, method: string, transportFactory: typeof wsTransport | typeof tcpTransport, rootCertsPromise: ReturnType<typeof getRootCertsDatabase>, { headers, httpVersion, socketOptions, }?: HTTPSOptions): Promise<string>;
 
-declare interface HTTPSOptions {
+export declare interface HTTPSOptions {
     headers?: Record<string, string>;
     httpVersion?: string;
-    timeout?: number;
+    socketOptions?: SocketOptions | WebSocketOptions;
 }
 
 export declare class LazyReadFunctionReadQueue extends ReadQueue {
@@ -225,16 +230,25 @@ export declare interface RootCertsIndex {
     subjects: Record<string, number>;
 }
 
+export declare interface SocketOptions {
+    close?: () => void;
+    error?: (e: Error) => void;
+    timeout?: SocketTimeout;
+}
+
 export declare class SocketReadQueue extends ReadQueue {
     protected socket: Socket;
     constructor(socket: Socket);
     moreDataMayFollow(): boolean;
 }
 
+export declare type SocketTimeout = [number, () => void];
+
 export declare function stableStringify(x: any, replacer?: (key: string, value: any) => any, indent?: string | number): string;
 
-export declare function startTls(host: string, rootCertsDatabase: RootCertsDatabase | string, networkRead: (bytes: number) => Promise<Uint8Array | undefined>, networkWrite: (data: Uint8Array) => void, { useSNI, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData }?: {
+export declare function startTls(host: string, rootCertsDatabase: RootCertsDatabase | string, networkRead: (bytes: number) => Promise<Uint8Array | undefined>, networkWrite: (data: Uint8Array) => void, { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData }?: {
     useSNI?: boolean;
+    protocolsForALPN?: string[];
     requireServerTlsExtKeyUsage?: boolean;
     requireDigitalSigKeyUsage?: boolean;
     writePreData?: Uint8Array;
@@ -246,7 +260,7 @@ export declare function startTls(host: string, rootCertsDatabase: RootCertsDatab
     readonly userCert: Cert;
 }>;
 
-export declare function tcpTransport(host: string, port: string | number, close?: () => void, timeout?: number): Promise<{
+export declare function tcpTransport(host: string, port: string | number, { close, timeout, error }: SocketOptions): Promise<{
     read: (bytes: number, readMode?: ReadMode) => Promise<Uint8Array<ArrayBufferLike> | undefined>;
     write: {
         (buffer: Uint8Array | string, cb?: (err?: Error) => void): boolean;
@@ -276,13 +290,17 @@ export declare class TrustedCert extends Cert {
 
 export declare function u8FromHex(hex: string): Uint8Array<ArrayBuffer>;
 
+export declare interface WebSocketOptions {
+    close?: () => void;
+}
+
 export declare class WebSocketReadQueue extends ReadQueue {
     protected socket: WebSocket;
     constructor(socket: WebSocket);
     moreDataMayFollow(): boolean;
 }
 
-export declare function wsTransport(host: string, port: string | number, close?: () => void): Promise<{
+export declare function wsTransport(host: string, port: string | number, { close }: WebSocketOptions): Promise<{
     read: (bytes: number, readMode?: ReadMode) => Promise<Uint8Array<ArrayBufferLike> | undefined>;
     write: (data: string | ArrayBufferLike | Blob | ArrayBufferView) => void;
     stats: {
