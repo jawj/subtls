@@ -49,8 +49,10 @@ export async function readEncryptedHandshake(
       case 0x0010: {
         chatty && hs.comment('ALPN');
         const [endALPN] = await hs.expectLengthUint16(chatty && 'ALPN data');
-        const [endProtocols, protocolsRemaining] = await hs.expectLengthUint16(chatty && 'protocols (but there can be only one)');
-        protocolFromALPN = await hs.readUTF8String(protocolsRemaining());
+        const [endProtocols] = await hs.expectLengthUint16(chatty && 'protocols (but there can be only one)');
+        const [endProtocol, protocolRemaining] = await hs.expectLengthUint8(chatty && 'protocol');
+        protocolFromALPN = await hs.readUTF8String(protocolRemaining());
+        endProtocol();
         endProtocols();
         endALPN();
         break;
