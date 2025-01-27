@@ -134,6 +134,10 @@ export class SocketReadQueue extends ReadQueue {
   }
 }
 
+export interface Uint8ArrayWithFetchPoints extends Uint8Array {
+  fetchPoints?: number[];
+}
+
 export class LazyReadFunctionReadQueue extends ReadQueue {
   protected dataIsExhausted = false;
 
@@ -142,7 +146,9 @@ export class LazyReadFunctionReadQueue extends ReadQueue {
   }
 
   override async read(bytes: number, readMode = ReadMode.CONSUME) {
+    const fetchPoints = [];
     while (this.bytesInQueue() < bytes) {
+      fetchPoints.push(this.bytesInQueue());
       const data = await this.readFn();
       if (data === undefined) {
         this.dataIsExhausted = true;
@@ -150,7 +156,9 @@ export class LazyReadFunctionReadQueue extends ReadQueue {
       }
       if (data.length > 0) this.enqueue(data);
     }
-    return super.read(bytes, readMode);
+    const data = await super.read(bytes, readMode) as Uint8ArrayWithFetchPoints;
+    data.fetchPoints = fetchPoints;
+    return data;
   }
 
   moreDataMayFollow(): boolean {

@@ -29,6 +29,7 @@ export declare class Bytes {
     data: Uint8Array;
     comments: Record<number, string>;
     indents: Record<number, number>;
+    fetchPoints: Set<number>;
     /**
      * @param data -
      * * If data is a `Uint8Array`, this is the initial data
@@ -196,7 +197,7 @@ export declare class LazyReadFunctionReadQueue extends ReadQueue {
     protected readFn: () => Promise<Uint8Array | undefined>;
     protected dataIsExhausted: boolean;
     constructor(readFn: () => Promise<Uint8Array | undefined>);
-    read(bytes: number, readMode?: ReadMode): Promise<Uint8Array<ArrayBufferLike> | undefined>;
+    read(bytes: number, readMode?: ReadMode): Promise<Uint8ArrayWithFetchPoints>;
     moreDataMayFollow(): boolean;
 }
 
@@ -289,6 +290,10 @@ export declare class TrustedCert extends Cert {
 }
 
 export declare function u8FromHex(hex: string): Uint8Array<ArrayBuffer>;
+
+export declare interface Uint8ArrayWithFetchPoints extends Uint8Array {
+    fetchPoints?: number[];
+}
 
 export declare interface WebSocketOptions {
     close?: () => void;

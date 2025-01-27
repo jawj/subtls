@@ -550,9 +550,11 @@ var Bytes = class {
     __publicField(this, "data");
     __publicField(this, "comments");
     __publicField(this, "indents");
+    __publicField(this, "fetchPoints");
     this.endOfReadableData = this.offset = 0;
     this.comments = {};
     this.indents = { 0: indent };
+    this.fetchPoints = /* @__PURE__ */ new Set();
     if (typeof data === "number") {
       this.data = new Uint8Array(data);
     } else if (data === void 0 || typeof data === "function") {
@@ -592,6 +594,7 @@ var Bytes = class {
       e._bytes_error_reason = "EOF";
       throw e;
     }
+    for (const fetchPoint of newData.fetchPoints ?? []) this.fetchPoints.add(fetchPoint + this.endOfReadableData);
     this.data.set(newData, this.endOfReadableData);
     this.endOfReadableData += newData.length;
   }
@@ -886,6 +889,7 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
         if (i < len - 1) s += `
 ${indentChars.repeat(indent)}`;
       }
+      if (this.fetchPoints.has(i + 1)) s += "--- next TLS record ---\n";
     }
     return s;
   }
@@ -1554,7 +1558,7 @@ string", comment);
 var appendLog = Symbol("append");
 
 // src/presentation/highlights.ts
-var regex = new RegExp(`  .+|^(${indentChars})+`, "gm");
+var regex = new RegExp(`  .+|^(${indentChars})+|--- next TLS record ---`, "gm");
 
 // src/util/readQueue.ts
 var ReadMode = /* @__PURE__ */ ((ReadMode2) => {
@@ -1663,15 +1667,19 @@ var LazyReadFunctionReadQueue = class extends ReadQueue {
     __publicField(this, "dataIsExhausted", false);
   }
   async read(bytes, readMode = 0 /* CONSUME */) {
+    const fetchPoints = [];
     while (this.bytesInQueue() < bytes) {
-      const data = await this.readFn();
-      if (data === void 0) {
+      fetchPoints.push(this.bytesInQueue());
+      const data2 = await this.readFn();
+      if (data2 === void 0) {
         this.dataIsExhausted = true;
         break;
       }
-      if (data.length > 0) this.enqueue(data);
+      if (data2.length > 0) this.enqueue(data2);
     }
-    return super.read(bytes, readMode);
+    const data = await super.read(bytes, readMode);
+    data.fetchPoints = fetchPoints;
+    return data;
   }
   moreDataMayFollow() {
     return !this.dataIsExhausted;

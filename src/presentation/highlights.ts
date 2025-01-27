@@ -1,15 +1,18 @@
 
 import { indentChars } from './appearance';
 
-const regex = new RegExp(`  .+|^(${indentChars})+`, 'gm');
-const dotColour = 'color: #ddd';
+const regex = new RegExp(`  .+|^(${indentChars})+|--- next TLS record ---`, 'gm');
+const dotColour = 'color: #ccc';
 export const textColour = 'color: #111';
 export const mutedColour = 'color: #777';
 
 export function highlightBytes(s: string, colour: string) {
   const css: string[] = [textColour];
   s = '%c' + s.replace(regex, m => {
-    css.push(m.startsWith(indentChars) ? dotColour : `color: ${colour}`, textColour);
+    css.push(
+      m === '--- next TLS record ---' || m.startsWith(indentChars) ? dotColour : `color: ${colour}`,
+      textColour
+    );
     return `%c\u200b${m}\u200b%c`;  // note: the zero-length spaces, \u200b, prevent URLs getting mangled
   });
   return [s, ...css];

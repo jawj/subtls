@@ -1,5 +1,6 @@
 import { equal } from './array';
 import { indentChars } from '../presentation/appearance';
+import type { Uint8ArrayWithFetchPoints } from './readQueue';
 
 const initialSize = 1024;
 const growthFactor = 2;
@@ -19,6 +20,7 @@ export class Bytes {
   data: Uint8Array;
   comments: Record<number, string>;
   indents: Record<number, number>;
+  fetchPoints: Set<number>;
 
   /**
    * @param data -
@@ -31,6 +33,7 @@ export class Bytes {
 
     this.comments = {};
     this.indents = { 0: indent };
+    this.fetchPoints = new Set();
 
     if (typeof data === 'number') {
       this.data = new Uint8Array(data);
@@ -68,12 +71,13 @@ export class Bytes {
       );
       this.resizeTo(newSize);
     }
-    const newData = await this.fetchFn(bytes);
+    const newData = await this.fetchFn(bytes) as Uint8ArrayWithFetchPoints;
     if (newData === undefined || newData.length < bytes) {
       const e = new Error(`Not enough data: requested ${bytes} byte(s), received ${newData === undefined ? 'EOF' : `${newData.length} byte(s)`}`);
       (e as any)._bytes_error_reason = 'EOF';
       throw e;
     }
+    for (const fetchPoint of newData.fetchPoints ?? []) this.fetchPoints.add(fetchPoint + this.endOfReadableData);
     this.data.set(newData, this.endOfReadableData);
     this.endOfReadableData += newData.length;
   }
@@ -432,6 +436,7 @@ export class Bytes {
         s += ` ${comment}`;
         if (i < len - 1) s += `\n${indentChars.repeat(indent)}`;
       }
+      if (this.fetchPoints.has(i + 1)) s += '--- next TLS record ---\n';
     }
     return s;
   }
