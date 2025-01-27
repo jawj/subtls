@@ -2477,8 +2477,10 @@ async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsD
         break;
       case 16: {
         const [endALPN] = await hs.expectLengthUint16(0);
-        const [endProtocols, protocolsRemaining] = await hs.expectLengthUint16(0);
-        protocolFromALPN = await hs.readUTF8String(protocolsRemaining());
+        const [endProtocols] = await hs.expectLengthUint16(0);
+        const [endProtocol, protocolRemaining] = await hs.expectLengthUint8(0);
+        protocolFromALPN = await hs.readUTF8String(protocolRemaining());
+        endProtocol();
         endProtocols();
         endALPN();
         break;
