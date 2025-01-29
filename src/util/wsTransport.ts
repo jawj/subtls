@@ -19,16 +19,20 @@ export default async function wsTransport(
     ws.addEventListener('error', (err) => { console.log('ws error:', err); });
     ws.addEventListener('close', close);
   });
+
   const reader = new WebSocketReadQueue(ws);
   const stats = { read: 0, written: 0 };
+
   const read: typeof reader.read = async (bytes, readMode) => {
     const data = await reader.read(bytes, readMode);
     stats.read += data?.byteLength ?? 0;
     return data;
   };
+
   const write: typeof ws.send = (data: any) => {
     stats.written += data.byteLength ?? data.size ?? data.length;
     return ws.send(data);
   };
+
   return { read, write, stats };
 }

@@ -400,7 +400,7 @@ var GrowableData = class {
 var indentChars = "\xB7\xB7 ";
 
 // src/util/bytes.ts
-var initialSize = 1024;
+var initialSize = 256;
 var growthFactor = 2;
 var txtEnc = new TextEncoder();
 var txtDec = new TextDecoder();
@@ -2556,9 +2556,9 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
   return verifiedToTrustedRoot;
 }
 
-// src/tls/readEncryptedHandshake.ts
+// src/tls/parseEncryptedHandshake.ts
 var txtEnc3 = new TextEncoder();
-async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
+async function parseEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
   let protocolFromALPN = void 0;
   await hs.expectUint8(8, "handshake record type: encrypted extensions ([RFC 8446 \xA74.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))");
   const [eeMessageEnd] = await hs.expectLengthUint24();
@@ -2750,7 +2750,7 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
   log("The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the \u2018certificate verify\u2019 message, which we check on the spot, and the full certificate chain, which we verify a bit later on:");
   const handshakeBytes = bytesFromEncryptedTlsRecords(networkRead, handshakeDecrypter, 22 /* Handshake */);
-  const { handshakeData: serverHandshake, clientCertRequested, userCert } = await readEncryptedHandshake(
+  const { handshakeData: serverHandshake, clientCertRequested, userCert, protocolFromALPN } = await parseEncryptedHandshake(
     host,
     handshakeBytes,
     handshakeKeys.serverSecret,
@@ -2760,7 +2760,7 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
     requireDigitalSigKeyUsage
   );
   log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, it\u2019s the client\u2019s turn to send a meaningless cipher change record:");
-  const clientCipherChange = new Bytes(6);
+  const clientCipherChange = new Bytes();
   clientCipherChange.writeUint8(20, "record type: ChangeCipherSpec");
   clientCipherChange.writeUint16(771, "TLS version 1.2 (middlebox compatibility)");
   const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
@@ -2770,7 +2770,7 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   const clientCipherChangeData = clientCipherChange.array();
   let clientCertRecordData = new Uint8Array(0);
   if (clientCertRequested) {
-    const clientCertRecord = new Bytes(8);
+    const clientCertRecord = new Bytes();
     clientCertRecord.writeUint8(11, "handshake message type: client certificate");
     const endClientCerts = clientCertRecord.writeLengthUint24("client certificate data");
     clientCertRecord.writeUint8(0, "certificate context: none");
@@ -2788,7 +2788,7 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   const verifyHmacKey = await cryptoProxy_default.importKey("raw", finishedKey, { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
   const verifyDataBuffer = await cryptoProxy_default.sign("HMAC", verifyHmacKey, wholeHandshakeHash);
   const verifyData = new Uint8Array(verifyDataBuffer);
-  const clientFinishedRecord = new Bytes(36);
+  const clientFinishedRecord = new Bytes();
   clientFinishedRecord.writeUint8(20, "handshake message type: finished");
   const clientFinishedRecordEnd = clientFinishedRecord.writeLengthUint24("handshake finished data");
   clientFinishedRecord.writeBytes(verifyData);
@@ -2828,7 +2828,7 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
     const allRecords = localWroteFinishedRecords ? concat(...encryptedRecords) : concat(clientCipherChangeData, ...encryptedClientFinished, ...encryptedRecords);
     networkWrite(allRecords);
   };
-  return { read, write, userCert };
+  return { read, write, userCert, protocolFromALPN };
 }
 
 // src/util/parseURL.ts
@@ -2860,7 +2860,7 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
     }
   });
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
-  const sslRequest = new Bytes(8);
+  const sslRequest = new Bytes();
   const endSslRequest = sslRequest.writeLengthUint32Incl("SSL request");
   sslRequest.writeUint32(80877103, "[SSLRequest](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST) code");
   endSslRequest();
@@ -3186,7 +3186,7 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
   log(...highlightBytes(queryResultBytes.commentedString(), "#88c" /* server */));
   log("We pick out our result \u2014\xA0the current time on our server:");
   log("%c%s", "font-size: 2em; color: #000;", lastColumnData);
-  const endBytes = new Bytes(5);
+  const endBytes = new Bytes();
   endBytes.writeUTF8String("X");
   endBytes.comment("= [Terminate](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-TERMINATE)");
   const endTerminate = endBytes.writeLengthUint32Incl();
@@ -3212,7 +3212,7 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
 var txtDec2 = new TextDecoder();
 async function https(urlStr, method, transportFactory, rootCertsPromise2, {
   headers = {},
-  httpVersion = "1.0",
+  protocols = ["http/1.1", "h2"],
   socketOptions = {}
 } = {}) {
   const url = new URL(urlStr);
@@ -3228,34 +3228,39 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
     ...socketOptions
   });
   const rootCerts = await rootCertsPromise2;
-  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: ["http/1.1"] });
-  log("Here\u2019s a GET request:");
-  const request = new Bytes();
-  request.writeUTF8String(`${method} ${reqPath} HTTP/${httpVersion}\r
-`);
-  request.writeUTF8String(Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n"));
-  request.writeUTF8String("\r\n\r\n");
-  log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
-  log("Which goes to the server encrypted like so:");
-  await write(request.array());
-  log("The server replies:");
-  let responseData;
+  const { read, write, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: protocols });
   let response = "";
-  do {
-    responseData = await read();
-    if (responseData) {
-      const responseText = txtDec2.decode(responseData);
-      response += responseText;
-      log(responseText);
-    }
-  } while (responseData);
-  log(
-    `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
-    textColour,
-    mutedColour,
-    textColour,
-    mutedColour
-  );
+  if (protocolFromALPN === "h2") {
+    log("HTTP/2 support is in progress");
+  } else {
+    log("Here\u2019s a GET request:");
+    const request = new Bytes();
+    request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
+`);
+    for (const header in headers) request.writeUTF8String(`${header}: ${headers[header]}\r
+`);
+    request.writeUTF8String("\r\n");
+    log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
+    log("Which goes to the server encrypted like so:");
+    await write(request.array());
+    log("The server replies:");
+    let responseData;
+    do {
+      responseData = await read();
+      if (responseData) {
+        const responseText = txtDec2.decode(responseData);
+        response += responseText;
+        log(responseText);
+      }
+    } while (responseData);
+    log(
+      `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
+      textColour,
+      mutedColour,
+      textColour,
+      mutedColour
+    );
+  }
   return response;
 }
 

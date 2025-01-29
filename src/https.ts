@@ -13,7 +13,7 @@ const txtDec = new TextDecoder();
 
 export interface HTTPSOptions {
   headers?: Record<string, string>;
-  httpVersion?: string;
+  protocols?: string[];
   socketOptions?: SocketOptions | WebSocketOptions;
 }
 
@@ -24,7 +24,7 @@ export async function https(
   rootCertsPromise: ReturnType<typeof getRootCertsDatabase>,
   {
     headers = {},
-    httpVersion = '1.0',
+    protocols = ['http/1.1'],
     socketOptions = {},
   }: HTTPSOptions = {}
 ) {
@@ -45,33 +45,41 @@ export async function https(
   });
 
   const rootCerts = await rootCertsPromise;
-  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: ['http/1.1'] });
+  const { read, write, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: protocols });
 
-  chatty && log('Here’s a GET request:');
-  const request = new Bytes();
-  request.writeUTF8String(`${method} ${reqPath} HTTP/${httpVersion}\r\n`);
-  request.writeUTF8String(Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join('\r\n'));
-  request.writeUTF8String('\r\n\r\n');
-  chatty && log(...highlightBytes(request.commentedString(), LogColours.client));
-  chatty && log('Which goes to the server encrypted like so:');
-  await write(request.array());
-
-  chatty && log('The server replies:');
-  let responseData;
   let response = '';
-  do {
-    responseData = await read();
-    if (responseData) {
-      const responseText = txtDec.decode(responseData);
-      response += responseText;
-      chatty && log(responseText);
-    }
-  } while (responseData);
 
-  chatty && log(
-    `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
-    textColour, mutedColour, textColour, mutedColour
-  );
+  if (protocolFromALPN === 'h2') {
+    chatty && log('HTTP/2 support is in progress');
+
+  } else {
+
+    chatty && log('Here’s a GET request:');
+    const request = new Bytes();
+    request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r\n`);  // for ALPN, http/1.0 is not recognised by IIS  https://github.com/curl/curl/issues/12259
+    for (const header in headers) request.writeUTF8String(`${header}: ${headers[header]}\r\n`);
+    request.writeUTF8String('\r\n');
+    chatty && log(...highlightBytes(request.commentedString(), LogColours.client));
+    chatty && log('Which goes to the server encrypted like so:');
+    await write(request.array());
+
+    chatty && log('The server replies:');
+    let responseData;
+
+    do {
+      responseData = await read();
+      if (responseData) {
+        const responseText = txtDec.decode(responseData);
+        response += responseText;
+        chatty && log(responseText);
+      }
+    } while (responseData);
+
+    chatty && log(
+      `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
+      textColour, mutedColour, textColour, mutedColour
+    );
+  }
 
   return response;
 }

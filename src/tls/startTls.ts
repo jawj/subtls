@@ -6,7 +6,7 @@ import { RecordType } from './tlsRecordUtils';
 import { getApplicationKeys, getHandshakeKeys } from './keys';
 import { hkdfExpandLabel } from './hkdf';
 import { Crypter } from './aesgcm';
-import { readEncryptedHandshake } from './readEncryptedHandshake';
+import { parseEncryptedHandshake } from './parseEncryptedHandshake';
 import { Bytes } from '../util/bytes';
 import { concat, equal } from '../util/array';
 import { hexFromU8 } from '../util/hex';
@@ -93,10 +93,10 @@ export async function startTls(
   const clientHandshakeKey = await cs.importKey('raw', handshakeKeys.clientHandshakeKey, { name: 'AES-GCM' }, false, ['encrypt']);
   const handshakeEncrypter = new Crypter('encrypt', clientHandshakeKey, handshakeKeys.clientHandshakeIV);
 
+  // parse encyrpted handshake
   chatty && log('The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the ‘certificate verify’ message, which we check on the spot, and the full certificate chain, which we verify a bit later on:');
-
   const handshakeBytes = bytesFromEncryptedTlsRecords(networkRead, handshakeDecrypter, RecordType.Handshake);
-  const { handshakeData: serverHandshake, clientCertRequested, userCert } = await readEncryptedHandshake(
+  const { handshakeData: serverHandshake, clientCertRequested, userCert, protocolFromALPN } = await parseEncryptedHandshake(
     host,
     handshakeBytes,
     handshakeKeys.serverSecret,
@@ -106,9 +106,9 @@ export async function startTls(
     requireDigitalSigKeyUsage,
   );
 
-  // dummy cipher change
+  // send dummy cipher change
   chatty && log('For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, it’s the client’s turn to send a meaningless cipher change record:');
-  const clientCipherChange = new Bytes(6);
+  const clientCipherChange = new Bytes();
   clientCipherChange.writeUint8(0x14, chatty && 'record type: ChangeCipherSpec');
   clientCipherChange.writeUint16(0x0303, chatty && 'TLS version 1.2 (middlebox compatibility)');
   const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
@@ -120,7 +120,7 @@ export async function startTls(
   // empty client certificate, if requested
   let clientCertRecordData = new Uint8Array(0);
   if (clientCertRequested) {
-    const clientCertRecord = new Bytes(8);
+    const clientCertRecord = new Bytes();
     clientCertRecord.writeUint8(0x0b, chatty && 'handshake message type: client certificate');
     const endClientCerts = clientCertRecord.writeLengthUint24('client certificate data');
     clientCertRecord.writeUint8(0x00, chatty && 'certificate context: none');
@@ -145,7 +145,7 @@ export async function startTls(
   const verifyDataBuffer = await cs.sign('HMAC', verifyHmacKey, wholeHandshakeHash);
   const verifyData = new Uint8Array(verifyDataBuffer);
 
-  const clientFinishedRecord = new Bytes(36);
+  const clientFinishedRecord = new Bytes();
   clientFinishedRecord.writeUint8(0x14, chatty && 'handshake message type: finished');
   const clientFinishedRecordEnd = clientFinishedRecord.writeLengthUint24(chatty && 'handshake finished data');
   clientFinishedRecord.writeBytes(verifyData);
@@ -201,5 +201,5 @@ export async function startTls(
     networkWrite(allRecords);
   };
 
-  return { read, write, userCert } as const;
+  return { read, write, userCert, protocolFromALPN } as const;
 }

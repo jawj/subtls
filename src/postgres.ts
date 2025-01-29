@@ -47,7 +47,7 @@ export async function postgres(
 
   chatty && log('First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:');
 
-  const sslRequest = new Bytes(8);
+  const sslRequest = new Bytes();
   const endSslRequest = sslRequest.writeLengthUint32Incl(chatty && 'SSL request');
   sslRequest.writeUint32(0x04d2162f, '[SSLRequest](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST) code');
   endSslRequest();
@@ -489,7 +489,7 @@ export async function postgres(
   log('%c%s', 'font-size: 2em; color: #000;', lastColumnData);
   chatty || log(`time taken: ${Date.now() - t0} ms`);
 
-  const endBytes = new Bytes(5);
+  const endBytes = new Bytes();
   endBytes.writeUTF8String('X');
   chatty && endBytes.comment('= [Terminate](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-TERMINATE)');
   const endTerminate = endBytes.writeLengthUint32Incl();

@@ -2,7 +2,7 @@ import { equal } from './array';
 import { indentChars } from '../presentation/appearance';
 import type { Uint8ArrayWithFetchPoints } from './readQueue';
 
-const initialSize = 1024;
+const initialSize = 256;
 const growthFactor = 2;
 
 const txtEnc = new TextEncoder();

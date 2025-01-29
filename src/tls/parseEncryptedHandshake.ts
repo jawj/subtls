@@ -13,7 +13,7 @@ import { verifyCerts } from './verifyCerts';
 
 const txtEnc = new TextEncoder();
 
-export async function readEncryptedHandshake(
+export async function parseEncryptedHandshake(
   host: string,
   hs: ASN1Bytes,
   serverSecret: Uint8Array,
