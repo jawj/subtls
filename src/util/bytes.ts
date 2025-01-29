@@ -48,6 +48,11 @@ export class Bytes {
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
 
+  changeIndent(indentDelta: number) {
+    this.indent += indentDelta;
+    this.indents[this.offset] = this.indent;
+  }
+
   readRemaining() {
     return this.endOfReadableData - this.offset;
   }
@@ -95,12 +100,10 @@ export class Bytes {
   expectLength(length: number, indentDelta = 1) {
     const startOffset = this.offset;
     const endOffset = startOffset + length;
-    this.indent += indentDelta;
-    this.indents[startOffset] = this.indent;
+    this.changeIndent(indentDelta);
     return [
       () => {
-        this.indent -= indentDelta;
-        this.indents[this.offset] = this.indent;
+        this.changeIndent(-indentDelta);
         if (this.offset !== endOffset) throw new Error(`${length} bytes expected but ${this.offset - startOffset} advanced`);
       },
       () => endOffset - this.offset,
@@ -354,8 +357,7 @@ export class Bytes {
     const startOffset = this.offset;
     this.offset += lengthBytes;
     const endOffset = this.offset;
-    this.indent += 1;
-    this.indents[endOffset] = this.indent;
+    this.changeIndent(1);
     return () => {
       const length = this.offset - (inclusive ? startOffset : endOffset);
       switch (lengthBytes) {
@@ -376,8 +378,7 @@ export class Bytes {
           throw new Error(`Invalid length for length field: ${lengthBytes}`);
       }
       chatty && this.comment(this.lengthComment(length, comment, inclusive), endOffset);
-      this.indent -= 1;
-      this.indents[this.offset] = this.indent;
+      this.changeIndent(-1);
     };
   }
 

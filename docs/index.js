@@ -441,6 +441,10 @@ var Bytes = class {
     }
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
+  changeIndent(indentDelta) {
+    this.indent += indentDelta;
+    this.indents[this.offset] = this.indent;
+  }
   readRemaining() {
     return this.endOfReadableData - this.offset;
   }
@@ -484,12 +488,10 @@ var Bytes = class {
   expectLength(length, indentDelta = 1) {
     const startOffset = this.offset;
     const endOffset = startOffset + length;
-    this.indent += indentDelta;
-    this.indents[startOffset] = this.indent;
+    this.changeIndent(indentDelta);
     return [
       () => {
-        this.indent -= indentDelta;
-        this.indents[this.offset] = this.indent;
+        this.changeIndent(-indentDelta);
         if (this.offset !== endOffset) throw new Error(`${length} bytes expected but ${this.offset - startOffset} advanced`);
       },
       () => endOffset - this.offset
@@ -702,8 +704,7 @@ var Bytes = class {
     const startOffset = this.offset;
     this.offset += lengthBytes;
     const endOffset = this.offset;
-    this.indent += 1;
-    this.indents[endOffset] = this.indent;
+    this.changeIndent(1);
     return () => {
       const length = this.offset - (inclusive ? startOffset : endOffset);
       switch (lengthBytes) {
@@ -724,8 +725,7 @@ var Bytes = class {
           throw new Error(`Invalid length for length field: ${lengthBytes}`);
       }
       this.comment(this.lengthComment(length, comment, inclusive), endOffset);
-      this.indent -= 1;
-      this.indents[this.offset] = this.indent;
+      this.changeIndent(-1);
     };
   }
   writeLengthUint8(comment) {
@@ -3208,17 +3208,40 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
   );
 }
 
+// src/h2.ts
+var HTTP2FrameTypeNames = {
+  1: "HEADERS",
+  4: "SETTINGS",
+  7: "GOAWAY"
+};
+function writeFrame(request, type, streamId, flags = 0) {
+  const frameLengthOffset = request.offset;
+  request.skipWrite(3);
+  request.writeUint8(type, `frame type: ${HTTP2FrameTypeNames[type]}`);
+  request.writeUint8(flags, "flag bits");
+  request.writeUint32(streamId, `stream ID: ${streamId}`);
+  request.changeIndent(1);
+  const frameDataStart = request.offset;
+  return () => {
+    const frameEnd = request.offset;
+    const frameLength = frameEnd - frameDataStart;
+    request.offset = frameLengthOffset;
+    request.writeUint24(frameLength, `HTTP/2 frame payload length: ${frameLength}`);
+    request.offset = frameEnd;
+    request.changeIndent(-1);
+  };
+}
+
 // src/https.ts
 var txtDec2 = new TextDecoder();
 async function https(urlStr, method, transportFactory, rootCertsPromise2, {
   headers = {},
-  protocols = ["http/1.1", "h2"],
+  protocols = ["h2", "http/1.1"],
   socketOptions = {}
 } = {}) {
   const url = new URL(urlStr);
   if (url.protocol !== "https:") throw new Error("Wrong protocol");
   const host = url.hostname;
-  headers["Host"] ?? (headers["Host"] = host);
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
   const transport = await transportFactory(host, port, {
@@ -3231,8 +3254,48 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
   const { read, write, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: protocols });
   let response = "";
   if (protocolFromALPN === "h2") {
-    log("HTTP/2 support is in progress");
+    log("Here\u2019s an HTTP/2 GET request:");
+    const request = new Bytes();
+    request.writeUTF8String("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
+    request.comment("\u2014 the connection preface ([RFC 9113 \xA7 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface))");
+    const endSettingsFrame = writeFrame(request, 4 /* SETTINGS */, 0);
+    request.writeUint16(2, "setting: SETTINGS_ENABLE_PUSH");
+    request.writeUint32(0, "value: disabled");
+    endSettingsFrame();
+    const endHeadersFrame = writeFrame(
+      request,
+      1 /* HEADERS */,
+      1,
+      4 | 1
+      /* END_STREAM */
+    );
+    request.writeUint8(130, ":method: GET");
+    request.writeUint8(135, ":scheme: https");
+    request.writeUint8(132, ":path: /");
+    request.writeUint8(65, ":authority");
+    const endAuthority = request.writeLengthUint8("authority");
+    request.writeUTF8String(host);
+    endAuthority();
+    endHeadersFrame();
+    const goAwayFrame = writeFrame(request, 7 /* GOAWAY */, 0);
+    request.writeUint32(1, "Last-Stream-Id");
+    request.writeUint32(0, "NO_ERROR");
+    goAwayFrame();
+    log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
+    log("Which goes to the server encrypted like so:");
+    await write(request.array());
+    log("The server replies:");
+    let responseData;
+    do {
+      responseData = await read();
+      if (responseData) {
+        const responseText = txtDec2.decode(responseData);
+        response += responseText;
+        log(responseData, responseText);
+      }
+    } while (responseData);
   } else {
+    headers["Host"] ?? (headers["Host"] = host);
     log("Here\u2019s a GET request:");
     const request = new Bytes();
     request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
@@ -3253,14 +3316,14 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
         log(responseText);
       }
     } while (responseData);
-    log(
-      `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
-      textColour,
-      mutedColour,
-      textColour,
-      mutedColour
-    );
   }
+  log(
+    `Total bytes: %c${transport.stats.written}%c sent, %c${transport.stats.read}%c received`,
+    textColour,
+    mutedColour,
+    textColour,
+    mutedColour
+  );
   return response;
 }
 
