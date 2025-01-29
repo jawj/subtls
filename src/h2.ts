@@ -23,11 +23,11 @@ HTTP Frame {
 }
 */
 
-export function writeFrame(request: Bytes, type: HTTP2FrameType, streamId: number, flags = 0) {
+export function writeFrame(request: Bytes, type: HTTP2FrameType, streamId: number, flags = 0, flagComments?: string) {
   const frameLengthOffset = request.offset;
   request.skipWrite(3);
   request.writeUint8(type, chatty && `frame type: ${HTTP2FrameTypeNames[type]}`);
-  request.writeUint8(flags, chatty && 'flag bits');
+  request.writeUint8(flags, chatty && `flags: ${flagComments ?? 'none'}`);
   request.writeUint32(streamId, chatty && `stream ID: ${streamId}`);
   request.changeIndent(1);
   const frameDataStart = request.offset;

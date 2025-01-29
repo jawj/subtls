@@ -11,6 +11,7 @@ const rootCertsPromise = getRootCertsDatabase();
 const qs = <E extends Element = Element>(sel: string) => document.querySelector(sel) as E;
 const pgTab = qs('#postgres');
 const httpsTab = qs('#https');
+const h2Chk = qs<HTMLInputElement>('#h2');
 const goBtn = qs<HTMLButtonElement>('#go');
 const heading = qs('#heading');
 const desc = qs('#description');
@@ -42,6 +43,8 @@ goBtn.addEventListener('click', () => {
 
   } else {
     if (!urlStr.startsWith('https')) urlStr = 'https://bytebybyte.dev';
-    https(urlStr, 'GET', wsTransport, rootCertsPromise).catch(logAndRethrow);
+    const protocols = ['http/1.1'];
+    if (h2Chk.checked) protocols.unshift('h2');
+    https(urlStr, 'GET', wsTransport, rootCertsPromise, { protocols }).catch(logAndRethrow);
   }
 });

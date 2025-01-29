@@ -359,7 +359,7 @@ export class Bytes {
     const endOffset = this.offset;
     this.changeIndent(1);
     return () => {
-      const length = this.offset - (inclusive ? startOffset : endOffset);
+      const length = (this.offset - (inclusive ? startOffset : endOffset));
       switch (lengthBytes) {
         case 1:
           this.dataView.setUint8(startOffset, length);

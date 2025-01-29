@@ -9,6 +9,7 @@ import { getRootCertsDatabase } from './util/rootCerts';
 import { SocketOptions } from './util/tcpTransport';
 import { WebSocketOptions } from './util/wsTransport';
 import { HTTP2FrameType, writeFrame } from './h2';
+import { H2Bytes } from './util/h2Bytes';
 
 const txtDec = new TextDecoder();
 
@@ -51,7 +52,7 @@ export async function https(
   if (protocolFromALPN === 'h2') {
     chatty && log('Here’s an HTTP/2 GET request:');
 
-    const request = new Bytes();
+    const request = new H2Bytes();
     request.writeUTF8String('PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n');
     chatty && request.comment('— the connection preface ([RFC 9113 § 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface))');
 
@@ -60,20 +61,20 @@ export async function https(
     request.writeUint32(0x00000000, chatty && 'value: disabled');
     endSettingsFrame();
 
-    const endHeadersFrame = writeFrame(request, HTTP2FrameType.HEADERS, 0x1, 0x04 /* END_HEADERS */ | 0x01 /* END_STREAM */);
-    request.writeUint8(0x82, chatty && ':method: GET');
+    const endHeadersFrame = writeFrame(request, HTTP2FrameType.HEADERS, 0x1, 0x04 | 0x01, 'END_HEADERS | END_STREAM');
     request.writeUint8(0x87, chatty && ':scheme: https');
+    request.writeUint8(0x82, chatty && ':method: GET');
     request.writeUint8(0x84, chatty && ':path: /');
     request.writeUint8(0x41, chatty && ':authority');
-    const endAuthority = request.writeLengthUint8('authority');
-    request.writeUTF8String(host);
+    const endAuthority = request.writeLengthH2Integer(1, 1, 'indexable, static Huffman-encoded, literal header value');  // 1 bit, value of 1 => literal value
+    request.writeH2HuffmanString(host);
     endAuthority();
     endHeadersFrame();
 
-    const goAwayFrame = writeFrame(request, HTTP2FrameType.GOAWAY, 0x0);
-    request.writeUint32(0x01, 'Last-Stream-Id');
-    request.writeUint32(0x0, 'NO_ERROR');
-    goAwayFrame();
+    // const goAwayFrame = writeFrame(request, HTTP2FrameType.GOAWAY, 0x0);
+    // request.writeUint32(0x01, 'Last-Stream-Id');
+    // request.writeUint32(0x0, 'NO_ERROR');
+    // goAwayFrame();
 
     chatty && log(...highlightBytes(request.commentedString(), LogColours.client));
 

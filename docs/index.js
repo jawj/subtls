@@ -3214,11 +3214,11 @@ var HTTP2FrameTypeNames = {
   4: "SETTINGS",
   7: "GOAWAY"
 };
-function writeFrame(request, type, streamId, flags = 0) {
+function writeFrame(request, type, streamId, flags = 0, flagComments) {
   const frameLengthOffset = request.offset;
   request.skipWrite(3);
   request.writeUint8(type, `frame type: ${HTTP2FrameTypeNames[type]}`);
-  request.writeUint8(flags, "flag bits");
+  request.writeUint8(flags, `flags: ${flagComments ?? "none"}`);
   request.writeUint32(streamId, `stream ID: ${streamId}`);
   request.changeIndent(1);
   const frameDataStart = request.offset;
@@ -3231,6 +3231,428 @@ function writeFrame(request, type, streamId, flags = 0) {
     request.changeIndent(-1);
   };
 }
+
+// src/util/h2Bytes.ts
+var te4 = new TextEncoder();
+var H = [
+  [8184, 13],
+  [8388568, 23],
+  [268435426, 28],
+  [268435427, 28],
+  [268435428, 28],
+  [268435429, 28],
+  [268435430, 28],
+  [268435431, 28],
+  [268435432, 28],
+  [16777194, 24],
+  [1073741820, 30],
+  [268435433, 28],
+  [268435434, 28],
+  [1073741821, 30],
+  [268435435, 28],
+  [268435436, 28],
+  [268435437, 28],
+  [268435438, 28],
+  [268435439, 28],
+  [268435440, 28],
+  [268435441, 28],
+  [268435442, 28],
+  [1073741822, 30],
+  [268435443, 28],
+  [268435444, 28],
+  [268435445, 28],
+  [268435446, 28],
+  [268435447, 28],
+  [268435448, 28],
+  [268435449, 28],
+  [268435450, 28],
+  [268435451, 28],
+  [20, 6],
+  [1016, 10],
+  // !
+  [1017, 10],
+  // "
+  [4090, 12],
+  // #
+  [8185, 13],
+  // $
+  [21, 6],
+  // %
+  [248, 8],
+  // &
+  [2042, 11],
+  // '
+  [1018, 10],
+  // (
+  [1019, 10],
+  // )
+  [249, 8],
+  // *
+  [2043, 11],
+  // +
+  [250, 8],
+  // ,
+  [22, 6],
+  // -
+  [23, 6],
+  // .
+  [24, 6],
+  // /
+  [0, 5],
+  // 0
+  [1, 5],
+  // 1
+  [2, 5],
+  // 2
+  [25, 6],
+  // 3
+  [26, 6],
+  // 4
+  [27, 6],
+  // 5
+  [28, 6],
+  // 6
+  [29, 6],
+  // 7
+  [30, 6],
+  // 8
+  [31, 6],
+  // 9
+  [92, 7],
+  // :
+  [251, 8],
+  // ;
+  [32764, 15],
+  // <
+  [32, 6],
+  // =
+  [4091, 12],
+  // >
+  [1020, 10],
+  // ?
+  [8186, 13],
+  // @
+  [33, 6],
+  // A
+  [93, 7],
+  // B
+  [94, 7],
+  // C
+  [95, 7],
+  // D
+  [96, 7],
+  // E
+  [97, 7],
+  // F
+  [98, 7],
+  // G
+  [99, 7],
+  // H
+  [100, 7],
+  // I
+  [101, 7],
+  // J
+  [102, 7],
+  // K
+  [103, 7],
+  // L
+  [104, 7],
+  // M
+  [105, 7],
+  // N
+  [106, 7],
+  // O
+  [107, 7],
+  // P
+  [108, 7],
+  // Q
+  [109, 7],
+  // R
+  [110, 7],
+  // S
+  [111, 7],
+  // T
+  [112, 7],
+  // U
+  [113, 7],
+  // V
+  [114, 7],
+  // W
+  [252, 8],
+  // X
+  [115, 7],
+  // Y
+  [253, 8],
+  // Z
+  [8187, 13],
+  // [
+  [524272, 19],
+  // \
+  [8188, 13],
+  // ]
+  [16380, 14],
+  // ^
+  [34, 6],
+  // _
+  [32765, 15],
+  // `
+  [3, 5],
+  // a
+  [35, 6],
+  // b
+  [4, 5],
+  // c
+  [36, 6],
+  // d
+  [5, 5],
+  // e
+  [37, 6],
+  // f
+  [38, 6],
+  // g
+  [39, 6],
+  // h
+  [6, 5],
+  // i
+  [116, 7],
+  // j
+  [117, 7],
+  // k
+  [40, 6],
+  // l
+  [41, 6],
+  // m
+  [42, 6],
+  // n
+  [7, 5],
+  // o
+  [43, 6],
+  // p
+  [118, 7],
+  // q
+  [44, 6],
+  // r
+  [8, 5],
+  // s
+  [9, 5],
+  // t
+  [45, 6],
+  // u
+  [119, 7],
+  // v
+  [120, 7],
+  // w
+  [121, 7],
+  // x
+  [122, 7],
+  // y
+  [123, 7],
+  // z
+  [32766, 15],
+  // {
+  [2044, 11],
+  // |
+  [16381, 14],
+  // }
+  [8189, 13],
+  // ~
+  [268435452, 28],
+  [1048550, 20],
+  [4194258, 22],
+  [1048551, 20],
+  [1048552, 20],
+  [4194259, 22],
+  [4194260, 22],
+  [4194261, 22],
+  [8388569, 23],
+  [4194262, 22],
+  [8388570, 23],
+  [8388571, 23],
+  [8388572, 23],
+  [8388573, 23],
+  [8388574, 23],
+  [16777195, 24],
+  [8388575, 23],
+  [16777196, 24],
+  [16777197, 24],
+  [4194263, 22],
+  [8388576, 23],
+  [16777198, 24],
+  [8388577, 23],
+  [8388578, 23],
+  [8388579, 23],
+  [8388580, 23],
+  [2097116, 21],
+  [4194264, 22],
+  [8388581, 23],
+  [4194265, 22],
+  [8388582, 23],
+  [8388583, 23],
+  [16777199, 24],
+  [4194266, 22],
+  [2097117, 21],
+  [1048553, 20],
+  [4194267, 22],
+  [4194268, 22],
+  [8388584, 23],
+  [8388585, 23],
+  [2097118, 21],
+  [8388586, 23],
+  [4194269, 22],
+  [4194270, 22],
+  [16777200, 24],
+  [2097119, 21],
+  [4194271, 22],
+  [8388587, 23],
+  [8388588, 23],
+  [2097120, 21],
+  [2097121, 21],
+  [4194272, 22],
+  [2097122, 21],
+  [8388589, 23],
+  [4194273, 22],
+  [8388590, 23],
+  [8388591, 23],
+  [1048554, 20],
+  [4194274, 22],
+  [4194275, 22],
+  [4194276, 22],
+  [8388592, 23],
+  [4194277, 22],
+  [4194278, 22],
+  [8388593, 23],
+  [67108832, 26],
+  [67108833, 26],
+  [1048555, 20],
+  [524273, 19],
+  [4194279, 22],
+  [8388594, 23],
+  [4194280, 22],
+  [33554412, 25],
+  [67108834, 26],
+  [67108835, 26],
+  [67108836, 26],
+  [134217694, 27],
+  [134217695, 27],
+  [67108837, 26],
+  [16777201, 24],
+  [33554413, 25],
+  [524274, 19],
+  [2097123, 21],
+  [67108838, 26],
+  [134217696, 27],
+  [134217697, 27],
+  [67108839, 26],
+  [134217698, 27],
+  [16777202, 24],
+  [2097124, 21],
+  [2097125, 21],
+  [67108840, 26],
+  [67108841, 26],
+  [268435453, 28],
+  [134217699, 27],
+  [134217700, 27],
+  [134217701, 27],
+  [1048556, 20],
+  [16777203, 24],
+  [1048557, 20],
+  [2097126, 21],
+  [4194281, 22],
+  [2097127, 21],
+  [2097128, 21],
+  [8388595, 23],
+  [4194282, 22],
+  [4194283, 22],
+  [33554414, 25],
+  [33554415, 25],
+  [16777204, 24],
+  [16777205, 24],
+  [67108842, 26],
+  [8388596, 23],
+  [67108843, 26],
+  [134217702, 27],
+  [67108844, 26],
+  [67108845, 26],
+  [134217703, 27],
+  [134217704, 27],
+  [134217705, 27],
+  [134217706, 27],
+  [134217707, 27],
+  [268435454, 28],
+  [134217708, 27],
+  [134217709, 27],
+  [134217710, 27],
+  [134217711, 27],
+  [134217712, 27],
+  [67108846, 26],
+  [1073741823, 30]
+  // EOS
+];
+var H2Bytes = class extends Bytes {
+  /**
+   * Currently an extremely limited implementation that can only encode numbers within the 'prefix'
+   * @param i 
+   * @param leftBitCount 
+   * @param leftBitValue 
+   */
+  writeH2Integer(i, leftBitCount = 0, leftBitValue = 0) {
+    if (leftBitCount > 7) throw new Error("leftBitCount must be 7 or less");
+    const prefixBitCount = 8 - leftBitCount;
+    const maxInteger = (1 << prefixBitCount) - 1;
+    if (i > maxInteger) throw new Error(`Integer must be ${maxInteger} or less`);
+    let byte = leftBitValue << prefixBitCount;
+    byte = byte | i;
+    this.writeUint8(byte);
+  }
+  writeLengthH2Integer(leftBitCount = 0, leftBitValue = 0, comment) {
+    this.ensureWriteAvailable(1);
+    const startOffset = this.offset;
+    this.offset += 1;
+    const endOffset = this.offset;
+    this.changeIndent(1);
+    return () => {
+      const length = this.offset - endOffset;
+      const currentOffset = this.offset;
+      this.offset = startOffset;
+      this.writeH2Integer(length, leftBitCount, leftBitValue);
+      this.comment(this.lengthComment(length, comment));
+      this.offset = currentOffset;
+      this.changeIndent(-1);
+    };
+  }
+  writeH2HuffmanString(s) {
+    const raw = te4.encode(s);
+    let bitComment = "";
+    const inlen = raw.byteLength;
+    let outByte = 0, outBitIndex = 0;
+    for (let i = 0; i < inlen; i++) {
+      const ch = raw[i];
+      let [encodedValue, remainingBitCount] = H[ch];
+      if (1) bitComment += ` ${encodedValue.toString(2)}=` + (ch >= 33 && ch <= 126 ? String.fromCharCode(ch) : `0x${ch.toString(16).padStart(2, " ")}`);
+      while (remainingBitCount > 0) {
+        if (outBitIndex === 8) {
+          this.writeUint8(outByte);
+          outByte = outBitIndex = 0;
+        }
+        const bitsLeftInByte = 8 - outBitIndex;
+        const bitsToWrite = Math.min(bitsLeftInByte, remainingBitCount);
+        const rightShiftBits = remainingBitCount - bitsLeftInByte;
+        outByte = outByte | (rightShiftBits >= 0 ? encodedValue >>> rightShiftBits : encodedValue << -rightShiftBits);
+        remainingBitCount -= bitsToWrite;
+        encodedValue = encodedValue & (1 << remainingBitCount) - 1;
+        outBitIndex += bitsToWrite;
+      }
+    }
+    if (outBitIndex > 0) {
+      const bitsLeftInByte = 8 - outBitIndex;
+      const padding = (1 << bitsLeftInByte) - 1;
+      outByte = outByte | padding;
+      this.writeUint8(outByte);
+      bitComment += ` ${padding.toString(2)}=(padding)`;
+    }
+    this.comment(`"${s}":${bitComment}`);
+  }
+};
 
 // src/https.ts
 var txtDec2 = new TextDecoder();
@@ -3255,32 +3677,22 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
   let response = "";
   if (protocolFromALPN === "h2") {
     log("Here\u2019s an HTTP/2 GET request:");
-    const request = new Bytes();
+    const request = new H2Bytes();
     request.writeUTF8String("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
     request.comment("\u2014 the connection preface ([RFC 9113 \xA7 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface))");
     const endSettingsFrame = writeFrame(request, 4 /* SETTINGS */, 0);
     request.writeUint16(2, "setting: SETTINGS_ENABLE_PUSH");
     request.writeUint32(0, "value: disabled");
     endSettingsFrame();
-    const endHeadersFrame = writeFrame(
-      request,
-      1 /* HEADERS */,
-      1,
-      4 | 1
-      /* END_STREAM */
-    );
-    request.writeUint8(130, ":method: GET");
+    const endHeadersFrame = writeFrame(request, 1 /* HEADERS */, 1, 4 | 1, "END_HEADERS | END_STREAM");
     request.writeUint8(135, ":scheme: https");
+    request.writeUint8(130, ":method: GET");
     request.writeUint8(132, ":path: /");
     request.writeUint8(65, ":authority");
-    const endAuthority = request.writeLengthUint8("authority");
-    request.writeUTF8String(host);
+    const endAuthority = request.writeLengthH2Integer(1, 1, "indexable, static Huffman-encoded, literal header value");
+    request.writeH2HuffmanString(host);
     endAuthority();
     endHeadersFrame();
-    const goAwayFrame = writeFrame(request, 7 /* GOAWAY */, 0);
-    request.writeUint32(1, "Last-Stream-Id");
-    request.writeUint32(0, "NO_ERROR");
-    goAwayFrame();
     log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
     log("Which goes to the server encrypted like so:");
     await write(request.array());
@@ -3389,6 +3801,7 @@ var rootCertsPromise = getRootCertsDatabase();
 var qs = (sel) => document.querySelector(sel);
 var pgTab = qs("#postgres");
 var httpsTab = qs("#https");
+var h2Chk = qs("#h2");
 var goBtn = qs("#go");
 var heading = qs("#heading");
 var desc = qs("#description");
@@ -3413,6 +3826,8 @@ goBtn.addEventListener("click", () => {
     postgres(urlStr, wsTransport, rootCertsPromise, false).catch(logAndRethrow);
   } else {
     if (!urlStr.startsWith("https")) urlStr = "https://bytebybyte.dev";
-    https(urlStr, "GET", wsTransport, rootCertsPromise).catch(logAndRethrow);
+    const protocols = ["http/1.1"];
+    if (h2Chk.checked) protocols.unshift("h2");
+    https(urlStr, "GET", wsTransport, rootCertsPromise, { protocols }).catch(logAndRethrow);
   }
 });
