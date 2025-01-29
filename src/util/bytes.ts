@@ -182,7 +182,6 @@ export class Bytes {
   }
 
   async readUint24(comment?: string) {
-    await this.ensureReadAvailable(3);
     const msb = await this.readUint8();
     const lsbs = await this.readUint16();
     const result = (msb << 16) + lsbs;

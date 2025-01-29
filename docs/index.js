@@ -557,7 +557,6 @@ var Bytes = class {
     return result;
   }
   async readUint24(comment) {
-    await this.ensureReadAvailable(3);
     const msb = await this.readUint8();
     const lsbs = await this.readUint16();
     const result = (msb << 16) + lsbs;
@@ -3210,26 +3209,60 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
 
 // src/h2.ts
 var HTTP2FrameTypeNames = {
+  0: "DATA",
   1: "HEADERS",
+  2: "PRIORITY",
+  3: "RST_STREAM",
   4: "SETTINGS",
-  7: "GOAWAY"
+  5: "PUSH_PROMISE",
+  6: "PING",
+  7: "GOAWAY",
+  8: "WINDOW_UPDATE",
+  9: "CONTINUATION"
 };
-function writeFrame(request, type, streamId, flags = 0, flagComments) {
-  const frameLengthOffset = request.offset;
+var HTTP2SettingsTypeNames = {
+  1: "SETTINGS_HEADER_TABLE_SIZE",
+  2: "SETTINGS_ENABLE_PUSH",
+  3: "SETTINGS_MAX_CONCURRENT_STREAMS",
+  4: "SETTINGS_INITIAL_WINDOW_SIZE",
+  5: "SETTINGS_MAX_FRAME_SIZE",
+  6: "SETTINGS_MAX_HEADER_LIST_SIZE"
+};
+function writeFrame(request, frameType, streamId, flags = 0, flagComments) {
+  const payloadLengthOffset = request.offset;
   request.skipWrite(3);
-  request.writeUint8(type, `frame type: ${HTTP2FrameTypeNames[type]}`);
+  request.writeUint8(frameType, `frame type: ${HTTP2FrameTypeNames[frameType]}`);
   request.writeUint8(flags, `flags: ${flagComments ?? "none"}`);
   request.writeUint32(streamId, `stream ID: ${streamId}`);
   request.changeIndent(1);
-  const frameDataStart = request.offset;
+  const payloadStart = request.offset;
   return () => {
     const frameEnd = request.offset;
-    const frameLength = frameEnd - frameDataStart;
-    request.offset = frameLengthOffset;
-    request.writeUint24(frameLength, `HTTP/2 frame payload length: ${frameLength}`);
+    const payloadLength = frameEnd - payloadStart;
+    request.offset = payloadLengthOffset;
+    request.writeUint24(payloadLength, `HTTP/2 frame payload length: ${payloadLength} bytes`);
     request.offset = frameEnd;
     request.changeIndent(-1);
   };
+}
+async function readFrame(response) {
+  const payloadLength = await response.readUint24();
+  response.comment(`HTTP/2 frame payload length: ${payloadLength} bytes`);
+  const frameType = await response.readUint8();
+  response.comment(`frame type: ${HTTP2FrameTypeNames[frameType]}`);
+  const flags = await response.readUint8("flags");
+  const streamId = await response.readUint32();
+  response.comment(`stream ID: ${streamId}`);
+  streamId === 0 && response.comment("= connection as a whole");
+  response.changeIndent(1);
+  const payloadStart = response.offset;
+  const payloadEndIndex = payloadStart + payloadLength;
+  const payloadEnd = () => {
+    if (response.offset !== payloadEndIndex) throw new Error("Not at payload end");
+    response.changeIndent(-1);
+  };
+  const payloadRemaining = () => payloadEndIndex - response.offset;
+  return { payloadEnd, payloadRemaining, frameType, flags, streamId };
 }
 
 // src/util/h2Bytes.ts
@@ -3689,7 +3722,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
     request.writeUint8(130, ":method: GET");
     request.writeUint8(132, ":path: /");
     request.writeUint8(65, ":authority");
-    const endAuthority = request.writeLengthH2Integer(1, 1, "indexable, static Huffman-encoded, literal header value");
+    const endAuthority = request.writeLengthH2Integer(1, 1, "indexable, static-Huffman-encoded, literal header value");
     request.writeH2HuffmanString(host);
     endAuthority();
     endHeadersFrame();
@@ -3697,15 +3730,68 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
     log("Which goes to the server encrypted like so:");
     await write(request.array());
     log("The server replies:");
-    let responseData;
-    do {
-      responseData = await read();
-      if (responseData) {
-        const responseText = txtDec2.decode(responseData);
-        response += responseText;
-        log(responseData, responseText);
+    const readQueue = new LazyReadFunctionReadQueue(read);
+    const readFn = readQueue.read.bind(readQueue);
+    let flagEndStream = false;
+    while (!flagEndStream) {
+      const response2 = new Bytes(readFn);
+      const { payloadEnd, payloadRemaining, frameType, flags, streamId } = await readFrame(response2);
+      switch (frameType) {
+        case 4 /* SETTINGS */: {
+          if (streamId !== 0) throw new Error("Illegal SETTINGS for non-zero stream ID");
+          const ack = Boolean(flags & 1);
+          if (ack) {
+            response2.comment("= ACK peer settings", response2.offset - 4);
+            if (payloadRemaining() > 0) throw new Error("Illegal non-zero-length SETTINGS ACK");
+          }
+          if (payloadRemaining() % 6 !== 0) throw new Error("Illegal SETTINGS payload length");
+          while (payloadRemaining() > 0) {
+            const settingsType = await response2.readUint16();
+            response2.comment(`setting: ${HTTP2SettingsTypeNames[settingsType] ?? "unknown setting"}`);
+            const settingsValue = await response2.readUint32();
+            response2.comment(`value: ${settingsValue}`);
+          }
+          break;
+        }
+        case 8 /* WINDOW_UPDATE */: {
+          const winSizeInc = await response2.readUint32();
+          response2.comment(`window size increment: ${winSizeInc} bytes`);
+          break;
+        }
+        case 0 /* DATA */:
+        case 1 /* HEADERS */: {
+          const flagPriority = Boolean(flags & 50);
+          const flagPadded = Boolean(flags & 8);
+          const flagEndHeaders = Boolean(flags & 4);
+          flagEndStream = Boolean(flags & 1);
+          if (1) {
+            const flagNames = [];
+            if (flagPriority) flagNames.push("PRIORITY");
+            if (flagPadded) flagNames.push("PADDED");
+            if (flagEndHeaders) flagNames.push("END_HEADERS");
+            if (flagEndStream) flagNames.push("END_STREAM");
+            response2.comment(`= ${flagNames.join(" | ")}`, response2.offset - 4);
+          }
+          let paddingBytes = 0;
+          if (flagPadded) {
+            paddingBytes = await response2.readUint8("padding length");
+          }
+          if (flagPriority) {
+            await response2.readUint32("exclusive, stream dependency");
+            await response2.readUint8("weight");
+          }
+          await response2.skipRead(payloadRemaining() - paddingBytes, "field block fragment or data");
+          if (paddingBytes > 0) await response2.skipRead(paddingBytes, "padding (should be zeroes)");
+          break;
+        }
+        default: {
+          await response2.readUTF8String(payloadRemaining());
+          response2.comment("payload");
+        }
       }
-    } while (responseData);
+      payloadEnd();
+      log(...highlightBytes(response2.commentedString(), "#88c" /* server */));
+    }
   } else {
     headers["Host"] ?? (headers["Host"] = host);
     log("Here\u2019s a GET request:");

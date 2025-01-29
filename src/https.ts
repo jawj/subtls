@@ -8,8 +8,9 @@ import type tcpTransport from './util/tcpTransport';
 import { getRootCertsDatabase } from './util/rootCerts';
 import { SocketOptions } from './util/tcpTransport';
 import { WebSocketOptions } from './util/wsTransport';
-import { HTTP2FrameType, writeFrame } from './h2';
+import { HTTP2FrameType, HTTP2SettingsType, HTTP2SettingsTypeNames, readFrame, writeFrame } from './h2';
 import { H2Bytes } from './util/h2Bytes';
+import { LazyReadFunctionReadQueue } from './util/readQueue';
 
 const txtDec = new TextDecoder();
 
@@ -66,7 +67,7 @@ export async function https(
     request.writeUint8(0x82, chatty && ':method: GET');
     request.writeUint8(0x84, chatty && ':path: /');
     request.writeUint8(0x41, chatty && ':authority');
-    const endAuthority = request.writeLengthH2Integer(1, 1, 'indexable, static Huffman-encoded, literal header value');  // 1 bit, value of 1 => literal value
+    const endAuthority = request.writeLengthH2Integer(1, 1, 'indexable, static-Huffman-encoded, literal header value');  // 1 bit, value of 1 => literal value
     request.writeH2HuffmanString(host);
     endAuthority();
     endHeadersFrame();
@@ -82,17 +83,75 @@ export async function https(
     await write(request.array());
 
     chatty && log('The server replies:');
-    let responseData;
 
-    do {
-      responseData = await read();
-      if (responseData) {
-        const responseText = txtDec.decode(responseData);
-        response += responseText;
-        chatty && log(responseData, responseText);
+    const readQueue = new LazyReadFunctionReadQueue(read);
+    const readFn = readQueue.read.bind(readQueue);
+
+    let flagEndStream = false;
+    while (!flagEndStream) {
+      const response = new Bytes(readFn);
+      const { payloadEnd, payloadRemaining, frameType, flags, streamId } = await readFrame(response);
+
+      switch (frameType) {
+        case HTTP2FrameType.SETTINGS: {
+          if (streamId !== 0) throw new Error('Illegal SETTINGS for non-zero stream ID');
+          const ack = Boolean(flags & 0x01);
+          if (ack) {
+            response.comment('= ACK peer settings', response.offset - 4);
+            if (payloadRemaining() > 0) throw new Error('Illegal non-zero-length SETTINGS ACK');
+          }
+          if (payloadRemaining() % 6 !== 0) throw new Error('Illegal SETTINGS payload length');
+          while (payloadRemaining() > 0) {
+            const settingsType = await response.readUint16() as HTTP2SettingsType;
+            chatty && response.comment(`setting: ${HTTP2SettingsTypeNames[settingsType] ?? 'unknown setting'}`);
+            const settingsValue = await response.readUint32();
+            chatty && response.comment(`value: ${settingsValue}`);
+          }
+          break;
+        }
+
+        case HTTP2FrameType.WINDOW_UPDATE: {
+          const winSizeInc = await response.readUint32();
+          chatty && response.comment(`window size increment: ${winSizeInc} bytes`);
+          break;
+        }
+
+        case HTTP2FrameType.DATA:
+        case HTTP2FrameType.HEADERS: {
+          const flagPriority = Boolean(flags & 0x32);
+          const flagPadded = Boolean(flags & 0x08);
+          const flagEndHeaders = Boolean(flags & 0x04);
+          flagEndStream = Boolean(flags & 0x01);
+          if (chatty) {
+            const flagNames = [];
+            if (flagPriority) flagNames.push('PRIORITY');
+            if (flagPadded) flagNames.push('PADDED');
+            if (flagEndHeaders) flagNames.push('END_HEADERS');
+            if (flagEndStream) flagNames.push('END_STREAM');
+            response.comment(`= ${flagNames.join(' | ')}`, response.offset - 4);
+          }
+
+          let paddingBytes = 0;
+          if (flagPadded) {
+            paddingBytes = await response.readUint8('padding length');
+          }
+          if (flagPriority) {
+            await response.readUint32('exclusive, stream dependency');
+            await response.readUint8('weight');
+          }
+          await response.skipRead(payloadRemaining() - paddingBytes, 'field block fragment or data');
+          if (paddingBytes > 0) await response.skipRead(paddingBytes, 'padding (should be zeroes)');
+          break;
+        }
+
+        default: {
+          await response.readUTF8String(payloadRemaining());
+          chatty && response.comment('payload');
+        }
       }
-    } while (responseData);
-
+      payloadEnd();
+      chatty && log(...highlightBytes(response.commentedString(), LogColours.server));
+    }
 
   } else {
     headers['Host'] ??= host;
