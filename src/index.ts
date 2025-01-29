@@ -11,7 +11,8 @@ const rootCertsPromise = getRootCertsDatabase();
 const qs = <E extends Element = Element>(sel: string) => document.querySelector(sel) as E;
 const pgTab = qs('#postgres');
 const httpsTab = qs('#https');
-const h2Chk = qs<HTMLInputElement>('#h2');
+const h2Para = qs<HTMLParagraphElement>('#http2');
+const h2Chk = qs<HTMLInputElement>('#http2 input');
 const goBtn = qs<HTMLButtonElement>('#go');
 const heading = qs('#heading');
 const desc = qs('#description');
@@ -26,6 +27,7 @@ if (pg) {
   goBtn.value = 'Ask Postgres the time, byte by byte';
   heading.innerHTML = 'See this page query Postgres, byte by byte, over TLS';
   desc.innerHTML = 'This page connects to a <a href="https://neon.tech">Neon</a> PostgreSQL instance over TLS with <a href="https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256">channel binding</a>. Then it runs this query: <span class="q">SELECT now()</span>.';
+  h2Para.style.display = 'none';
 }
 
 const logAndRethrow = (e: any) => {

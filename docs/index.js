@@ -3801,7 +3801,8 @@ var rootCertsPromise = getRootCertsDatabase();
 var qs = (sel) => document.querySelector(sel);
 var pgTab = qs("#postgres");
 var httpsTab = qs("#https");
-var h2Chk = qs("#h2");
+var h2Para = qs("#http2");
+var h2Chk = qs("#http2 input");
 var goBtn = qs("#go");
 var heading = qs("#heading");
 var desc = qs("#description");
@@ -3813,6 +3814,7 @@ if (pg) {
   goBtn.value = "Ask Postgres the time, byte by byte";
   heading.innerHTML = "See this page query Postgres, byte by byte, over TLS";
   desc.innerHTML = 'This page connects to a <a href="https://neon.tech">Neon</a> PostgreSQL instance over TLS with <a href="https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256">channel binding</a>. Then it runs this query: <span class="q">SELECT now()</span>.';
+  h2Para.style.display = "none";
 }
 var logAndRethrow = (e) => {
   log(`%cError: ${e.message}%c`, `color: ${"#c88" /* header */}`, textColour);

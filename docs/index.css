@@ -74,6 +74,19 @@ code {
   background: #eee;
 }
 
+p {
+  margin: 2em 0;
+}
+
+#http2 {
+  display: block;
+  margin-bottom: .4em;
+}
+
+#http2 input[type=checkbox] {
+  vertical-align: text-bottom;
+}
+
 #logs .section {
   position: relative;
   border-top: 1px solid #ddd;
