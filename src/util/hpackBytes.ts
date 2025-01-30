@@ -1,7 +1,8 @@
 import { Bytes } from './bytes';
 
 const te = new TextEncoder();
-const H = [
+const td = new TextDecoder();
+const HuffmanCodes = [
   [0b1111111111000, 13],
   [0b11111111111111111011000, 23],
   [0b1111111111111111111111100010, 28],
@@ -261,7 +262,26 @@ const H = [
   [0b111111111111111111111111111111, 30],  // EOS
 ];
 
-export class H2Bytes extends Bytes {
+/* 
+function makeHuffmanTree() {
+  const tree: any = [undefined, undefined];
+  for (let ch = 0; ch < 256; ch++) {
+    const [code, bits] = Huffman[ch];
+    let i = bits, node = tree;
+    while (--i) {
+      const bit = (code >> i) & 0x01;
+      node = node[bit] ??= [undefined, undefined];
+    }
+    const bit = (code >> i) & 0x01;
+    node[bit] = ch;
+  }
+  console.log(JSON.stringify(tree));
+}
+*/
+
+const HuffmanTree = [[[[[48, 49], [50, 97]], [[99, 101], [105, 111]]], [[[115, 116], [[32, 37], [45, 46]]], [[[47, 51], [52, 53]], [[54, 55], [56, 57]]]]], [[[[[61, 65], [95, 98]], [[100, 102], [103, 104]]], [[[108, 109], [110, 112]], [[114, 117], [[58, 66], [67, 68]]]]], [[[[[69, 70], [71, 72]], [[73, 74], [75, 76]]], [[[77, 78], [79, 80]], [[81, 82], [83, 84]]]], [[[[85, 86], [87, 89]], [[106, 107], [113, 118]]], [[[119, 120], [121, 122]], [[[38, 42], [44, 59]], [[88, 90], [[[33, 34], [40, 41]], [[63, [39, 43]], [[124, [35, 62]], [[[0, 36], [64, 91]], [[93, 126], [[94, 125], [[60, 96], [123, [[[[92, 195], [208, [128, 130]]], [[[131, 162], [184, 194]], [[224, 226], [[153, 161], [167, 172]]]]], [[[[[176, 177], [179, 209]], [[216, 217], [227, 229]]], [[[230, [129, 132]], [[133, 134], [136, 146]]], [[[154, 156], [160, 163]], [[164, 169], [170, 173]]]]], [[[[[178, 181], [185, 186]], [[187, 189], [190, 196]]], [[[198, 228], [232, 233]], [[[1, 135], [137, 138]], [[139, 140], [141, 143]]]]], [[[[[147, 149], [150, 151]], [[152, 155], [157, 158]]], [[[165, 166], [168, 174]], [[175, 180], [182, 183]]]], [[[[188, 191], [197, 231]], [[239, [9, 142]], [[144, 145], [148, 159]]]], [[[[171, 206], [215, 225]], [[236, 237], [[199, 207], [234, 235]]]], [[[[[192, 193], [200, 201]], [[202, 205], [210, 213]]], [[[218, 219], [238, 240]], [[242, 243], [255, [203, 204]]]]], [[[[[211, 212], [214, 221]], [[222, 223], [241, 244]]], [[[245, 246], [247, 248]], [[250, 251], [252, 253]]]], [[[[254, [2, 3]], [[4, 5], [6, 7]]], [[[8, 11], [12, 14]], [[15, 16], [17, 18]]]], [[[[19, 20], [21, 23]], [[24, 25], [26, 27]]], [[[28, 29], [30, 31]], [[127, 220], [249, [[10, 13], [22, null]]]]]]]]]]]]]]]]]]]]]]]]]]]]]];
+
+export class HPACKBytes extends Bytes {
 
   writeH2Integer(i: number, leftBitCount = 0, leftBitValue = 0, omitValueInComment = false) {
     if (leftBitCount > 7) throw new Error('leftBitCount must be 7 or less');
@@ -282,6 +302,7 @@ export class H2Bytes extends Bytes {
     chatty && this.comment('HPACK integer:' + (omitValueInComment ? '' : ` ${iOriginal}`));
   }
 
+  // TODO: this doesn't work correctly, because we don't know how much space to leave!
   writeLengthH2Integer(leftBitCount = 0, leftBitValue = 0, comment?: string) {
     this.ensureWriteAvailable(1);
     const startOffset = this.offset;
@@ -299,13 +320,30 @@ export class H2Bytes extends Bytes {
     };
   }
 
+  async readH2Integer(leftBitCount = 0) {
+    const firstByte = await this.readUint8();
+    const prefixBitCount = 8 - leftBitCount;
+    const leftBitValue = firstByte >>> prefixBitCount;
+    const continuationValue = (1 << prefixBitCount) - 1;
+    let i = firstByte & continuationValue;
+    if (i === continuationValue) {
+      let byte, leftShift = 0;
+      do {
+        byte = await this.readUint8();
+        i = i | (byte & 0x7f) << leftShift;
+        leftShift += 7;
+      } while (byte & 0x80);
+    }
+    return { leftBitValue, i };
+  }
+
   writeH2HuffmanString(s: string) {
     const raw = te.encode(s);
     let bitComment = chatty && '';
     let outByte = 0, outBitIndex = 0;
     for (let i = 0, inlen = raw.byteLength; i < inlen; i++) {
       const ch = raw[i];
-      let [encodedValue, remainingBitCount] = H[ch];
+      let [encodedValue, remainingBitCount] = HuffmanCodes[ch];
       if (chatty) bitComment += ` ${encodedValue.toString(2)}=` + (ch >= 33 && ch <= 126 ? String.fromCharCode(ch) : `0x${ch.toString(16).padStart(2, ' ')}`);
       while (remainingBitCount > 0) {
         if (outBitIndex === 8) {
@@ -331,4 +369,34 @@ export class H2Bytes extends Bytes {
     chatty && this.comment(`HPACK "${s}":${bitComment}`);
   }
 
+  async readH2String() {
+    const { leftBitValue: huffman, i: length } = await this.readH2Integer(1);
+    chatty && this.comment(`${huffman ? 'Huffman-encoded string' : 'raw octet string'}, ${length} bytes`);
+    if (!huffman) return this.readUTF8String(length);
+
+    const inBytes = await this.readBytes(length);
+    const outBytes = new Uint8Array(length << 1);  // smallest codes are 5 bits, so decoded length can't be more than 2x encoded
+
+    let inByteIndex = 0, inBitIndex = 0, inByte = 0, outByteIndex = 0;
+    let node: any;
+
+    while (inByteIndex < length) {
+      node = HuffmanTree;
+      do {
+        if (inBitIndex === 0) inByte = inBytes[inByteIndex++];
+        const bit = (inByte >> (7 - inBitIndex)) & 0x1;
+        inBitIndex = inBitIndex === 7 ? 0 : inBitIndex + 1;
+
+        node = node[bit];
+
+      } while (typeof node !== 'number');
+      outBytes[outByteIndex++] = node;
+    }
+    const str = td.decode(outBytes.subarray(0, outByteIndex));
+    this.comment(`"${str}"`);
+    return str;
+  }
+
 }
+
+

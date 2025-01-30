@@ -8,8 +8,8 @@ import type tcpTransport from './util/tcpTransport';
 import { getRootCertsDatabase } from './util/rootCerts';
 import { SocketOptions } from './util/tcpTransport';
 import { WebSocketOptions } from './util/wsTransport';
-import { HTTP2FrameType, HTTP2SettingsType, HTTP2SettingsTypeNames, readFrame, writeFrame } from './h2';
-import { H2Bytes } from './util/h2Bytes';
+import { HPACKStaticTable, HTTP2FrameType, HTTP2SettingsType, HTTP2SettingsTypeNames, readFrame, writeFrame } from './h2';
+import { HPACKBytes } from './util/hpackBytes';
 import { LazyReadFunctionReadQueue } from './util/readQueue';
 
 const txtDec = new TextDecoder();
@@ -53,7 +53,7 @@ export async function https(
   if (protocolFromALPN === 'h2') {
     chatty && log('Here’s an HTTP/2 GET request. It starts with a fixed 24-byte preface, which is designed to make HTTP/1.1 servers give up, plus a mandatory SETTINGS frame. And then we get right on with sending the HEADERS, which also specify our GET request:');
 
-    const request = new H2Bytes();
+    const request = new HPACKBytes();
     request.writeUTF8String('PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n');
     chatty && request.comment('— the connection preface ([RFC 9113 § 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface))');
 
@@ -89,7 +89,7 @@ export async function https(
 
     let flagEndStream = false;
     while (!flagEndStream) {
-      const response = new Bytes(readFn);
+      const response = new HPACKBytes(readFn);
       const { payloadEnd, payloadRemaining, frameType, flags, streamId } = await readFrame(response);
       let ackFrame;
 
@@ -112,7 +112,7 @@ export async function https(
           }
 
           chatty && log('This is a SETTINGS frame from the server, which we’ll immediately acknowledge:');
-          ackFrame = new H2Bytes();
+          ackFrame = new HPACKBytes();
           writeFrame(ackFrame, HTTP2FrameType.SETTINGS, 0x0, 0x01, chatty && 'ACK server settings');
           break;
         }
@@ -125,14 +125,12 @@ export async function https(
 
         case HTTP2FrameType.HEADERS:
         case HTTP2FrameType.DATA: {
-          chatty && log(frameType === HTTP2FrameType.HEADERS ?
-            'The server sends us its response HEADERS:' :
-            'And now we start receiving the response DATA:'
-          );
+
           const flagPriority = Boolean(flags & 0x32);
           const flagPadded = Boolean(flags & 0x08);
           const flagEndHeaders = Boolean(flags & 0x04);
           flagEndStream = Boolean(flags & 0x01);
+
           if (chatty) {
             const flagNames = [];
             if (flagPriority) flagNames.push('PRIORITY');
@@ -150,7 +148,41 @@ export async function https(
             await response.readUint32('exclusive, stream dependency');
             await response.readUint8('weight');
           }
-          await response.skipRead(payloadRemaining() - paddingBytes, 'field block fragment or data');
+
+          if (frameType === HTTP2FrameType.HEADERS) {
+            chatty && log('The server sends us its response HEADERS:');
+
+            while (payloadRemaining() > paddingBytes) {
+              const byte = await response.readUint8();
+
+              if (byte & 0x80) {  // Indexed Header Field Representation: https://datatracker.ietf.org/doc/html/rfc7541#section-6.1
+                const tableIndex = byte & 0x7f;
+                if (tableIndex === 0) throw new Error('Illegal zero index for header');
+
+                const [kStatic, vStatic] = HPACKStaticTable[tableIndex]!;
+                chatty && response.comment(`${kStatic}: ${vStatic}`);
+
+              } else {
+                response.offset--;
+                const { i: tableIndex } = await response.readH2Integer((byte & 0x40) ? 2 : 4);
+                let k;
+                if (tableIndex === 0) {
+                  chatty && response.comment('literal header name');
+                  k = await response.readH2String();
+                } else {
+                  k = HPACKStaticTable[tableIndex]![0];
+                  chatty && response.comment(`${k}:`);
+                }
+                response.changeIndent(1);
+                await response.readH2String();
+                response.changeIndent(-1);
+
+              }
+            }
+
+          } else {
+            await response.skipRead(payloadRemaining() - paddingBytes, 'data');
+          }
           if (paddingBytes > 0) await response.skipRead(paddingBytes, 'padding (should be zeroes)');
           break;
         }

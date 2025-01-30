@@ -3228,6 +3228,72 @@ var HTTP2SettingsTypeNames = {
   5: "SETTINGS_MAX_FRAME_SIZE",
   6: "SETTINGS_MAX_HEADER_LIST_SIZE"
 };
+var HPACKStaticTable = [
+  // https://datatracker.ietf.org/doc/html/rfc7541#appendix-A
+  void 0,
+  // no zero index
+  [":authority"],
+  [":method", "GET"],
+  [":method", "POST"],
+  [":path", "/"],
+  [":path", "/index.html"],
+  [":scheme", "http"],
+  [":scheme", "https"],
+  [":status", "200"],
+  [":status", "204"],
+  [":status", "206"],
+  [":status", "304"],
+  [":status", "400"],
+  [":status", "404"],
+  [":status", "500"],
+  ["accept-charset"],
+  ["accept-encoding", "gzip, deflate"],
+  ["accept-language"],
+  ["accept-ranges"],
+  ["accept"],
+  ["access-control-allow-origin"],
+  ["age"],
+  ["allow"],
+  ["authorization"],
+  ["cache-control"],
+  ["content-disposition"],
+  ["content-encoding"],
+  ["content-language"],
+  ["content-length"],
+  ["content-location"],
+  ["content-range"],
+  ["content-type"],
+  ["cookie"],
+  ["date"],
+  ["etag"],
+  ["expect"],
+  ["expires"],
+  ["from"],
+  ["host"],
+  ["if-match"],
+  ["if-modified-since"],
+  ["if-none-match"],
+  ["if-range"],
+  ["if-unmodified-since"],
+  ["last-modified"],
+  ["link"],
+  ["location"],
+  ["max-forwards"],
+  ["proxy-authenticate"],
+  ["proxy-authorization"],
+  ["range"],
+  ["referer"],
+  ["refresh"],
+  ["retry-after"],
+  ["server"],
+  ["set-cookie"],
+  ["strict-transport-security"],
+  ["transfer-encoding"],
+  ["user-agent"],
+  ["vary"],
+  ["via"],
+  ["www-authenticate"]
+];
 function writeFrame(request, frameType, streamId, flags = 0, flagComments) {
   const payloadLengthOffset = request.offset;
   request.skipWrite(3);
@@ -3265,9 +3331,10 @@ async function readFrame(response) {
   return { payloadEnd, payloadRemaining, frameType, flags, streamId };
 }
 
-// src/util/h2Bytes.ts
+// src/util/hpackBytes.ts
 var te4 = new TextEncoder();
-var H = [
+var td3 = new TextDecoder();
+var HuffmanCodes = [
   [8184, 13],
   [8388568, 23],
   [268435426, 28],
@@ -3621,7 +3688,8 @@ var H = [
   [1073741823, 30]
   // EOS
 ];
-var H2Bytes = class extends Bytes {
+var HuffmanTree = [[[[[48, 49], [50, 97]], [[99, 101], [105, 111]]], [[[115, 116], [[32, 37], [45, 46]]], [[[47, 51], [52, 53]], [[54, 55], [56, 57]]]]], [[[[[61, 65], [95, 98]], [[100, 102], [103, 104]]], [[[108, 109], [110, 112]], [[114, 117], [[58, 66], [67, 68]]]]], [[[[[69, 70], [71, 72]], [[73, 74], [75, 76]]], [[[77, 78], [79, 80]], [[81, 82], [83, 84]]]], [[[[85, 86], [87, 89]], [[106, 107], [113, 118]]], [[[119, 120], [121, 122]], [[[38, 42], [44, 59]], [[88, 90], [[[33, 34], [40, 41]], [[63, [39, 43]], [[124, [35, 62]], [[[0, 36], [64, 91]], [[93, 126], [[94, 125], [[60, 96], [123, [[[[92, 195], [208, [128, 130]]], [[[131, 162], [184, 194]], [[224, 226], [[153, 161], [167, 172]]]]], [[[[[176, 177], [179, 209]], [[216, 217], [227, 229]]], [[[230, [129, 132]], [[133, 134], [136, 146]]], [[[154, 156], [160, 163]], [[164, 169], [170, 173]]]]], [[[[[178, 181], [185, 186]], [[187, 189], [190, 196]]], [[[198, 228], [232, 233]], [[[1, 135], [137, 138]], [[139, 140], [141, 143]]]]], [[[[[147, 149], [150, 151]], [[152, 155], [157, 158]]], [[[165, 166], [168, 174]], [[175, 180], [182, 183]]]], [[[[188, 191], [197, 231]], [[239, [9, 142]], [[144, 145], [148, 159]]]], [[[[171, 206], [215, 225]], [[236, 237], [[199, 207], [234, 235]]]], [[[[[192, 193], [200, 201]], [[202, 205], [210, 213]]], [[[218, 219], [238, 240]], [[242, 243], [255, [203, 204]]]]], [[[[[211, 212], [214, 221]], [[222, 223], [241, 244]]], [[[245, 246], [247, 248]], [[250, 251], [252, 253]]]], [[[[254, [2, 3]], [[4, 5], [6, 7]]], [[[8, 11], [12, 14]], [[15, 16], [17, 18]]]], [[[[19, 20], [21, 23]], [[24, 25], [26, 27]]], [[[28, 29], [30, 31]], [[127, 220], [249, [[10, 13], [22, null]]]]]]]]]]]]]]]]]]]]]]]]]]]]]];
+var HPACKBytes = class extends Bytes {
   writeH2Integer(i, leftBitCount = 0, leftBitValue = 0, omitValueInComment = false) {
     if (leftBitCount > 7) throw new Error("leftBitCount must be 7 or less");
     const iOriginal = i;
@@ -3640,6 +3708,7 @@ var H2Bytes = class extends Bytes {
     }
     this.comment("HPACK integer:" + (omitValueInComment ? "" : ` ${iOriginal}`));
   }
+  // TODO: this doesn't work correctly, because we don't know how much space to leave!
   writeLengthH2Integer(leftBitCount = 0, leftBitValue = 0, comment) {
     this.ensureWriteAvailable(1);
     const startOffset = this.offset;
@@ -3656,13 +3725,29 @@ var H2Bytes = class extends Bytes {
       this.changeIndent(-1);
     };
   }
+  async readH2Integer(leftBitCount = 0) {
+    const firstByte = await this.readUint8();
+    const prefixBitCount = 8 - leftBitCount;
+    const leftBitValue = firstByte >>> prefixBitCount;
+    const continuationValue = (1 << prefixBitCount) - 1;
+    let i = firstByte & continuationValue;
+    if (i === continuationValue) {
+      let byte, leftShift = 0;
+      do {
+        byte = await this.readUint8();
+        i = i | (byte & 127) << leftShift;
+        leftShift += 7;
+      } while (byte & 128);
+    }
+    return { leftBitValue, i };
+  }
   writeH2HuffmanString(s) {
     const raw = te4.encode(s);
     let bitComment = "";
     let outByte = 0, outBitIndex = 0;
     for (let i = 0, inlen = raw.byteLength; i < inlen; i++) {
       const ch = raw[i];
-      let [encodedValue, remainingBitCount] = H[ch];
+      let [encodedValue, remainingBitCount] = HuffmanCodes[ch];
       if (1) bitComment += ` ${encodedValue.toString(2)}=` + (ch >= 33 && ch <= 126 ? String.fromCharCode(ch) : `0x${ch.toString(16).padStart(2, " ")}`);
       while (remainingBitCount > 0) {
         if (outBitIndex === 8) {
@@ -3686,6 +3771,28 @@ var H2Bytes = class extends Bytes {
       bitComment += ` ${padding.toString(2)}=(padding)`;
     }
     this.comment(`HPACK "${s}":${bitComment}`);
+  }
+  async readH2String() {
+    const { leftBitValue: huffman, i: length } = await this.readH2Integer(1);
+    this.comment(`${huffman ? "Huffman-encoded string" : "raw octet string"}, ${length} bytes`);
+    if (!huffman) return this.readUTF8String(length);
+    const inBytes = await this.readBytes(length);
+    const outBytes = new Uint8Array(length << 1);
+    let inByteIndex = 0, inBitIndex = 0, inByte = 0, outByteIndex = 0;
+    let node;
+    while (inByteIndex < length) {
+      node = HuffmanTree;
+      do {
+        if (inBitIndex === 0) inByte = inBytes[inByteIndex++];
+        const bit = inByte >> 7 - inBitIndex & 1;
+        inBitIndex = inBitIndex === 7 ? 0 : inBitIndex + 1;
+        node = node[bit];
+      } while (typeof node !== "number");
+      outBytes[outByteIndex++] = node;
+    }
+    const str = td3.decode(outBytes.subarray(0, outByteIndex));
+    this.comment(`"${str}"`);
+    return str;
   }
 };
 
@@ -3712,7 +3819,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
   let response = "";
   if (protocolFromALPN === "h2") {
     log("Here\u2019s an HTTP/2 GET request. It starts with a fixed 24-byte preface, which is designed to make HTTP/1.1 servers give up, plus a mandatory SETTINGS frame. And then we get right on with sending the HEADERS, which also specify our GET request:");
-    const request = new H2Bytes();
+    const request = new HPACKBytes();
     request.writeUTF8String("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
     request.comment("\u2014 the connection preface ([RFC 9113 \xA7 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface))");
     const endSettingsFrame = writeFrame(request, 4 /* SETTINGS */, 0);
@@ -3736,7 +3843,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
     const readFn = readQueue.read.bind(readQueue);
     let flagEndStream = false;
     while (!flagEndStream) {
-      const response2 = new Bytes(readFn);
+      const response2 = new HPACKBytes(readFn);
       const { payloadEnd, payloadRemaining, frameType, flags, streamId } = await readFrame(response2);
       let ackFrame;
       switch (frameType) {
@@ -3757,7 +3864,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
             response2.comment(`value: ${settingsValue}`);
           }
           log("This is a SETTINGS frame from the server, which we\u2019ll immediately acknowledge:");
-          ackFrame = new H2Bytes();
+          ackFrame = new HPACKBytes();
           writeFrame(ackFrame, 4 /* SETTINGS */, 0, 1, "ACK server settings");
           break;
         }
@@ -3768,9 +3875,6 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
         }
         case 1 /* HEADERS */:
         case 0 /* DATA */: {
-          log(
-            frameType === 1 /* HEADERS */ ? "The server sends us its response HEADERS:" : "And now we start receiving the response DATA:"
-          );
           const flagPriority = Boolean(flags & 50);
           const flagPadded = Boolean(flags & 8);
           const flagEndHeaders = Boolean(flags & 4);
@@ -3791,7 +3895,34 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
             await response2.readUint32("exclusive, stream dependency");
             await response2.readUint8("weight");
           }
-          await response2.skipRead(payloadRemaining() - paddingBytes, "field block fragment or data");
+          if (frameType === 1 /* HEADERS */) {
+            log("The server sends us its response HEADERS:");
+            while (payloadRemaining() > paddingBytes) {
+              const byte = await response2.readUint8();
+              if (byte & 128) {
+                const tableIndex = byte & 127;
+                if (tableIndex === 0) throw new Error("Illegal zero index for header");
+                const [kStatic, vStatic] = HPACKStaticTable[tableIndex];
+                response2.comment(`${kStatic}: ${vStatic}`);
+              } else {
+                response2.offset--;
+                const { i: tableIndex } = await response2.readH2Integer(byte & 64 ? 2 : 4);
+                let k;
+                if (tableIndex === 0) {
+                  response2.comment("literal header name");
+                  k = await response2.readH2String();
+                } else {
+                  k = HPACKStaticTable[tableIndex][0];
+                  response2.comment(`${k}:`);
+                }
+                response2.changeIndent(1);
+                await response2.readH2String();
+                response2.changeIndent(-1);
+              }
+            }
+          } else {
+            await response2.skipRead(payloadRemaining() - paddingBytes, "data");
+          }
           if (paddingBytes > 0) await response2.skipRead(paddingBytes, "padding (should be zeroes)");
           break;
         }
