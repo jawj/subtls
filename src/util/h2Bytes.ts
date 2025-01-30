@@ -263,20 +263,23 @@ const H = [
 
 export class H2Bytes extends Bytes {
 
-  /**
-   * Currently an extremely limited implementation that can only encode numbers within the 'prefix'
-   * @param i 
-   * @param leftBitCount 
-   * @param leftBitValue 
-   */
   writeH2Integer(i: number, leftBitCount = 0, leftBitValue = 0) {
     if (leftBitCount > 7) throw new Error('leftBitCount must be 7 or less');
+    const iOriginal = i;
     const prefixBitCount = 8 - leftBitCount;
-    const maxInteger = (1 << prefixBitCount) - 1;
-    if (i > maxInteger) throw new Error(`Integer must be ${maxInteger} or less`);
-    let byte = leftBitValue << prefixBitCount;
-    byte = byte | i;
-    this.writeUint8(byte);
+    const continuationValue = (1 << prefixBitCount) - 1;
+    if (i < continuationValue) {  // value fits in 'prefix'
+      this.writeUint8((leftBitValue << prefixBitCount) | i);
+    } else {
+      this.writeUint8((leftBitValue << prefixBitCount) | continuationValue);
+      i -= continuationValue;
+      while (i >= 0x80) {
+        this.writeUint8((i & 0x7f) | 0x80); // least significant bits + continuation bit
+        i = i >> 7;
+      }
+      this.writeUint8(i);
+    }
+    chatty && this.comment(`HPACK integer: ${iOriginal}`);
   }
 
   writeLengthH2Integer(leftBitCount = 0, leftBitValue = 0, comment?: string) {
@@ -299,9 +302,8 @@ export class H2Bytes extends Bytes {
   writeH2HuffmanString(s: string) {
     const raw = te.encode(s);
     let bitComment = chatty && '';
-    const inlen = raw.byteLength;
     let outByte = 0, outBitIndex = 0;
-    for (let i = 0; i < inlen; i++) {
+    for (let i = 0, inlen = raw.byteLength; i < inlen; i++) {
       const ch = raw[i];
       let [encodedValue, remainingBitCount] = H[ch];
       if (chatty) bitComment += ` ${encodedValue.toString(2)}=` + (ch >= 33 && ch <= 126 ? String.fromCharCode(ch) : `0x${ch.toString(16).padStart(2, ' ')}`);
@@ -321,12 +323,12 @@ export class H2Bytes extends Bytes {
     }
     if (outBitIndex > 0) {
       const bitsLeftInByte = 8 - outBitIndex;
-      const padding = (1 << bitsLeftInByte) - 1;
+      const padding = (1 << bitsLeftInByte) - 1; // we could & this with H[256][0], but since that's all 1s there's little point
       outByte = outByte | padding;
       this.writeUint8(outByte);
       bitComment += ` ${padding.toString(2)}=(padding)`;
     }
-    chatty && this.comment(`"${s}":${bitComment}`);
+    chatty && this.comment(`HPACK "${s}":${bitComment}`);
   }
 
 }
