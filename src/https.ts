@@ -51,7 +51,7 @@ export async function https(
   let response = '';
 
   if (protocolFromALPN === 'h2') {
-    chatty && log('Here’s an HTTP/2 GET request:');
+    chatty && log('Here’s an HTTP/2 GET request. It starts with a fixed 24-byte preface, which is designed to make HTTP/1.1 servers give up, plus a mandatory SETTINGS frame. And then we get right on with sending the HEADERS, which also specify our GET request:');
 
     const request = new H2Bytes();
     request.writeUTF8String('PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n');
@@ -91,14 +91,17 @@ export async function https(
     while (!flagEndStream) {
       const response = new Bytes(readFn);
       const { payloadEnd, payloadRemaining, frameType, flags, streamId } = await readFrame(response);
+      let ackFrame;
 
       switch (frameType) {
         case HTTP2FrameType.SETTINGS: {
           if (streamId !== 0) throw new Error('Illegal SETTINGS for non-zero stream ID');
           const ack = Boolean(flags & 0x01);
           if (ack) {
-            response.comment('= ACK peer settings', response.offset - 4);
+            chatty && log('The server now acknowledges our earlier SETTINGS frame:');
+            response.comment('ACK client settings', response.offset - 4);
             if (payloadRemaining() > 0) throw new Error('Illegal non-zero-length SETTINGS ACK');
+            break;
           }
           if (payloadRemaining() % 6 !== 0) throw new Error('Illegal SETTINGS payload length');
           while (payloadRemaining() > 0) {
@@ -107,6 +110,10 @@ export async function https(
             const settingsValue = await response.readUint32();
             chatty && response.comment(`value: ${settingsValue}`);
           }
+
+          chatty && log('This is a SETTINGS frame from the server, which we’ll immediately acknowledge:');
+          ackFrame = new H2Bytes();
+          writeFrame(ackFrame, HTTP2FrameType.SETTINGS, 0x0, 0x01, chatty && 'ACK server settings');
           break;
         }
 
@@ -116,8 +123,12 @@ export async function https(
           break;
         }
 
-        case HTTP2FrameType.DATA:
-        case HTTP2FrameType.HEADERS: {
+        case HTTP2FrameType.HEADERS:
+        case HTTP2FrameType.DATA: {
+          chatty && log(frameType === HTTP2FrameType.HEADERS ?
+            'The server sends us its response HEADERS:' :
+            'And now we start receiving the response DATA:'
+          );
           const flagPriority = Boolean(flags & 0x32);
           const flagPadded = Boolean(flags & 0x08);
           const flagEndHeaders = Boolean(flags & 0x04);
@@ -151,6 +162,11 @@ export async function https(
       }
       payloadEnd();
       chatty && log(...highlightBytes(response.commentedString(), LogColours.server));
+
+      if (ackFrame) {
+        chatty && log(...highlightBytes(ackFrame.commentedString(), LogColours.client));
+        await write(ackFrame.array());
+      }
     }
 
   } else {

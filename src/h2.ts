@@ -82,7 +82,7 @@ export async function readFrame(response: Bytes) {
   const flags = await response.readUint8(chatty && 'flags');
   const streamId = await response.readUint32();
   chatty && response.comment(`stream ID: ${streamId}`);
-  chatty && streamId === 0 && response.comment('= connection as a whole');
+  chatty && streamId === 0 && response.comment('(connection as a whole)');
   response.changeIndent(1);
   const payloadStart = response.offset;
   const payloadEndIndex = payloadStart + payloadLength;

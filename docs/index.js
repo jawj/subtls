@@ -3253,7 +3253,7 @@ async function readFrame(response) {
   const flags = await response.readUint8("flags");
   const streamId = await response.readUint32();
   response.comment(`stream ID: ${streamId}`);
-  streamId === 0 && response.comment("= connection as a whole");
+  streamId === 0 && response.comment("(connection as a whole)");
   response.changeIndent(1);
   const payloadStart = response.offset;
   const payloadEndIndex = payloadStart + payloadLength;
@@ -3622,20 +3622,23 @@ var H = [
   // EOS
 ];
 var H2Bytes = class extends Bytes {
-  /**
-   * Currently an extremely limited implementation that can only encode numbers within the 'prefix'
-   * @param i 
-   * @param leftBitCount 
-   * @param leftBitValue 
-   */
-  writeH2Integer(i, leftBitCount = 0, leftBitValue = 0) {
+  writeH2Integer(i, leftBitCount = 0, leftBitValue = 0, omitValueInComment = false) {
     if (leftBitCount > 7) throw new Error("leftBitCount must be 7 or less");
+    const iOriginal = i;
     const prefixBitCount = 8 - leftBitCount;
-    const maxInteger = (1 << prefixBitCount) - 1;
-    if (i > maxInteger) throw new Error(`Integer must be ${maxInteger} or less`);
-    let byte = leftBitValue << prefixBitCount;
-    byte = byte | i;
-    this.writeUint8(byte);
+    const continuationValue = (1 << prefixBitCount) - 1;
+    if (i < continuationValue) {
+      this.writeUint8(leftBitValue << prefixBitCount | i);
+    } else {
+      this.writeUint8(leftBitValue << prefixBitCount | continuationValue);
+      i -= continuationValue;
+      while (i >= 128) {
+        this.writeUint8(i & 127 | 128);
+        i = i >> 7;
+      }
+      this.writeUint8(i);
+    }
+    this.comment("HPACK integer:" + (omitValueInComment ? "" : ` ${iOriginal}`));
   }
   writeLengthH2Integer(leftBitCount = 0, leftBitValue = 0, comment) {
     this.ensureWriteAvailable(1);
@@ -3647,7 +3650,7 @@ var H2Bytes = class extends Bytes {
       const length = this.offset - endOffset;
       const currentOffset = this.offset;
       this.offset = startOffset;
-      this.writeH2Integer(length, leftBitCount, leftBitValue);
+      this.writeH2Integer(length, leftBitCount, leftBitValue, true);
       this.comment(this.lengthComment(length, comment));
       this.offset = currentOffset;
       this.changeIndent(-1);
@@ -3656,9 +3659,8 @@ var H2Bytes = class extends Bytes {
   writeH2HuffmanString(s) {
     const raw = te4.encode(s);
     let bitComment = "";
-    const inlen = raw.byteLength;
     let outByte = 0, outBitIndex = 0;
-    for (let i = 0; i < inlen; i++) {
+    for (let i = 0, inlen = raw.byteLength; i < inlen; i++) {
       const ch = raw[i];
       let [encodedValue, remainingBitCount] = H[ch];
       if (1) bitComment += ` ${encodedValue.toString(2)}=` + (ch >= 33 && ch <= 126 ? String.fromCharCode(ch) : `0x${ch.toString(16).padStart(2, " ")}`);
@@ -3683,7 +3685,7 @@ var H2Bytes = class extends Bytes {
       this.writeUint8(outByte);
       bitComment += ` ${padding.toString(2)}=(padding)`;
     }
-    this.comment(`"${s}":${bitComment}`);
+    this.comment(`HPACK "${s}":${bitComment}`);
   }
 };
 
@@ -3709,7 +3711,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
   const { read, write, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: protocols });
   let response = "";
   if (protocolFromALPN === "h2") {
-    log("Here\u2019s an HTTP/2 GET request:");
+    log("Here\u2019s an HTTP/2 GET request. It starts with a fixed 24-byte preface, which is designed to make HTTP/1.1 servers give up, plus a mandatory SETTINGS frame. And then we get right on with sending the HEADERS, which also specify our GET request:");
     const request = new H2Bytes();
     request.writeUTF8String("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
     request.comment("\u2014 the connection preface ([RFC 9113 \xA7 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface))");
@@ -3736,13 +3738,16 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
     while (!flagEndStream) {
       const response2 = new Bytes(readFn);
       const { payloadEnd, payloadRemaining, frameType, flags, streamId } = await readFrame(response2);
+      let ackFrame;
       switch (frameType) {
         case 4 /* SETTINGS */: {
           if (streamId !== 0) throw new Error("Illegal SETTINGS for non-zero stream ID");
           const ack = Boolean(flags & 1);
           if (ack) {
-            response2.comment("= ACK peer settings", response2.offset - 4);
+            log("The server now acknowledges our earlier SETTINGS frame:");
+            response2.comment("ACK client settings", response2.offset - 4);
             if (payloadRemaining() > 0) throw new Error("Illegal non-zero-length SETTINGS ACK");
+            break;
           }
           if (payloadRemaining() % 6 !== 0) throw new Error("Illegal SETTINGS payload length");
           while (payloadRemaining() > 0) {
@@ -3751,6 +3756,9 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
             const settingsValue = await response2.readUint32();
             response2.comment(`value: ${settingsValue}`);
           }
+          log("This is a SETTINGS frame from the server, which we\u2019ll immediately acknowledge:");
+          ackFrame = new H2Bytes();
+          writeFrame(ackFrame, 4 /* SETTINGS */, 0, 1, "ACK server settings");
           break;
         }
         case 8 /* WINDOW_UPDATE */: {
@@ -3758,8 +3766,11 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
           response2.comment(`window size increment: ${winSizeInc} bytes`);
           break;
         }
-        case 0 /* DATA */:
-        case 1 /* HEADERS */: {
+        case 1 /* HEADERS */:
+        case 0 /* DATA */: {
+          log(
+            frameType === 1 /* HEADERS */ ? "The server sends us its response HEADERS:" : "And now we start receiving the response DATA:"
+          );
           const flagPriority = Boolean(flags & 50);
           const flagPadded = Boolean(flags & 8);
           const flagEndHeaders = Boolean(flags & 4);
@@ -3791,6 +3802,10 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
       }
       payloadEnd();
       log(...highlightBytes(response2.commentedString(), "#88c" /* server */));
+      if (ackFrame) {
+        log(...highlightBytes(ackFrame.commentedString(), "#8cc" /* client */));
+        await write(ackFrame.array());
+      }
     }
   } else {
     headers["Host"] ?? (headers["Host"] = host);

@@ -263,7 +263,7 @@ const H = [
 
 export class H2Bytes extends Bytes {
 
-  writeH2Integer(i: number, leftBitCount = 0, leftBitValue = 0) {
+  writeH2Integer(i: number, leftBitCount = 0, leftBitValue = 0, omitValueInComment = false) {
     if (leftBitCount > 7) throw new Error('leftBitCount must be 7 or less');
     const iOriginal = i;
     const prefixBitCount = 8 - leftBitCount;
@@ -279,7 +279,7 @@ export class H2Bytes extends Bytes {
       }
       this.writeUint8(i);
     }
-    chatty && this.comment(`HPACK integer: ${iOriginal}`);
+    chatty && this.comment('HPACK integer:' + (omitValueInComment ? '' : ` ${iOriginal}`));
   }
 
   writeLengthH2Integer(leftBitCount = 0, leftBitValue = 0, comment?: string) {
@@ -292,7 +292,7 @@ export class H2Bytes extends Bytes {
       const length = this.offset - endOffset;
       const currentOffset = this.offset;
       this.offset = startOffset;
-      this.writeH2Integer(length, leftBitCount, leftBitValue);
+      this.writeH2Integer(length, leftBitCount, leftBitValue, true);
       chatty && this.comment(this.lengthComment(length, comment));
       this.offset = currentOffset;
       this.changeIndent(-1);
