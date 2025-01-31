@@ -3845,8 +3845,14 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
     request.comment('= indexed field, ":scheme: https"');
     request.writeHPACKInt(2, 1, 1);
     request.comment('= indexed field, ":method: GET"');
-    request.writeHPACKInt(4, 1, 1);
-    request.comment('= indexed field, ":path: /"');
+    if (reqPath === "/") {
+      request.writeHPACKInt(4, 1, 1);
+      request.comment('= indexed field, ":path: /"');
+    } else {
+      request.writeHPACKInt(4, 4, 0);
+      request.comment('= indexed field name / field not added to index, ":path:"');
+      request.writeHPACKString(reqPath);
+    }
     request.writeHPACKInt(1, 2, 1);
     request.comment('= indexed field name / field added to index, ":authority:"');
     request.writeHPACKString(host);

@@ -63,12 +63,22 @@ export async function https(
     endSettingsFrame();
 
     const endHeadersFrame = writeFrame(request, HTTP2FrameType.HEADERS, 0x1, 0x04 | 0x01, 'END_HEADERS (0x04) | END_STREAM (0x01)');
+
     request.writeHPACKInt(7, 1, 1);
     chatty && request.comment('= indexed field, ":scheme: https"');
+
     request.writeHPACKInt(2, 1, 1);
     chatty && request.comment('= indexed field, ":method: GET"');
-    request.writeHPACKInt(4, 1, 1);
-    chatty && request.comment('= indexed field, ":path: /"');
+
+    if (reqPath === '/') {
+      request.writeHPACKInt(4, 1, 1);
+      chatty && request.comment('= indexed field, ":path: /"');
+
+    } else {
+      request.writeHPACKInt(4, 4, 0);
+      chatty && request.comment('= indexed field name / field not added to index, ":path:"');
+      request.writeHPACKString(reqPath);
+    }
 
     request.writeHPACKInt(1, 2, 1);
     chatty && request.comment('= indexed field name / field added to index, ":authority:"');
