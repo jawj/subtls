@@ -62,14 +62,18 @@ export async function https(
     request.writeUint32(0x00000000, chatty && 'value: disabled');
     endSettingsFrame();
 
-    const endHeadersFrame = writeFrame(request, HTTP2FrameType.HEADERS, 0x1, 0x04 | 0x01, 'END_HEADERS | END_STREAM');
-    request.writeUint8(0x87, chatty && ':scheme: https');
-    request.writeUint8(0x82, chatty && ':method: GET');
-    request.writeUint8(0x84, chatty && ':path: /');
-    request.writeUint8(0x41, chatty && ':authority');
-    const endAuthority = request.writeLengthH2Integer(1, 1, 'indexable, static-Huffman-encoded, literal header value');  // 1 bit, value of 1 => literal value
-    request.writeH2HuffmanString(host);
-    endAuthority();
+    const endHeadersFrame = writeFrame(request, HTTP2FrameType.HEADERS, 0x1, 0x04 | 0x01, 'END_HEADERS (0x04) | END_STREAM (0x01)');
+    request.writeHPACKInt(7, 1, 1);
+    chatty && request.comment('= indexed field, ":scheme: https"');
+    request.writeHPACKInt(2, 1, 1);
+    chatty && request.comment('= indexed field, ":method: GET"');
+    request.writeHPACKInt(4, 1, 1);
+    chatty && request.comment('= indexed field, ":path: /"');
+
+    request.writeHPACKInt(1, 2, 1);
+    chatty && request.comment('= indexed field name / field added to index, ":authority:"');
+    request.writeHPACKString(host);
+
     endHeadersFrame();
 
     // const goAwayFrame = writeFrame(request, HTTP2FrameType.GOAWAY, 0x0);
@@ -154,28 +158,27 @@ export async function https(
 
             while (payloadRemaining() > paddingBytes) {
               const byte = await response.readUint8();
+              response.offset--;
 
               if (byte & 0x80) {  // Indexed Header Field Representation: https://datatracker.ietf.org/doc/html/rfc7541#section-6.1
-                const tableIndex = byte & 0x7f;
+                const { i: tableIndex } = await response.readHPACKInt(1);
                 if (tableIndex === 0) throw new Error('Illegal zero index for header');
 
                 const [kStatic, vStatic] = HPACKStaticTable[tableIndex]!;
-                chatty && response.comment(`${kStatic}: ${vStatic}`);
+                chatty && response.comment(`= indexed field, "${kStatic}: ${vStatic}"`);
 
               } else {
-                response.offset--;
-                const { i: tableIndex } = await response.readH2Integer((byte & 0x40) ? 2 : 4);
+                const indexed = byte & 0x40;
+                const { i: tableIndex, leftBitValue } = await response.readHPACKInt(indexed ? 2 : 4);
                 let k;
                 if (tableIndex === 0) {
-                  chatty && response.comment('literal header name');
-                  k = await response.readH2String();
+                  chatty && response.comment(`= literal field / ${indexed ? '' : leftBitValue === 1 ? 'never ' : 'not '}added to index`);
+                  k = await response.readHPACKString();
                 } else {
                   k = HPACKStaticTable[tableIndex]![0];
-                  chatty && response.comment(`${k}:`);
+                  chatty && response.comment(`= indexed field name / field ${indexed ? '' : leftBitValue === 1 ? 'never ' : 'not '}added to index, "${k}:"`);
                 }
-                response.changeIndent(1);
-                await response.readH2String();
-                response.changeIndent(-1);
+                await response.readHPACKString();
 
               }
             }
