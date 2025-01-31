@@ -356,29 +356,29 @@ export class HPACKBytes extends Bytes {
     if (outByteIndex < inBytesLength) {
       this.writeHPACKInt(outByteIndex, 1, 1);
       chatty && this.comment(`= Huffman-encoded string, ${outByteIndex} bytes`);
-      this.changeIndent(1);
+      chatty && this.changeIndent(1);
       this.writeBytes(outBytes.subarray(0, outByteIndex));
       chatty && this.comment(`"${s}":${bitComment}`);
-      this.changeIndent(-1);
+      chatty && this.changeIndent(-1);
 
     } else {
       this.writeHPACKInt(inBytesLength, 1, 0);
       chatty && this.comment(`= raw octet string, ${inBytesLength} bytes`);
-      this.changeIndent(1);
+      chatty && this.changeIndent(1);
       this.writeBytes(inBytes);
       chatty && this.comment(`"${s}"`);
-      this.changeIndent(-1);
+      chatty && this.changeIndent(-1);
     }
   }
 
   async readHPACKString() {
     const { leftBitValue: huffman, i: length } = await this.readHPACKInt(1);
     chatty && this.comment(`= ${huffman ? 'Huffman-encoded string' : 'raw octet string'}, ${length} bytes`);
-    this.changeIndent(1);
+    chatty && this.changeIndent(1);
 
     if (!huffman) {
       const str = await this.readUTF8String(length);
-      this.changeIndent(-1);
+      chatty && this.changeIndent(-1);
       return str;
     }
 
@@ -410,8 +410,8 @@ export class HPACKBytes extends Bytes {
     }
 
     const str = td.decode(outBytes.subarray(0, outByteIndex));
-    this.comment(`"${str}"`);
-    this.changeIndent(-1);
+    chatty && this.comment(`"${str}"`);
+    chatty && this.changeIndent(-1);
     return str;
   }
 
