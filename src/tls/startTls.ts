@@ -201,5 +201,11 @@ export async function startTls(
     networkWrite(allRecords);
   };
 
-  return { read, write, userCert, protocolFromALPN } as const;
+  const end = async () => {
+    // send a close-notify Alert record
+    const [alertRecord] = await makeEncryptedTlsRecords(new Uint8Array([0x01, 0x00]), applicationEncrypter, RecordType.Alert);
+    networkWrite(alertRecord);
+  };
+
+  return { read, write, end, userCert, protocolFromALPN } as const;
 }

@@ -11,6 +11,7 @@ import { WebSocketOptions } from './util/wsTransport';
 import { HPACKStaticTable, HTTP2FrameType, HTTP2SettingsType, HTTP2SettingsTypeNames, readFrame, writeFrame } from './h2';
 import { HPACKBytes } from './util/hpackBytes';
 import { LazyReadFunctionReadQueue } from './util/readQueue';
+import { GrowableData } from './util/array';
 
 const txtDec = new TextDecoder();
 
@@ -40,18 +41,20 @@ export async function https(
 
   const transport = await transportFactory(host, port, {
     close: () => {
-      chatty && log('Connection closed (this message may appear out of order, before the last data has been decrypted and logged)');
+      chatty && log('Connection closed by remote peer (this message may show up out of order, before the last data has been decrypted and logged)');
     },
     ...socketOptions,
   });
 
   const rootCerts = await rootCertsPromise;
-  const { read, write, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: protocols });
+  const { read, write, end, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: protocols });
 
   let response = '';
 
   if (protocolFromALPN === 'h2') {
-    chatty && log('Here’s an HTTP/2 GET request. It starts with a fixed 24-byte preface, which is designed to make HTTP/1.1 servers give up, plus a mandatory SETTINGS frame. And then we get right on with sending the HEADERS, which also specify our GET request:');
+    chatty && log('Here’s an HTTP/2 GET request. It starts with a fixed 24-byte preface, which is designed to make HTTP/1.1 servers give up, plus a mandatory SETTINGS frame. And then we get right on with sending the HEADERS, which also specify our GET request (we don’t wait to hear about the server’s settings, but we can be pretty sure it will accept a small request on a single stream).');
+
+    const body = new GrowableData();
 
     const request = new HPACKBytes();
     request.writeUTF8String('PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n');
@@ -86,11 +89,6 @@ export async function https(
 
     endHeadersFrame();
 
-    // const goAwayFrame = writeFrame(request, HTTP2FrameType.GOAWAY, 0x0);
-    // request.writeUint32(0x01, 'Last-Stream-Id');
-    // request.writeUint32(0x0, 'NO_ERROR');
-    // goAwayFrame();
-
     chatty && log(...highlightBytes(request.commentedString(), LogColours.client));
 
     chatty && log('Which goes to the server encrypted like so:');
@@ -110,6 +108,7 @@ export async function https(
       switch (frameType) {
         case HTTP2FrameType.SETTINGS: {
           if (streamId !== 0) throw new Error('Illegal SETTINGS for non-zero stream ID');
+
           const ack = Boolean(flags & 0x01);
           if (ack) {
             chatty && log('The server now acknowledges our earlier SETTINGS frame:');
@@ -117,6 +116,7 @@ export async function https(
             if (payloadRemaining() > 0) throw new Error('Illegal non-zero-length SETTINGS ACK');
             break;
           }
+
           if (payloadRemaining() % 6 !== 0) throw new Error('Illegal SETTINGS payload length');
           while (payloadRemaining() > 0) {
             const settingsType = await response.readUint16() as HTTP2SettingsType;
@@ -138,6 +138,7 @@ export async function https(
         }
 
         case HTTP2FrameType.HEADERS:
+        case HTTP2FrameType.CONTINUATION:
         case HTTP2FrameType.DATA: {
 
           const flagPriority = Boolean(flags & 0x32);
@@ -163,8 +164,8 @@ export async function https(
             await response.readUint8('weight');
           }
 
-          if (frameType === HTTP2FrameType.HEADERS) {
-            chatty && log('The server sends us its response HEADERS:');
+          if (frameType === HTTP2FrameType.HEADERS || frameType === HTTP2FrameType.CONTINUATION) {
+            chatty && log('The server sends us response HEADERS:');
 
             while (payloadRemaining() > paddingBytes) {
               const byte = await response.readUint8();
@@ -189,30 +190,54 @@ export async function https(
                   chatty && response.comment(`= indexed field name / field ${indexed ? '' : leftBitValue === 1 ? 'never ' : 'not '}added to index, "${k}:"`);
                 }
                 await response.readHPACKString();
-
               }
             }
 
-          } else {
-            await response.skipRead(payloadRemaining() - paddingBytes, 'data');
+          } else {  // i.e. DATA
+            body.append(await response.readBytes(payloadRemaining() - paddingBytes));
+            chatty && response.comment('data');
           }
           if (paddingBytes > 0) await response.skipRead(paddingBytes, 'padding (should be zeroes)');
           break;
         }
 
         default: {
-          await response.readUTF8String(payloadRemaining());
-          chatty && response.comment('payload');
+          await response.readBytes(payloadRemaining());
+          chatty && response.comment('payload for unhandled frame type');
         }
       }
       payloadEnd();
+
       chatty && log(...highlightBytes(response.commentedString(), LogColours.server));
+      if (frameType === HTTP2FrameType.DATA) chatty && log(txtDec.decode(body.getData()));
 
       if (ackFrame) {
         chatty && log(...highlightBytes(ackFrame.commentedString(), LogColours.client));
         await write(ackFrame.array());
       }
     }
+
+    // chatty && log('All that remains is for each side to tell the other to GOAWAY:');
+
+    // const clientGoAway = new Bytes();
+    // const clientGoAwayEnd = writeFrame(clientGoAway, HTTP2FrameType.GOAWAY, 0x00);
+    // clientGoAway.writeUint32(0x01, chatty && 'Last-Stream-Id');
+    // clientGoAway.writeUint32(0x00, chatty && 'NO_ERROR');
+    // clientGoAwayEnd();
+    // chatty && log(...highlightBytes(clientGoAway.commentedString(), LogColours.client));
+    // await write(clientGoAway.array());
+
+    // const serverGoAway = new Bytes(readFn);
+    // const { payloadRemaining } = await readFrame(serverGoAway);
+    // await serverGoAway.readUint32(chatty && 'Last-Stream-ID');
+    // await serverGoAway.expectUint32(0x00, chatty && 'NO_ERROR');
+    // if (payloadRemaining()) await serverGoAway.readUTF8String(payloadRemaining());
+
+    // chatty && log(...highlightBytes(serverGoAway.commentedString(), LogColours.server));
+
+    chatty && log('At this point, we could tell the server to GOAWAY, but most servers appear not to do anything in response. We could also just close the underlying WebSocket/TCP connection.');
+    chatty && log('What we actually do is send a TLS close-notify Alert record, which causes the server to hang up. Unencrypted, that’s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).');
+    await end();
 
   } else {
     headers['Host'] ??= host;

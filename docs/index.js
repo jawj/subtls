@@ -772,7 +772,7 @@ var Bytes = class {
         if (i < len - 1) s += `
 ${indentChars.repeat(indent)}`;
       }
-      if (this.fetchPoints.has(i + 1)) s += "--- next TLS record ---\n";
+      if (this.fetchPoints.has(i + 1)) s += "\n--- next TLS record ---\n";
     }
     return s;
   }
@@ -2827,7 +2827,11 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
     const allRecords = localWroteFinishedRecords ? concat(...encryptedRecords) : concat(clientCipherChangeData, ...encryptedClientFinished, ...encryptedRecords);
     networkWrite(allRecords);
   };
-  return { read, write, userCert, protocolFromALPN };
+  const end = async () => {
+    const [alertRecord] = await makeEncryptedTlsRecords(new Uint8Array([1, 0]), applicationEncrypter, 21 /* Alert */);
+    networkWrite(alertRecord);
+  };
+  return { read, write, end, userCert, protocolFromALPN };
 }
 
 // src/util/parseURL.ts
@@ -2855,7 +2859,7 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
   const transport = await transportFactory(host, port, {
     close: () => {
       if (!done) throw new Error("Unexpected connection close");
-      log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");
+      log("Connection closed by remote peer (this message may show up out of order, before the last data has been decrypted and logged)");
     }
   });
   log("First of all, we send a fixed 8-byte sequence that asks the Postgres server if SSL/TLS is available:");
@@ -3824,15 +3828,16 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
   const reqPath = url.pathname + url.search;
   const transport = await transportFactory(host, port, {
     close: () => {
-      log("Connection closed (this message may appear out of order, before the last data has been decrypted and logged)");
+      log("Connection closed by remote peer (this message may show up out of order, before the last data has been decrypted and logged)");
     },
     ...socketOptions
   });
   const rootCerts = await rootCertsPromise2;
-  const { read, write, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: protocols });
+  const { read, write, end, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: protocols });
   let response = "";
   if (protocolFromALPN === "h2") {
-    log("Here\u2019s an HTTP/2 GET request. It starts with a fixed 24-byte preface, which is designed to make HTTP/1.1 servers give up, plus a mandatory SETTINGS frame. And then we get right on with sending the HEADERS, which also specify our GET request:");
+    log("Here\u2019s an HTTP/2 GET request. It starts with a fixed 24-byte preface, which is designed to make HTTP/1.1 servers give up, plus a mandatory SETTINGS frame. And then we get right on with sending the HEADERS, which also specify our GET request (we don\u2019t wait to hear about the server\u2019s settings, but we can be pretty sure it will accept a small request on a single stream).");
+    const body = new GrowableData();
     const request = new HPACKBytes();
     request.writeUTF8String("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
     request.comment("\u2014 the connection preface ([RFC 9113 \xA7 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface))");
@@ -3896,6 +3901,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
           break;
         }
         case 1 /* HEADERS */:
+        case 9 /* CONTINUATION */:
         case 0 /* DATA */: {
           const flagPriority = Boolean(flags & 50);
           const flagPadded = Boolean(flags & 8);
@@ -3917,8 +3923,8 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
             await response2.readUint32("exclusive, stream dependency");
             await response2.readUint8("weight");
           }
-          if (frameType === 1 /* HEADERS */) {
-            log("The server sends us its response HEADERS:");
+          if (frameType === 1 /* HEADERS */ || frameType === 9 /* CONTINUATION */) {
+            log("The server sends us response HEADERS:");
             while (payloadRemaining() > paddingBytes) {
               const byte = await response2.readUint8();
               response2.offset--;
@@ -3942,23 +3948,28 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
               }
             }
           } else {
-            await response2.skipRead(payloadRemaining() - paddingBytes, "data");
+            body.append(await response2.readBytes(payloadRemaining() - paddingBytes));
+            response2.comment("data");
           }
           if (paddingBytes > 0) await response2.skipRead(paddingBytes, "padding (should be zeroes)");
           break;
         }
         default: {
-          await response2.readUTF8String(payloadRemaining());
-          response2.comment("payload");
+          await response2.readBytes(payloadRemaining());
+          response2.comment("payload for unhandled frame type");
         }
       }
       payloadEnd();
       log(...highlightBytes(response2.commentedString(), "#88c" /* server */));
+      if (frameType === 0 /* DATA */) log(txtDec2.decode(body.getData()));
       if (ackFrame) {
         log(...highlightBytes(ackFrame.commentedString(), "#8cc" /* client */));
         await write(ackFrame.array());
       }
     }
+    log("At this point, we could tell the server to GOAWAY, but most servers appear not to do anything in response. We could also just close the underlying WebSocket/TCP connection.");
+    log("What we actually do is send a TLS close-notify Alert record, which causes the server to hang up. Unencrypted, that\u2019s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).");
+    await end();
   } else {
     headers["Host"] ?? (headers["Host"] = host);
     log("Here\u2019s a GET request:");
@@ -3993,10 +4004,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
 }
 
 // src/util/wsTransport.ts
-async function wsTransport(host, port, {
-  close = () => {
-  }
-}) {
+async function wsTransport(host, port, opts) {
   const ws = await new Promise((resolve) => {
     const wsURL = location.hostname === "localhost" ? "ws://localhost:6544" : "wss://subtls-wsproxy.jawj.workers.dev";
     const ws2 = new WebSocket(`${wsURL}/?address=${host}:${port}`);
@@ -4005,7 +4013,7 @@ async function wsTransport(host, port, {
     ws2.addEventListener("error", (err) => {
       console.log("ws error:", err);
     });
-    ws2.addEventListener("close", close);
+    if (opts.close) ws2.addEventListener("close", opts.close);
   });
   const reader = new WebSocketReadQueue(ws);
   const stats = { read: 0, written: 0 };
@@ -4018,7 +4026,8 @@ async function wsTransport(host, port, {
     stats.written += data.byteLength ?? data.size ?? data.length;
     return ws.send(data);
   };
-  return { read, write, stats };
+  const end = (code, reason) => ws.close(code, reason);
+  return { read, write, end, stats };
 }
 
 // src/util/rootCerts.ts

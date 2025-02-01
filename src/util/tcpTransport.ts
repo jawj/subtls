@@ -12,20 +12,20 @@ export interface SocketOptions {
 export default async function tcpTransport(
   host: string,
   port: string | number,
-  { close, timeout, error }: SocketOptions,
+  opts: SocketOptions,
 ) {
   const socket = connect(Number(port), host);
 
   socket.on('error', (e: any) => {
-    if (error) error(e);
+    if (opts.error) opts.error(e);
     else console.error('socket error:', e);
     socket.destroy();
   });
 
-  if (close) socket.on('close', close);
+  if (opts.close) socket.on('close', opts.close);
 
-  if (timeout) {
-    const [timeoutMs, timeoutFn] = timeout;
+  if (opts.timeout) {
+    const [timeoutMs, timeoutFn] = opts.timeout;
     socket.setTimeout(timeoutMs);
     socket.on('timeout', () => {
       timeoutFn();
@@ -49,5 +49,7 @@ export default async function tcpTransport(
     return socket.write(data);
   };
 
-  return { read, write, stats };
+  const end = () => socket.end();
+
+  return { read, write, end, stats };
 }

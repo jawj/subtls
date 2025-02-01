@@ -7,9 +7,7 @@ export interface WebSocketOptions {
 export default async function wsTransport(
   host: string,
   port: string | number,
-  {
-    close = () => { }
-  }: WebSocketOptions
+  opts: WebSocketOptions
 ) {
   const ws = await new Promise<WebSocket>(resolve => {
     const wsURL = location.hostname === 'localhost' ? 'ws://localhost:6544' : 'wss://subtls-wsproxy.jawj.workers.dev';
@@ -17,7 +15,7 @@ export default async function wsTransport(
     ws.binaryType = 'arraybuffer';
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('error', (err) => { console.log('ws error:', err); });
-    ws.addEventListener('close', close);
+    if (opts.close) ws.addEventListener('close', opts.close);
   });
 
   const reader = new WebSocketReadQueue(ws);
@@ -34,5 +32,7 @@ export default async function wsTransport(
     return ws.send(data);
   };
 
-  return { read, write, stats };
+  const end = (code?: number, reason?: string) => ws.close(code, reason);
+
+  return { read, write, end, stats };
 }

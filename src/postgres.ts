@@ -39,7 +39,7 @@ export async function postgres(
   const transport = await transportFactory(host, port, {
     close: () => {
       if (!done) throw new Error('Unexpected connection close');
-      chatty && log('Connection closed (this message may appear out of order, before the last data has been decrypted and logged)');
+      chatty && log('Connection closed by remote peer (this message may show up out of order, before the last data has been decrypted and logged)');
     }
   });
 

@@ -436,7 +436,7 @@ export class Bytes {
         s += ` ${comment}`;
         if (i < len - 1) s += `\n${indentChars.repeat(indent)}`;
       }
-      if (this.fetchPoints.has(i + 1)) s += '--- next TLS record ---\n';
+      if (this.fetchPoints.has(i + 1)) s += '\n--- next TLS record ---\n';
     }
     return s;
   }
