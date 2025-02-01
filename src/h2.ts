@@ -124,8 +124,9 @@ export function writeFrame(request: Bytes, frameType: HTTP2FrameType, streamId: 
   const payloadLengthOffset = request.offset;
   request.skipWrite(3);
   request.writeUint8(frameType, chatty && `frame type: ${HTTP2FrameTypeNames[frameType]}`);
-  request.writeUint8(flags, chatty && `flags: ${flagComments ?? 'none'}`);
+  request.writeUint8(flags, chatty && `frame flags: ${flagComments ?? 'none'}`);
   request.writeUint32(streamId, chatty && `stream ID: ${streamId}`);
+  chatty && streamId === 0 && request.comment('= applies to the connection as a whole');
   request.changeIndent(1);
   const payloadStart = request.offset;
 
@@ -133,7 +134,7 @@ export function writeFrame(request: Bytes, frameType: HTTP2FrameType, streamId: 
     const frameEnd = request.offset;
     const payloadLength = frameEnd - payloadStart;
     request.offset = payloadLengthOffset;
-    request.writeUint24(payloadLength, chatty && `HTTP/2 frame payload length: ${payloadLength} bytes`);
+    request.writeUint24(payloadLength, chatty && `New HTTP/2 frame with payload length: ${payloadLength} bytes`);
     request.offset = frameEnd;
     request.changeIndent(-1);
   };
@@ -141,13 +142,13 @@ export function writeFrame(request: Bytes, frameType: HTTP2FrameType, streamId: 
 
 export async function readFrame(response: Bytes) {
   const payloadLength = await response.readUint24();
-  chatty && response.comment(`HTTP/2 frame payload length: ${payloadLength} bytes`);
+  chatty && response.comment(`New HTTP/2 frame with payload length: ${payloadLength} bytes`);
   const frameType = await response.readUint8() as HTTP2FrameType;
   chatty && response.comment(`frame type: ${HTTP2FrameTypeNames[frameType]}`);
-  const flags = await response.readUint8(chatty && 'flags');
+  const flags = await response.readUint8(chatty && 'frame flags');
   const streamId = await response.readUint32();
   chatty && response.comment(`stream ID: ${streamId}`);
-  chatty && streamId === 0 && response.comment('(connection as a whole)');
+  chatty && streamId === 0 && response.comment('= applies to the connection as a whole');
   response.changeIndent(1);
   const payloadStart = response.offset;
   const payloadEndIndex = payloadStart + payloadLength;

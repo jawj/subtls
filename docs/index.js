@@ -3302,28 +3302,29 @@ function writeFrame(request, frameType, streamId, flags = 0, flagComments) {
   const payloadLengthOffset = request.offset;
   request.skipWrite(3);
   request.writeUint8(frameType, `frame type: ${HTTP2FrameTypeNames[frameType]}`);
-  request.writeUint8(flags, `flags: ${flagComments ?? "none"}`);
+  request.writeUint8(flags, `frame flags: ${flagComments ?? "none"}`);
   request.writeUint32(streamId, `stream ID: ${streamId}`);
+  streamId === 0 && request.comment("= applies to the connection as a whole");
   request.changeIndent(1);
   const payloadStart = request.offset;
   return () => {
     const frameEnd = request.offset;
     const payloadLength = frameEnd - payloadStart;
     request.offset = payloadLengthOffset;
-    request.writeUint24(payloadLength, `HTTP/2 frame payload length: ${payloadLength} bytes`);
+    request.writeUint24(payloadLength, `New HTTP/2 frame with payload length: ${payloadLength} bytes`);
     request.offset = frameEnd;
     request.changeIndent(-1);
   };
 }
 async function readFrame(response) {
   const payloadLength = await response.readUint24();
-  response.comment(`HTTP/2 frame payload length: ${payloadLength} bytes`);
+  response.comment(`New HTTP/2 frame with payload length: ${payloadLength} bytes`);
   const frameType = await response.readUint8();
   response.comment(`frame type: ${HTTP2FrameTypeNames[frameType]}`);
-  const flags = await response.readUint8("flags");
+  const flags = await response.readUint8("frame flags");
   const streamId = await response.readUint32();
   response.comment(`stream ID: ${streamId}`);
-  streamId === 0 && response.comment("(connection as a whole)");
+  streamId === 0 && response.comment("= applies to the connection as a whole");
   response.changeIndent(1);
   const payloadStart = response.offset;
   const payloadEndIndex = payloadStart + payloadLength;
@@ -3765,7 +3766,7 @@ var HPACKBytes = class extends Bytes {
     }
     if (outByteIndex < inBytesLength) {
       this.writeHPACKInt(outByteIndex, 1, 1);
-      this.comment(`= Huffman-encoded string, ${outByteIndex} bytes`);
+      this.comment(`= [Huffman-encoded string](https://datatracker.ietf.org/doc/html/rfc7541#appendix-B), ${outByteIndex} bytes`);
       this.changeIndent(1);
       this.writeBytes(outBytes.subarray(0, outByteIndex));
       this.comment(`"${s}":${bitComment}`);
@@ -3790,11 +3791,12 @@ var HPACKBytes = class extends Bytes {
     }
     const inBytes = await this.readBytes(length);
     const outBytes = new Uint8Array(length << 1);
-    let inByteIndex = 0, inBitIndex = 0, inByte = inBytes[inByteIndex], outByteIndex = 0;
+    let inByteIndex = 0, inBitIndex = 0, outByteIndex = 0, inByte;
     let node, branch;
     outer: while (true) {
       node = HuffmanTree;
-      let inWord = inBytes[inByteIndex] << 8;
+      inByte = inBytes[inByteIndex];
+      let inWord = inByte << 8;
       if (inBitIndex > 3) inWord |= inBytes[inByteIndex + 1];
       const rightShift = 11 - inBitIndex;
       branch = inWord >>> rightShift & 31;
@@ -3852,18 +3854,20 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
   const { read, write, end, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: protocols });
   let response = "";
   if (protocolFromALPN === "h2") {
-    log("Here\u2019s an HTTP/2 GET request. It starts with a fixed 24-byte preface, which is designed to make HTTP/1.1 servers give up, plus a mandatory SETTINGS frame. And then we get right on with sending the HEADERS, which also specify our GET request (we don\u2019t wait to hear about the server\u2019s settings, but we can be pretty sure it will accept a small request on a single stream).");
+    log("It\u2019s time for an HTTP/2 GET request. This starts with a fixed 24-byte preface ([RFC 9113 \xA7 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface)), which is designed to make HTTP/1.1 servers throw in the towel, plus a mandatory [SETTINGS frame](https://datatracker.ietf.org/doc/html/rfc9113#section-6.5).");
+    log("Then we get on with sending the [HEADERS frame](https://datatracker.ietf.org/doc/html/rfc9113#name-headers), including [pseudo-headers](https://datatracker.ietf.org/doc/html/rfc9113#PseudoHeaderFields) \u2014 :scheme, :method, :path and :authority \u2014 that specify the request. We don\u2019t wait to hear about the server\u2019s settings first, because we can be pretty sure it\u2019s going to accept a small request over a single stream.");
+    log("These HTTP/2 headers are compressed using a system called HPACK, which is complex enough to get its own RFC, [RFC 7542](https://datatracker.ietf.org/doc/html/rfc7541).");
     const body = new GrowableData();
     const request = new HPACKBytes();
     request.writeUTF8String("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
-    request.comment("\u2014 the connection preface ([RFC 9113 \xA7 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface))");
+    request.comment("\u2014 the connection preface");
     const endSettingsFrame = writeFrame(request, 4 /* SETTINGS */, 0);
     request.writeUint16(2, "setting: SETTINGS_ENABLE_PUSH");
     request.writeUint32(0, "value: disabled");
     endSettingsFrame();
     const endHeadersFrame = writeFrame(request, 1 /* HEADERS */, 1, 4 | 1, "END_HEADERS (0x04) | END_STREAM (0x01)");
     request.writeHPACKInt(7, 1, 1);
-    request.comment('= indexed field, ":scheme: https"');
+    request.comment('= [indexed field](https://datatracker.ietf.org/doc/html/rfc7541#section-6.1), ":scheme: https"');
     request.writeHPACKInt(2, 1, 1);
     request.comment('= indexed field, ":method: GET"');
     if (reqPath === "/") {
@@ -3871,11 +3875,11 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
       request.comment('= indexed field, ":path: /"');
     } else {
       request.writeHPACKInt(4, 4, 0);
-      request.comment('= indexed field name / field not added to index, ":path:"');
+      request.comment('= indexed field name / [field not added to index](https://datatracker.ietf.org/doc/html/rfc7541#section-6.2.2), ":path:"');
       request.writeHPACKString(reqPath);
     }
     request.writeHPACKInt(1, 2, 1);
-    request.comment('= indexed field name / field added to index, ":authority:"');
+    request.comment('= indexed field name / [field added to index](https://datatracker.ietf.org/doc/html/rfc7541#section-6.2.1), ":authority:"');
     request.writeHPACKString(host);
     endHeadersFrame();
     log(...highlightBytes(request.commentedString(), "#8cc" /* client */));
@@ -3894,7 +3898,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
           if (streamId !== 0) throw new Error("Illegal SETTINGS for non-zero stream ID");
           const ack = Boolean(flags & 1);
           if (ack) {
-            log("The server now acknowledges our earlier SETTINGS frame:");
+            log("And the server acknowledges our earlier SETTINGS frame:");
             response2.comment("ACK client settings", response2.offset - 4);
             if (payloadRemaining() > 0) throw new Error("Illegal non-zero-length SETTINGS ACK");
             break;
@@ -3912,6 +3916,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
           break;
         }
         case 8 /* WINDOW_UPDATE */: {
+          log("Now we get a [WINDOW_UPDATE frame](https://datatracker.ietf.org/doc/html/rfc9113#name-window_update):");
           const winSizeInc = await response2.readUint32();
           response2.comment(`window size increment: ${winSizeInc} bytes`);
           break;
@@ -3940,7 +3945,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
             await response2.readUint8("weight");
           }
           if (frameType === 1 /* HEADERS */ || frameType === 9 /* CONTINUATION */) {
-            log("The server sends us response HEADERS:");
+            log("The server sends us its response HEADERS:");
             while (payloadRemaining() > paddingBytes) {
               const byte = await response2.readUint8();
               response2.offset--;
@@ -3964,6 +3969,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
               }
             }
           } else {
+            log("And finally we receive the response body [DATA](https://datatracker.ietf.org/doc/html/rfc9113#name-data):");
             body.append(await response2.readBytes(payloadRemaining() - paddingBytes));
             response2.comment("data");
           }
@@ -3983,8 +3989,8 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
         await write(ackFrame.array());
       }
     }
-    log("At this point, we could tell the server to GOAWAY, but most servers appear not to do anything in response. We could also just close the underlying WebSocket/TCP connection.");
-    log("What we actually do is send a TLS close-notify Alert record, which causes the server to hang up. Unencrypted, that\u2019s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).");
+    log("At this point, we could tell the server to [GOAWAY](https://datatracker.ietf.org/doc/html/rfc9113#name-goaway), but most servers appear not to do anything in response. We could also just close the underlying WebSocket/TCP connection.");
+    log("Instead, we take the middle way and send a TLS close-notify Alert record, which causes the server to hang up. Unencrypted, that\u2019s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).");
     await end();
   } else {
     headers["Host"] ?? (headers["Host"] = host);

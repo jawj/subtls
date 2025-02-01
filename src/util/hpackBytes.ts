@@ -358,7 +358,7 @@ export class HPACKBytes extends Bytes {
 
     if (outByteIndex < inBytesLength) {
       this.writeHPACKInt(outByteIndex, 1, 1);
-      chatty && this.comment(`= Huffman-encoded string, ${outByteIndex} bytes`);
+      chatty && this.comment(`= [Huffman-encoded string](https://datatracker.ietf.org/doc/html/rfc7541#appendix-B), ${outByteIndex} bytes`);
       chatty && this.changeIndent(1);
       this.writeBytes(outBytes.subarray(0, outByteIndex));
       chatty && this.comment(`"${s}":${bitComment}`);
@@ -388,13 +388,14 @@ export class HPACKBytes extends Bytes {
     const inBytes = await this.readBytes(length);
     const outBytes = new Uint8Array(length << 1);  // smallest codes are 5 bits, so decoded length can't be more than 2x encoded
 
-    let inByteIndex = 0, inBitIndex = 0, inByte = inBytes[inByteIndex], outByteIndex = 0;
+    let inByteIndex = 0, inBitIndex = 0, outByteIndex = 0, inByte;
     let node: any, branch: number;
 
     outer: while (true) {
       node = HuffmanTree;
 
-      let inWord = inBytes[inByteIndex] << 8;
+      inByte = inBytes[inByteIndex];
+      let inWord = inByte << 8;
       if (inBitIndex > 3) inWord |= inBytes[inByteIndex + 1];
       const rightShift = 11 - inBitIndex;
       branch = (inWord >>> rightShift) & 0x1f;

@@ -52,13 +52,15 @@ export async function https(
   let response = '';
 
   if (protocolFromALPN === 'h2') {
-    chatty && log('Here’s an HTTP/2 GET request. It starts with a fixed 24-byte preface, which is designed to make HTTP/1.1 servers give up, plus a mandatory SETTINGS frame. And then we get right on with sending the HEADERS, which also specify our GET request (we don’t wait to hear about the server’s settings, but we can be pretty sure it will accept a small request on a single stream).');
+    chatty && log('It’s time for an HTTP/2 GET request. This starts with a fixed 24-byte preface ([RFC 9113 § 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface)), which is designed to make HTTP/1.1 servers throw in the towel, plus a mandatory [SETTINGS frame](https://datatracker.ietf.org/doc/html/rfc9113#section-6.5).');
+    chatty && log('Then we get on with sending the [HEADERS frame](https://datatracker.ietf.org/doc/html/rfc9113#name-headers), including [pseudo-headers](https://datatracker.ietf.org/doc/html/rfc9113#PseudoHeaderFields) — :scheme, :method, :path and :authority — that specify the request. We don’t wait to hear about the server’s settings first, because we can be pretty sure it’s going to accept a small request over a single stream.');
+    chatty && log('These HTTP/2 headers are compressed using a system called HPACK, which is complex enough to get its own RFC, [RFC 7542](https://datatracker.ietf.org/doc/html/rfc7541).');
 
     const body = new GrowableData();
 
     const request = new HPACKBytes();
     request.writeUTF8String('PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n');
-    chatty && request.comment('— the connection preface ([RFC 9113 § 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface))');
+    chatty && request.comment('— the connection preface');
 
     const endSettingsFrame = writeFrame(request, HTTP2FrameType.SETTINGS, 0x0);
     request.writeUint16(0x0002, chatty && 'setting: SETTINGS_ENABLE_PUSH');
@@ -68,7 +70,7 @@ export async function https(
     const endHeadersFrame = writeFrame(request, HTTP2FrameType.HEADERS, 0x1, 0x04 | 0x01, 'END_HEADERS (0x04) | END_STREAM (0x01)');
 
     request.writeHPACKInt(7, 1, 1);
-    chatty && request.comment('= indexed field, ":scheme: https"');
+    chatty && request.comment('= [indexed field](https://datatracker.ietf.org/doc/html/rfc7541#section-6.1), ":scheme: https"');
 
     request.writeHPACKInt(2, 1, 1);
     chatty && request.comment('= indexed field, ":method: GET"');
@@ -79,12 +81,12 @@ export async function https(
 
     } else {
       request.writeHPACKInt(4, 4, 0);
-      chatty && request.comment('= indexed field name / field not added to index, ":path:"');
+      chatty && request.comment('= indexed field name / [field not added to index](https://datatracker.ietf.org/doc/html/rfc7541#section-6.2.2), ":path:"');
       request.writeHPACKString(reqPath);
     }
 
     request.writeHPACKInt(1, 2, 1);
-    chatty && request.comment('= indexed field name / field added to index, ":authority:"');
+    chatty && request.comment('= indexed field name / [field added to index](https://datatracker.ietf.org/doc/html/rfc7541#section-6.2.1), ":authority:"');
     request.writeHPACKString(host);
 
     endHeadersFrame();
@@ -111,7 +113,7 @@ export async function https(
 
           const ack = Boolean(flags & 0x01);
           if (ack) {
-            chatty && log('The server now acknowledges our earlier SETTINGS frame:');
+            chatty && log('And the server acknowledges our earlier SETTINGS frame:');
             response.comment('ACK client settings', response.offset - 4);
             if (payloadRemaining() > 0) throw new Error('Illegal non-zero-length SETTINGS ACK');
             break;
@@ -132,6 +134,7 @@ export async function https(
         }
 
         case HTTP2FrameType.WINDOW_UPDATE: {
+          chatty && log('Now we get a [WINDOW_UPDATE frame](https://datatracker.ietf.org/doc/html/rfc9113#name-window_update):');
           const winSizeInc = await response.readUint32();
           chatty && response.comment(`window size increment: ${winSizeInc} bytes`);
           break;
@@ -165,7 +168,7 @@ export async function https(
           }
 
           if (frameType === HTTP2FrameType.HEADERS || frameType === HTTP2FrameType.CONTINUATION) {
-            chatty && log('The server sends us response HEADERS:');
+            chatty && log('The server sends us its response HEADERS:');
 
             while (payloadRemaining() > paddingBytes) {
               const byte = await response.readUint8();
@@ -194,6 +197,7 @@ export async function https(
             }
 
           } else {  // i.e. DATA
+            chatty && log('And finally we receive the response body [DATA](https://datatracker.ietf.org/doc/html/rfc9113#name-data):');
             body.append(await response.readBytes(payloadRemaining() - paddingBytes));
             chatty && response.comment('data');
           }
@@ -235,8 +239,8 @@ export async function https(
 
     // chatty && log(...highlightBytes(serverGoAway.commentedString(), LogColours.server));
 
-    chatty && log('At this point, we could tell the server to GOAWAY, but most servers appear not to do anything in response. We could also just close the underlying WebSocket/TCP connection.');
-    chatty && log('What we actually do is send a TLS close-notify Alert record, which causes the server to hang up. Unencrypted, that’s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).');
+    chatty && log('At this point, we could tell the server to [GOAWAY](https://datatracker.ietf.org/doc/html/rfc9113#name-goaway), but most servers appear not to do anything in response. We could also just close the underlying WebSocket/TCP connection.');
+    chatty && log('Instead, we take the middle way and send a TLS close-notify Alert record, which causes the server to hang up. Unencrypted, that’s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).');
     await end();
 
   } else {
