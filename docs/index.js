@@ -3766,14 +3766,14 @@ var HPACKBytes = class extends Bytes {
     }
     if (outByteIndex < inBytesLength) {
       this.writeHPACKInt(outByteIndex, 1, 1);
-      this.comment(`= [Huffman-encoded string](https://datatracker.ietf.org/doc/html/rfc7541#appendix-B), ${outByteIndex} bytes`);
+      this.comment(`= [Huffman-encoded string](https://datatracker.ietf.org/doc/html/rfc7541#appendix-B), ${outByteIndex} byte${outByteIndex === 1 ? "" : "s"}`);
       this.changeIndent(1);
       this.writeBytes(outBytes.subarray(0, outByteIndex));
       this.comment(`"${s}":${bitComment}`);
       this.changeIndent(-1);
     } else {
       this.writeHPACKInt(inBytesLength, 1, 0);
-      this.comment(`= raw octet string, ${inBytesLength} bytes`);
+      this.comment(`= raw octet string, ${inBytesLength} byte${inBytesLength === 1 ? "" : "s"}`);
       this.changeIndent(1);
       this.writeBytes(inBytes);
       this.comment(`"${s}"`);
@@ -3782,7 +3782,7 @@ var HPACKBytes = class extends Bytes {
   }
   async readHPACKString() {
     const { leftBitValue: huffman, i: length } = await this.readHPACKInt(1);
-    this.comment(`= ${huffman ? "Huffman-encoded string" : "raw octet string"}, ${length} bytes`);
+    this.comment(`= ${huffman ? "Huffman-encoded string" : "raw octet string"}, ${length} byte${length === 1 ? "" : "s"}`);
     this.changeIndent(1);
     if (!huffman) {
       const str2 = await this.readUTF8String(length);

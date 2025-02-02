@@ -358,7 +358,7 @@ export class HPACKBytes extends Bytes {
 
     if (outByteIndex < inBytesLength) {
       this.writeHPACKInt(outByteIndex, 1, 1);
-      chatty && this.comment(`= [Huffman-encoded string](https://datatracker.ietf.org/doc/html/rfc7541#appendix-B), ${outByteIndex} bytes`);
+      chatty && this.comment(`= [Huffman-encoded string](https://datatracker.ietf.org/doc/html/rfc7541#appendix-B), ${outByteIndex} byte${outByteIndex === 1 ? '' : 's'}`);
       chatty && this.changeIndent(1);
       this.writeBytes(outBytes.subarray(0, outByteIndex));
       chatty && this.comment(`"${s}":${bitComment}`);
@@ -366,7 +366,7 @@ export class HPACKBytes extends Bytes {
 
     } else {
       this.writeHPACKInt(inBytesLength, 1, 0);
-      chatty && this.comment(`= raw octet string, ${inBytesLength} bytes`);
+      chatty && this.comment(`= raw octet string, ${inBytesLength} byte${inBytesLength === 1 ? '' : 's'}`);
       chatty && this.changeIndent(1);
       this.writeBytes(inBytes);
       chatty && this.comment(`"${s}"`);
@@ -376,7 +376,7 @@ export class HPACKBytes extends Bytes {
 
   async readHPACKString() {
     const { leftBitValue: huffman, i: length } = await this.readHPACKInt(1);
-    chatty && this.comment(`= ${huffman ? 'Huffman-encoded string' : 'raw octet string'}, ${length} bytes`);
+    chatty && this.comment(`= ${huffman ? 'Huffman-encoded string' : 'raw octet string'}, ${length} byte${length === 1 ? '' : 's'}`);
     chatty && this.changeIndent(1);
 
     if (!huffman) {
