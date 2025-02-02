@@ -525,7 +525,7 @@ var GrowableData = class {
 var indentChars = "\xB7\xB7 ";
 
 // src/util/bytes.ts
-var initialSize = 1024;
+var initialSize = 256;
 var growthFactor = 2;
 var txtEnc = new TextEncoder();
 var txtDec = new TextDecoder();
@@ -565,6 +565,10 @@ var Bytes = class {
       this.endOfReadableData = data.length;
     }
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
+  }
+  changeIndent(indentDelta) {
+    this.indent += indentDelta;
+    this.indents[this.offset] = this.indent;
   }
   readRemaining() {
     return this.endOfReadableData - this.offset;
@@ -610,12 +614,10 @@ var Bytes = class {
   expectLength(length, indentDelta = 1) {
     const startOffset = this.offset;
     const endOffset = startOffset + length;
-    this.indent += indentDelta;
-    this.indents[startOffset] = this.indent;
+    this.changeIndent(indentDelta);
     return [
       () => {
-        this.indent -= indentDelta;
-        this.indents[this.offset] = this.indent;
+        this.changeIndent(-indentDelta);
         if (this.offset !== endOffset) throw new Error(`${length} bytes expected but ${this.offset - startOffset}\
  advanced`);
       },
@@ -683,7 +685,6 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
     return result;
   }
   async readUint24(comment) {
-    await this.ensureReadAvailable(3);
     const msb = await this.readUint8();
     const lsbs = await this.readUint16();
     const result = (msb << 16) + lsbs;
@@ -819,8 +820,7 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
     const startOffset = this.offset;
     this.offset += lengthBytes;
     const endOffset = this.offset;
-    this.indent += 1;
-    this.indents[endOffset] = this.indent;
+    this.changeIndent(1);
     return () => {
       const length = this.offset - (inclusive ? startOffset : endOffset);
       switch (lengthBytes) {
@@ -840,8 +840,7 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
         default:
           throw new Error(`Invalid length for length field: ${lengthBytes}`);
       }
-      this.indent -= 1;
-      this.indents[this.offset] = this.indent;
+      this.changeIndent(-1);
     };
   }
   writeLengthUint8(comment) {
@@ -889,7 +888,7 @@ lows"}` : `${length === 0 ? "no" : length} bytes${comment ? ` of ${comment}` : "
         if (i < len - 1) s += `
 ${indentChars.repeat(indent)}`;
       }
-      if (this.fetchPoints.has(i + 1)) s += "--- next TLS record ---\n";
+      if (this.fetchPoints.has(i + 1)) s += "\n--- next TLS record ---\n";
     }
     return s;
   }
@@ -2470,9 +2469,9 @@ SSA-PKCS1-v1_5", hash }, false, ["verify"]);
   return verifiedToTrustedRoot;
 }
 
-// src/tls/readEncryptedHandshake.ts
+// src/tls/parseEncryptedHandshake.ts
 var txtEnc3 = new TextEncoder();
-async function readEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
+async function parseEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
   let protocolFromALPN = void 0;
   await hs.expectUint8(8, 0);
   const [eeMessageEnd] = await hs.expectLengthUint24();
@@ -2652,7 +2651,7 @@ AES-GCM" }, false, ["decrypt"]);
 AES-GCM" }, false, ["encrypt"]);
   const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
   const handshakeBytes = bytesFromEncryptedTlsRecords(networkRead, handshakeDecrypter, 22 /* Handshake */);
-  const { handshakeData: serverHandshake, clientCertRequested, userCert } = await readEncryptedHandshake(
+  const { handshakeData: serverHandshake, clientCertRequested, userCert, protocolFromALPN } = await parseEncryptedHandshake(
     host,
     handshakeBytes,
     handshakeKeys.serverSecret,
@@ -2661,7 +2660,7 @@ AES-GCM" }, false, ["encrypt"]);
     requireServerTlsExtKeyUsage,
     requireDigitalSigKeyUsage
   );
-  const clientCipherChange = new Bytes(6);
+  const clientCipherChange = new Bytes();
   clientCipherChange.writeUint8(20, 0);
   clientCipherChange.writeUint16(771, 0);
   const endClientCipherChangePayload = clientCipherChange.writeLengthUint16();
@@ -2670,7 +2669,7 @@ AES-GCM" }, false, ["encrypt"]);
   const clientCipherChangeData = clientCipherChange.array();
   let clientCertRecordData = new Uint8Array(0);
   if (clientCertRequested) {
-    const clientCertRecord = new Bytes(8);
+    const clientCertRecord = new Bytes();
     clientCertRecord.writeUint8(11, 0);
     const endClientCerts = clientCertRecord.writeLengthUint24("client certificate data");
     clientCertRecord.writeUint8(0, 0);
@@ -2686,7 +2685,7 @@ AES-GCM" }, false, ["encrypt"]);
 SHA-256" } }, false, ["sign"]);
   const verifyDataBuffer = await cryptoProxy_default.sign("HMAC", verifyHmacKey, wholeHandshakeHash);
   const verifyData = new Uint8Array(verifyDataBuffer);
-  const clientFinishedRecord = new Bytes(36);
+  const clientFinishedRecord = new Bytes();
   clientFinishedRecord.writeUint8(20, 0);
   const clientFinishedRecordEnd = clientFinishedRecord.writeLengthUint24(0);
   clientFinishedRecord.writeBytes(verifyData);
@@ -2724,7 +2723,11 @@ SHA-256" } }, false, ["sign"]);
     ...encryptedClientFinished, ...encryptedRecords);
     networkWrite(allRecords);
   };
-  return { read, write, userCert };
+  const end = async () => {
+    const [alertRecord] = await makeEncryptedTlsRecords(new Uint8Array([1, 0]), applicationEncrypter, 21 /* Alert */);
+    networkWrite(alertRecord);
+  };
+  return { read, write, end, userCert, protocolFromALPN };
 }
 
 // src/util/rootCerts.ts
@@ -2765,17 +2768,612 @@ function stableStringify(x, replacer = (_, v) => v, indent) {
   return JSON.stringify(x, deterministicReplacer, indent);
 }
 
+// src/h2.ts
+var HPACKStaticTable = [
+  // https://datatracker.ietf.org/doc/html/rfc7541#appendix-A
+  void 0,
+  // no zero index
+  [":authority"],
+  [":method", "GET"],
+  [":method", "POST"],
+  [":path", "/"],
+  [":path", "/index.html"],
+  [":scheme", "http"],
+  [":scheme", "https"],
+  [":status", "200"],
+  [":status", "204"],
+  [":status", "206"],
+  [":status", "304"],
+  [":status", "400"],
+  [":status", "404"],
+  [":status", "500"],
+  ["accept-charset"],
+  ["accept-encoding", "gzip, deflate"],
+  ["accept-language"],
+  ["accept-ranges"],
+  ["accept"],
+  ["access-control-allow-origin"],
+  ["age"],
+  ["allow"],
+  ["authorization"],
+  ["cache-control"],
+  ["content-disposition"],
+  ["content-encoding"],
+  ["content-language"],
+  ["content-length"],
+  ["content-location"],
+  ["content-range"],
+  ["content-type"],
+  ["cookie"],
+  ["date"],
+  ["etag"],
+  ["expect"],
+  ["expires"],
+  ["from"],
+  ["host"],
+  ["if-match"],
+  ["if-modified-since"],
+  ["if-none-match"],
+  ["if-range"],
+  ["if-unmodified-since"],
+  ["last-modified"],
+  ["link"],
+  ["location"],
+  ["max-forwards"],
+  ["proxy-authenticate"],
+  ["proxy-authorization"],
+  ["range"],
+  ["referer"],
+  ["refresh"],
+  ["retry-after"],
+  ["server"],
+  ["set-cookie"],
+  ["strict-transport-security"],
+  ["transfer-encoding"],
+  ["user-agent"],
+  ["vary"],
+  ["via"],
+  ["www-authenticate"]
+];
+function writeFrame(request, frameType, streamId, flags = 0, flagComments) {
+  const payloadLengthOffset = request.offset;
+  request.skipWrite(3);
+  request.writeUint8(frameType, 0);
+  request.writeUint8(flags, 0);
+  request.writeUint32(streamId, 0);
+  request.changeIndent(1);
+  const payloadStart = request.offset;
+  return () => {
+    const frameEnd = request.offset;
+    const payloadLength = frameEnd - payloadStart;
+    request.offset = payloadLengthOffset;
+    request.writeUint24(payloadLength, 0);
+    request.offset = frameEnd;
+    request.changeIndent(-1);
+  };
+}
+async function readFrame(response) {
+  const payloadLength = await response.readUint24();
+  const frameType = await response.readUint8();
+  const flags = await response.readUint8(0);
+  const streamId = await response.readUint32();
+  response.changeIndent(1);
+  const payloadStart = response.offset;
+  const payloadEndIndex = payloadStart + payloadLength;
+  const payloadEnd = () => {
+    if (response.offset !== payloadEndIndex) throw new Error("Not at payload end");
+    response.changeIndent(-1);
+  };
+  const payloadRemaining = () => payloadEndIndex - response.offset;
+  return { payloadEnd, payloadRemaining, frameType, flags, streamId };
+}
+
+// src/util/hpackBytes.ts
+var te3 = new TextEncoder();
+var td3 = new TextDecoder();
+var HuffmanCodes = [
+  [8184, 13],
+  [8388568, 23],
+  [268435426, 28],
+  [268435427, 28],
+  [268435428, 28],
+  [268435429, 28],
+  [268435430, 28],
+  [268435431, 28],
+  [268435432, 28],
+  [16777194, 24],
+  [1073741820, 30],
+  [268435433, 28],
+  [268435434, 28],
+  [1073741821, 30],
+  [268435435, 28],
+  [268435436, 28],
+  [268435437, 28],
+  [268435438, 28],
+  [268435439, 28],
+  [268435440, 28],
+  [268435441, 28],
+  [268435442, 28],
+  [1073741822, 30],
+  [268435443, 28],
+  [268435444, 28],
+  [268435445, 28],
+  [268435446, 28],
+  [268435447, 28],
+  [268435448, 28],
+  [268435449, 28],
+  [268435450, 28],
+  [268435451, 28],
+  [20, 6],
+  [1016, 10],
+  // !
+  [1017, 10],
+  // "
+  [4090, 12],
+  // #
+  [8185, 13],
+  // $
+  [21, 6],
+  // %
+  [248, 8],
+  // &
+  [2042, 11],
+  // '
+  [1018, 10],
+  // (
+  [1019, 10],
+  // )
+  [249, 8],
+  // *
+  [2043, 11],
+  // +
+  [250, 8],
+  // ,
+  [22, 6],
+  // -
+  [23, 6],
+  // .
+  [24, 6],
+  // /
+  [0, 5],
+  // 0
+  [1, 5],
+  // 1
+  [2, 5],
+  // 2
+  [25, 6],
+  // 3
+  [26, 6],
+  // 4
+  [27, 6],
+  // 5
+  [28, 6],
+  // 6
+  [29, 6],
+  // 7
+  [30, 6],
+  // 8
+  [31, 6],
+  // 9
+  [92, 7],
+  // :
+  [251, 8],
+  // ;
+  [32764, 15],
+  // <
+  [32, 6],
+  // =
+  [4091, 12],
+  // >
+  [1020, 10],
+  // ?
+  [8186, 13],
+  // @
+  [33, 6],
+  // A
+  [93, 7],
+  // B
+  [94, 7],
+  // C
+  [95, 7],
+  // D
+  [96, 7],
+  // E
+  [97, 7],
+  // F
+  [98, 7],
+  // G
+  [99, 7],
+  // H
+  [100, 7],
+  // I
+  [101, 7],
+  // J
+  [102, 7],
+  // K
+  [103, 7],
+  // L
+  [104, 7],
+  // M
+  [105, 7],
+  // N
+  [106, 7],
+  // O
+  [107, 7],
+  // P
+  [108, 7],
+  // Q
+  [109, 7],
+  // R
+  [110, 7],
+  // S
+  [111, 7],
+  // T
+  [112, 7],
+  // U
+  [113, 7],
+  // V
+  [114, 7],
+  // W
+  [252, 8],
+  // X
+  [115, 7],
+  // Y
+  [253, 8],
+  // Z
+  [8187, 13],
+  // [
+  [524272, 19],
+  // \
+  [8188, 13],
+  // ]
+  [16380, 14],
+  // ^
+  [34, 6],
+  // _
+  [32765, 15],
+  // `
+  [3, 5],
+  // a
+  [35, 6],
+  // b
+  [4, 5],
+  // c
+  [36, 6],
+  // d
+  [5, 5],
+  // e
+  [37, 6],
+  // f
+  [38, 6],
+  // g
+  [39, 6],
+  // h
+  [6, 5],
+  // i
+  [116, 7],
+  // j
+  [117, 7],
+  // k
+  [40, 6],
+  // l
+  [41, 6],
+  // m
+  [42, 6],
+  // n
+  [7, 5],
+  // o
+  [43, 6],
+  // p
+  [118, 7],
+  // q
+  [44, 6],
+  // r
+  [8, 5],
+  // s
+  [9, 5],
+  // t
+  [45, 6],
+  // u
+  [119, 7],
+  // v
+  [120, 7],
+  // w
+  [121, 7],
+  // x
+  [122, 7],
+  // y
+  [123, 7],
+  // z
+  [32766, 15],
+  // {
+  [2044, 11],
+  // |
+  [16381, 14],
+  // }
+  [8189, 13],
+  // ~
+  [268435452, 28],
+  [1048550, 20],
+  [4194258, 22],
+  [1048551, 20],
+  [1048552, 20],
+  [4194259, 22],
+  [4194260, 22],
+  [4194261, 22],
+  [8388569, 23],
+  [4194262, 22],
+  [8388570, 23],
+  [8388571, 23],
+  [8388572, 23],
+  [8388573, 23],
+  [8388574, 23],
+  [16777195, 24],
+  [8388575, 23],
+  [16777196, 24],
+  [16777197, 24],
+  [4194263, 22],
+  [8388576, 23],
+  [16777198, 24],
+  [8388577, 23],
+  [8388578, 23],
+  [8388579, 23],
+  [8388580, 23],
+  [2097116, 21],
+  [4194264, 22],
+  [8388581, 23],
+  [4194265, 22],
+  [8388582, 23],
+  [8388583, 23],
+  [16777199, 24],
+  [4194266, 22],
+  [2097117, 21],
+  [1048553, 20],
+  [4194267, 22],
+  [4194268, 22],
+  [8388584, 23],
+  [8388585, 23],
+  [2097118, 21],
+  [8388586, 23],
+  [4194269, 22],
+  [4194270, 22],
+  [16777200, 24],
+  [2097119, 21],
+  [4194271, 22],
+  [8388587, 23],
+  [8388588, 23],
+  [2097120, 21],
+  [2097121, 21],
+  [4194272, 22],
+  [2097122, 21],
+  [8388589, 23],
+  [4194273, 22],
+  [8388590, 23],
+  [8388591, 23],
+  [1048554, 20],
+  [4194274, 22],
+  [4194275, 22],
+  [4194276, 22],
+  [8388592, 23],
+  [4194277, 22],
+  [4194278, 22],
+  [8388593, 23],
+  [67108832, 26],
+  [67108833, 26],
+  [1048555, 20],
+  [524273, 19],
+  [4194279, 22],
+  [8388594, 23],
+  [4194280, 22],
+  [33554412, 25],
+  [67108834, 26],
+  [67108835, 26],
+  [67108836, 26],
+  [134217694, 27],
+  [134217695, 27],
+  [67108837, 26],
+  [16777201, 24],
+  [33554413, 25],
+  [524274, 19],
+  [2097123, 21],
+  [67108838, 26],
+  [134217696, 27],
+  [134217697, 27],
+  [67108839, 26],
+  [134217698, 27],
+  [16777202, 24],
+  [2097124, 21],
+  [2097125, 21],
+  [67108840, 26],
+  [67108841, 26],
+  [268435453, 28],
+  [134217699, 27],
+  [134217700, 27],
+  [134217701, 27],
+  [1048556, 20],
+  [16777203, 24],
+  [1048557, 20],
+  [2097126, 21],
+  [4194281, 22],
+  [2097127, 21],
+  [2097128, 21],
+  [8388595, 23],
+  [4194282, 22],
+  [4194283, 22],
+  [33554414, 25],
+  [33554415, 25],
+  [16777204, 24],
+  [16777205, 24],
+  [67108842, 26],
+  [8388596, 23],
+  [67108843, 26],
+  [134217702, 27],
+  [67108844, 26],
+  [67108845, 26],
+  [134217703, 27],
+  [134217704, 27],
+  [134217705, 27],
+  [134217706, 27],
+  [134217707, 27],
+  [268435454, 28],
+  [134217708, 27],
+  [134217709, 27],
+  [134217710, 27],
+  [134217711, 27],
+  [134217712, 27],
+  [67108846, 26],
+  [1073741823, 30]
+  // EOS
+];
+var HuffmanTree = [48, 49, 50, 97, 99, 101, 105, 111, 115, 116, [32, 37], [45, 46], [47, 51], [52, 53], [54, 55],
+[56, 57], [61, 65], [95, 98], [100, 102], [103, 104], [108, 109], [110, 112], [114, 117], [[58, 66], [67, 68]],
+[[69, 70], [71, 72]], [[73, 74], [75, 76]], [[77, 78], [79, 80]], [[81, 82], [83, 84]], [[85, 86], [87, 89]], [
+[106, 107], [113, 118]], [[119, 120], [121, 122]], [[[38, 42], [44, 59]], [[88, 90], [[[33, 34], [40, 41]], [[
+63, [39, 43]], [[124, [35, 62]], [[[0, 36], [64, 91]], [[93, 126], [[94, 125], [[60, 96], [123, [[[[92, 195], [
+208, [128, 130]]], [[[131, 162], [184, 194]], [[224, 226], [[153, 161], [167, 172]]]]], [[[[[176, 177], [179, 209]],
+[[216, 217], [227, 229]]], [[[230, [129, 132]], [[133, 134], [136, 146]]], [[[154, 156], [160, 163]], [[164, 169],
+[170, 173]]]]], [[[[[178, 181], [185, 186]], [[187, 189], [190, 196]]], [[[198, 228], [232, 233]], [[[1, 135],
+[137, 138]], [[139, 140], [141, 143]]]]], [[[[[147, 149], [150, 151]], [[152, 155], [157, 158]]], [[[165, 166],
+[168, 174]], [[175, 180], [182, 183]]]], [[[[188, 191], [197, 231]], [[239, [9, 142]], [[144, 145], [148, 159]]]],
+[[[[171, 206], [215, 225]], [[236, 237], [[199, 207], [234, 235]]]], [[[[[192, 193], [200, 201]], [[202, 205],
+[210, 213]]], [[[218, 219], [238, 240]], [[242, 243], [255, [203, 204]]]]], [[[[[211, 212], [214, 221]], [[222,
+223], [241, 244]]], [[[245, 246], [247, 248]], [[250, 251], [252, 253]]]], [[[[254, [2, 3]], [[4, 5], [6, 7]]],
+[[[8, 11], [12, 14]], [[15, 16], [17, 18]]]], [[[[19, 20], [21, 23]], [[24, 25], [26, 27]]], [[[28, 29], [30, 31]],
+[[127, 220], [249, [[10, 13], [22]]]]]]]]]]]]]]]]]]]]]]]]]];
+var HPACKBytes = class extends Bytes {
+  writeHPACKInt(i, leftBitCount = 0, leftBitValue = 0, suppressComment = false) {
+    if (leftBitCount > 7) throw new Error("leftBitCount must be 7 or less");
+    const iOriginal = i;
+    const prefixBitCount = 8 - leftBitCount;
+    const continuationValue = (1 << prefixBitCount) - 1;
+    if (i < continuationValue) {
+      this.writeUint8(leftBitValue << prefixBitCount | i);
+    } else {
+      this.writeUint8(leftBitValue << prefixBitCount | continuationValue);
+      i -= continuationValue;
+      while (i >= 128) {
+        this.writeUint8(i & 127 | 128);
+        i = i >> 7;
+      }
+      this.writeUint8(i);
+    }
+  }
+  async readHPACKInt(leftBitCount = 0, suppressComment = false) {
+    const firstByte = await this.readUint8();
+    const prefixBitCount = 8 - leftBitCount;
+    const leftBitValue = firstByte >>> prefixBitCount;
+    const continuationValue = (1 << prefixBitCount) - 1;
+    let i = firstByte & continuationValue;
+    if (i === continuationValue) {
+      let byte, leftShift = 0;
+      do {
+        byte = await this.readUint8();
+        i += (byte & 127) << leftShift;
+        leftShift += 7;
+      } while (byte & 128);
+    }
+    return { leftBitValue, i };
+  }
+  writeHPACKString(s) {
+    const inBytes = te3.encode(s);
+    const inBytesLength = inBytes.byteLength;
+    const outBytes = new Uint8Array(inBytesLength);
+    let outByte = 0, outByteIndex = 0, outBitIndex = 0;
+    let bitComment = 0;
+    huffman: {
+      for (let i = 0; i < inBytesLength; i++) {
+        const ch = inBytes[i];
+        let [encodedValue, remainingBitCount] = HuffmanCodes[ch];
+        if (0) bitComment += ` ${encodedValue.toString(2)}=` + (ch >= 33 && ch <= 126 ? String.fromCharCode(ch) :
+        `0x${ch.toString(16).padStart(2, " ")}`);
+        while (remainingBitCount > 0) {
+          if (outBitIndex === 8) {
+            outBytes[outByteIndex++] = outByte;
+            if (outByteIndex === inBytesLength) break huffman;
+            outByte = outBitIndex = 0;
+          }
+          const bitsLeftInByte = 8 - outBitIndex;
+          const bitsToWrite = Math.min(bitsLeftInByte, remainingBitCount);
+          const rightShiftBits = remainingBitCount - bitsLeftInByte;
+          outByte = outByte | (rightShiftBits >= 0 ? encodedValue >>> rightShiftBits : encodedValue << -rightShiftBits);
+          remainingBitCount -= bitsToWrite;
+          encodedValue = encodedValue & (1 << remainingBitCount) - 1;
+          outBitIndex += bitsToWrite;
+        }
+      }
+      if (outBitIndex > 0) {
+        const bitsLeftInByte = 8 - outBitIndex;
+        const padding = (1 << bitsLeftInByte) - 1;
+        outByte = outByte | padding;
+        outBytes[outByteIndex++] = outByte;
+        bitComment += ` ${padding.toString(2)}=(padding)`;
+      }
+    }
+    if (outByteIndex < inBytesLength) {
+      this.writeHPACKInt(outByteIndex, 1, 1);
+      this.writeBytes(outBytes.subarray(0, outByteIndex));
+    } else {
+      this.writeHPACKInt(inBytesLength, 1, 0);
+      this.writeBytes(inBytes);
+    }
+  }
+  async readHPACKString() {
+    const { leftBitValue: huffman, i: length } = await this.readHPACKInt(1);
+    if (!huffman) {
+      const str2 = await this.readUTF8String(length);
+      return str2;
+    }
+    const inBytes = await this.readBytes(length);
+    const outBytes = new Uint8Array(length << 1);
+    let inByteIndex = 0, inBitIndex = 0, outByteIndex = 0, inByte;
+    let node, branch;
+    outer: while (true) {
+      node = HuffmanTree;
+      inByte = inBytes[inByteIndex];
+      let inWord = inByte << 8;
+      if (inBitIndex > 3) inWord |= inBytes[inByteIndex + 1];
+      const rightShift = 11 - inBitIndex;
+      branch = inWord >>> rightShift & 31;
+      inBitIndex += 5;
+      if (inBitIndex > 7) {
+        inBitIndex -= 8;
+        inByteIndex++;
+        if (inByteIndex === length) break outer;
+        inByte = inBytes[inByteIndex];
+      }
+      while (true) {
+        node = node[branch];
+        if (typeof node === "number") {
+          outBytes[outByteIndex++] = node;
+          break;
+        }
+        ;
+        branch = inByte >> 7 - inBitIndex & 1;
+        inBitIndex++;
+        if (inBitIndex > 7) {
+          inBitIndex -= 8;
+          inByteIndex++;
+          if (inByteIndex === length) break outer;
+          inByte = inBytes[inByteIndex];
+        }
+      }
+      ;
+    }
+    const str = td3.decode(outBytes.subarray(0, outByteIndex));
+    return str;
+  }
+};
+
 // src/https.ts
 var txtDec3 = new TextDecoder();
 async function https(urlStr, method, transportFactory, rootCertsPromise, {
   headers = {},
-  httpVersion = "1.0",
+  protocols = ["h2", "http/1.1"],
   socketOptions = {}
 } = {}) {
   const url = new URL(urlStr);
   if (url.protocol !== "https:") throw new Error("Wrong protocol");
   const host = url.hostname;
-  headers["Host"] ?? (headers["Host"] = host);
   const port = url.port || 443;
   const reqPath = url.pathname + url.search;
   const transport = await transportFactory(host, port, {
@@ -2784,31 +3382,143 @@ async function https(urlStr, method, transportFactory, rootCertsPromise, {
     ...socketOptions
   });
   const rootCerts = await rootCertsPromise;
-  const { read, write } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: [
-  "http/1.1"] });
-  const request = new Bytes();
-  request.writeUTF8String(`${method} ${reqPath} HTTP/${httpVersion}\r
-`);
-  request.writeUTF8String(Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n"));
-  request.writeUTF8String("\r\n\r\n");
-  await write(request.array());
-  let responseData;
+  const { read, write, end, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write,
+  { protocolsForALPN: protocols });
   let response = "";
-  do {
-    responseData = await read();
-    if (responseData) {
-      const responseText = txtDec3.decode(responseData);
-      response += responseText;
+  if (protocolFromALPN === "h2") {
+    const request = new HPACKBytes();
+    request.writeUTF8String("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
+    const endSettingsFrame = writeFrame(request, 4 /* SETTINGS */, 0);
+    request.writeUint16(2, 0);
+    request.writeUint32(0, 0);
+    endSettingsFrame();
+    const endHeadersFrame = writeFrame(request, 1 /* HEADERS */, 1, 4 | 1, "= END_HEADERS (0x04) | END_STREAM \
+(0x01)");
+    request.writeHPACKInt(7, 1, 1);
+    request.writeHPACKInt(2, 1, 1);
+    if (reqPath === "/") {
+      request.writeHPACKInt(4, 1, 1);
+    } else {
+      request.writeHPACKInt(4, 4, 0);
+      request.writeHPACKString(reqPath);
     }
-  } while (responseData);
+    request.writeHPACKInt(1, 2, 1);
+    request.writeHPACKString(host);
+    endHeadersFrame();
+    await write(request.array());
+    const readQueue = new LazyReadFunctionReadQueue(read);
+    const readFn = readQueue.read.bind(readQueue);
+    const body = new GrowableData();
+    let flagEndStream = false;
+    while (!flagEndStream) {
+      const response2 = new HPACKBytes(readFn);
+      const { payloadEnd, payloadRemaining, frameType, flags, streamId } = await readFrame(response2);
+      let ackFrame;
+      switch (frameType) {
+        case 4 /* SETTINGS */: {
+          if (streamId !== 0) throw new Error("Illegal SETTINGS with non-zero stream ID");
+          const ack = Boolean(flags & 1);
+          if (ack) {
+            response2.comment("= ACK client settings", response2.offset - 4);
+            if (payloadRemaining() > 0) throw new Error("Illegal non-zero-length SETTINGS ACK");
+            break;
+          }
+          if (payloadRemaining() % 6 !== 0) throw new Error("Illegal SETTINGS payload length");
+          while (payloadRemaining() > 0) {
+            const settingsType = await response2.readUint16();
+            const settingsValue = await response2.readUint32();
+          }
+          ackFrame = new HPACKBytes();
+          writeFrame(ackFrame, 4 /* SETTINGS */, 0, 1, 0);
+          break;
+        }
+        case 8 /* WINDOW_UPDATE */: {
+          const winSizeInc = await response2.readUint32();
+          break;
+        }
+        case 1 /* HEADERS */:
+        case 9 /* CONTINUATION */:
+        case 0 /* DATA */: {
+          const flagPriority = Boolean(flags & 50);
+          const flagPadded = Boolean(flags & 8);
+          const flagEndHeaders = Boolean(flags & 4);
+          flagEndStream = Boolean(flags & 1);
+          if (0) {
+            const flagNames = [];
+            if (flagPriority) flagNames.push("PRIORITY");
+            if (flagPadded) flagNames.push("PADDED");
+            if (flagEndHeaders) flagNames.push("END_HEADERS");
+            if (flagEndStream) flagNames.push("END_STREAM");
+            response2.comment(`= ${flagNames.join(" | ")}`, response2.offset - 4);
+          }
+          let paddingBytes = 0;
+          if (flagPadded) {
+            paddingBytes = await response2.readUint8("padding length");
+          }
+          if (flagPriority) {
+            await response2.readUint32("exclusive, stream dependency");
+            await response2.readUint8("weight");
+          }
+          if (frameType === 1 /* HEADERS */ || frameType === 9 /* CONTINUATION */) {
+            while (payloadRemaining() > paddingBytes) {
+              const byte = await response2.readUint8();
+              response2.offset--;
+              if (byte & 128) {
+                const { i: tableIndex } = await response2.readHPACKInt(1);
+                if (tableIndex === 0) throw new Error("Illegal zero index for header");
+                const [kStatic, vStatic] = HPACKStaticTable[tableIndex];
+              } else {
+                const indexed = byte & 64;
+                const { i: tableIndex, leftBitValue } = await response2.readHPACKInt(indexed ? 2 : 4);
+                let k;
+                if (tableIndex === 0) {
+                  k = await response2.readHPACKString();
+                } else {
+                  k = HPACKStaticTable[tableIndex][0];
+                }
+                await response2.readHPACKString();
+              }
+            }
+          } else {
+            body.append(await response2.readBytes(payloadRemaining() - paddingBytes));
+          }
+          if (paddingBytes > 0) await response2.skipRead(paddingBytes, "padding (should be zeroes)");
+          break;
+        }
+        default: {
+          await response2.readBytes(payloadRemaining());
+        }
+      }
+      payloadEnd();
+      if (frameType === 0 /* DATA */) ;
+      if (ackFrame) {
+        await write(ackFrame.array());
+      }
+    }
+    await end();
+  } else {
+    headers["Host"] ?? (headers["Host"] = host);
+    const request = new Bytes();
+    request.writeUTF8String(`${method} ${reqPath} HTTP/1.0\r
+`);
+    for (const header in headers) request.writeUTF8String(`${header}: ${headers[header]}\r
+`);
+    request.writeUTF8String("\r\n");
+    await write(request.array());
+    let responseData;
+    do {
+      responseData = await read();
+      if (responseData) {
+        const responseText = txtDec3.decode(responseData);
+        response += responseText;
+      }
+    } while (responseData);
+  }
   return response;
 }
 
 // src/util/wsTransport.ts
-async function wsTransport(host, port, {
-  close = () => {
-  }
-}) {
+async function wsTransport(host, port, opts) {
   const ws = await new Promise((resolve) => {
     const wsURL = location.hostname === "localhost" ? "ws://localhost:6544" : "wss://subtls-wsproxy.jawj.worke\
 rs.dev";
@@ -2818,7 +3528,7 @@ rs.dev";
     ws2.addEventListener("error", (err) => {
       console.log("ws error:", err);
     });
-    ws2.addEventListener("close", close);
+    if (opts.close) ws2.addEventListener("close", opts.close);
   });
   const reader = new WebSocketReadQueue(ws);
   const stats = { read: 0, written: 0 };
@@ -2831,21 +3541,22 @@ rs.dev";
     stats.written += data.byteLength ?? data.size ?? data.length;
     return ws.send(data);
   };
-  return { read, write, stats };
+  const end = (code, reason) => ws.close(code, reason);
+  return { read, write, end, stats };
 }
 
 // src/util/tcpTransport.ts
 import { connect } from "net";
-async function tcpTransport(host, port, { close, timeout, error }) {
+async function tcpTransport(host, port, opts) {
   const socket = connect(Number(port), host);
   socket.on("error", (e) => {
-    if (error) error(e);
+    if (opts.error) opts.error(e);
     else console.error("socket error:", e);
     socket.destroy();
   });
-  if (close) socket.on("close", close);
-  if (timeout) {
-    const [timeoutMs, timeoutFn] = timeout;
+  if (opts.close) socket.on("close", opts.close);
+  if (opts.timeout) {
+    const [timeoutMs, timeoutFn] = opts.timeout;
     socket.setTimeout(timeoutMs);
     socket.on("timeout", () => {
       timeoutFn();
@@ -2866,7 +3577,8 @@ async function tcpTransport(host, port, { close, timeout, error }) {
     stats.written += data.byteLength ?? data.size ?? data.length;
     return socket.write(data);
   };
-  return { read, write, stats };
+  const end = () => socket.end();
+  return { read, write, end, stats };
 }
 export {
   ASN1Bytes,

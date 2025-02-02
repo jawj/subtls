@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import type { Socket } from 'net';
+import { Socket } from 'net';
 
 export declare const allKeyUsages: readonly ["digitalSignature", "nonRepudiation", "keyEncipherment", "dataEncipherment", "keyAgreement", "keyCertSign", "cRLSign", "encipherOnly", "decipherOnly"];
 
@@ -37,6 +37,7 @@ export declare class Bytes {
      * * If data is a `function`, this function is called to retrieve data when required
      */
     constructor(data?: Uint8Array | number | ((bytes: number) => Promise<Uint8Array | undefined>), indent?: number);
+    changeIndent(indentDelta: number): void;
     readRemaining(): number;
     resizeTo(newSize: number): void;
     ensureReadAvailable(bytes: number): Promise<void>;
@@ -185,11 +186,11 @@ export declare function getRootCertsDatabase(): Promise<{
 
 export declare function hexFromU8(u8: Uint8Array | number[], spacer?: string): string;
 
-export declare function https(urlStr: string, method: string, transportFactory: typeof wsTransport | typeof tcpTransport, rootCertsPromise: ReturnType<typeof getRootCertsDatabase>, { headers, httpVersion, socketOptions, }?: HTTPSOptions): Promise<string>;
+export declare function https(urlStr: string, method: string, transportFactory: typeof wsTransport | typeof tcpTransport, rootCertsPromise: ReturnType<typeof getRootCertsDatabase>, { headers, protocols, socketOptions, }?: HTTPSOptions): Promise<string>;
 
 export declare interface HTTPSOptions {
     headers?: Record<string, string>;
-    httpVersion?: string;
+    protocols?: string[];
     socketOptions?: SocketOptions | WebSocketOptions;
 }
 
@@ -258,15 +259,18 @@ export declare function startTls(host: string, rootCertsDatabase: RootCertsDatab
 }): Promise<{
     readonly read: () => Promise<Uint8Array<ArrayBufferLike> | undefined>;
     readonly write: (data: Uint8Array) => Promise<void>;
+    readonly end: () => Promise<void>;
     readonly userCert: Cert;
+    readonly protocolFromALPN: string | undefined;
 }>;
 
-export declare function tcpTransport(host: string, port: string | number, { close, timeout, error }: SocketOptions): Promise<{
+export declare function tcpTransport(host: string, port: string | number, opts: SocketOptions): Promise<{
     read: (bytes: number, readMode?: ReadMode) => Promise<Uint8Array<ArrayBufferLike> | undefined>;
     write: {
         (buffer: Uint8Array | string, cb?: (err?: Error) => void): boolean;
         (str: Uint8Array | string, encoding?: BufferEncoding, cb?: (err?: Error) => void): boolean;
     };
+    end: () => Socket;
     stats: {
         read: number;
         written: number;
@@ -305,9 +309,10 @@ export declare class WebSocketReadQueue extends ReadQueue {
     moreDataMayFollow(): boolean;
 }
 
-export declare function wsTransport(host: string, port: string | number, { close }: WebSocketOptions): Promise<{
+export declare function wsTransport(host: string, port: string | number, opts: WebSocketOptions): Promise<{
     read: (bytes: number, readMode?: ReadMode) => Promise<Uint8Array<ArrayBufferLike> | undefined>;
     write: (data: string | ArrayBufferLike | Blob | ArrayBufferView) => void;
+    end: (code?: number, reason?: string) => void;
     stats: {
         read: number;
         written: number;

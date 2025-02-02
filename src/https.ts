@@ -240,7 +240,7 @@ export async function https(
     // chatty && log(...highlightBytes(serverGoAway.commentedString(), LogColours.server));
 
     chatty && log('Mission accomplished. At this point, we could send the server an HTTP/2 [GOAWAY frame](https://datatracker.ietf.org/doc/html/rfc9113#name-goaway), but most servers seem not to do anything in response. We could also just unceremoniously close the underlying WebSocket/TCP connection.');
-    chatty && log('What we actually do is something in-between: we send a TLS close-notify Alert record, which will generally cause the server to hang up. Unencrypted, that’s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).');
+    chatty && log('What we actually do is something at the level in-between: we send a TLS close-notify Alert record, which will generally cause the server to hang up. Unencrypted, that’s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).');
 
     await end();
 
