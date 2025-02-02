@@ -3969,7 +3969,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
               }
             }
           } else {
-            log("And finally we receive the response body as one or more [DATA frames](https://datatracker.ietf.org/doc/html/rfc9113#name-data):");
+            log("And finally we receive the response body as one or more [DATA frames](https://datatracker.ietf.org/doc/html/rfc9113#name-data). You\u2019ll see it first encrypted, then as a parsed HTTP/2 frame, and finally decoded as UTF-8 text.");
             body.append(await response2.readBytes(payloadRemaining() - paddingBytes));
             response2.comment("data");
           }
@@ -3983,7 +3983,6 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
       }
       payloadEnd();
       log(...highlightBytes(response2.commentedString(), "#88c" /* server */));
-      log("That\u2019s the page data. Let\u2019s see it decoded as UTF-8:");
       if (frameType === 0 /* DATA */) log(txtDec2.decode(body.getData()));
       if (ackFrame) {
         log(...highlightBytes(ackFrame.commentedString(), "#8cc" /* client */));

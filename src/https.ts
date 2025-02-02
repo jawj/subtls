@@ -196,9 +196,10 @@ export async function https(
             }
 
           } else {  // i.e. DATA
-            chatty && log('And finally we receive the response body as one or more [DATA frames](https://datatracker.ietf.org/doc/html/rfc9113#name-data):');
+            chatty && log('And finally we receive the response body as one or more [DATA frames](https://datatracker.ietf.org/doc/html/rfc9113#name-data). You’ll see it first encrypted, then as a parsed HTTP/2 frame, and finally decoded as UTF-8 text.');
             body.append(await response.readBytes(payloadRemaining() - paddingBytes));
             chatty && response.comment('data');
+
           }
           if (paddingBytes > 0) await response.skipRead(paddingBytes, 'padding (should be zeroes)');
           break;
@@ -212,7 +213,6 @@ export async function https(
       payloadEnd();
 
       chatty && log(...highlightBytes(response.commentedString(), LogColours.server));
-      chatty && log('That’s the page data. Let’s see it decoded as UTF-8:');
       if (frameType === HTTP2FrameType.DATA) chatty && log(txtDec.decode(body.getData()));
 
       if (ackFrame) {
