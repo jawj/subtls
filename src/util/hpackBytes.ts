@@ -427,6 +427,8 @@ export class HPACKBytes extends Bytes {
       };
     }
 
+    // TODO: check there's no more than 7 bits of padding, and that it's all 1s
+
     const str = td.decode(outBytes.subarray(0, outByteIndex));
     chatty && this.comment(`"${str}"`);
     chatty && this.changeIndent(-1);
