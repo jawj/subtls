@@ -10,7 +10,7 @@ A TypeScript TLS 1.3 client with limited scope.
 
 The library can display annotated binary input and output when built in ‘chatty’ mode. You can see this in action at [https://bytebybyte.dev](https://bytebybyte.dev).
 
-To run the web app locally (using macOS, Linux, or WSL on Windows):
+To run the web app locally (using macOS, Linux, or WSL on Windows, and with node + npm installed):
 
 ```bash
 git clone https://github.com/jawj/subtls.git
@@ -20,7 +20,7 @@ npm run start
 # now open e.g. http://localhost:6543/#https://www.microsoft.com/robots.txt
 ```
 
-When run locally, you can specify any `https://` or `postgresql://` URL to connect to, as the URL hash. But note that not all URLs will work. For example, Hacker News is stuck on TLS 1.2 at the time of writing, and many Postgres hosts do not support channel binding.
+When run locally, you can specify any `https://` or `postgresql://` URL to connect to, as the URL hash. But note that not all URLs will work. For example, Hacker News is stuck on TLS 1.2 at the time of writing, and many Postgres hosts do not support channel binding (or certificates with public CAs).
 
 ## Current scope
 
@@ -74,7 +74,7 @@ There are also some interesting differences between SubtleCrypto implementations
 
 For an outline of the code, start in `src/tls/startTls.ts`, which orchestrates most of it.
 
-You’ll notice heavy use of the `Bytes` class (found in `src/util/bytes.ts`) throughout. This is used for writing and parsing binary data, and is a wrapper around a `Uint8Array` and a `DataView`, offering three key additional features:
+You’ll notice heavy use of the `Bytes` class (found in `src/util/bytes.ts`) throughout. This is used for writing and parsing binary data, and is a wrapper around a `Uint8Array` and a `DataView`, offering a few key additional features:
 
 * **A cursor** &nbsp; It keeps an `offset` property up to date, making it easy to write a sequence of binary data types.
 
@@ -151,9 +151,11 @@ You’ll notice heavy use of the `Bytes` class (found in `src/util/bytes.ts`) th
 
   You’ll notice that all the comments here are prefixed with a conditional `chatty &&`. That means we can omit these strings from the build as dead code, and save the work of keeping track of them, by setting `chatty` to `0` when we bundle with esbuild. We’re then left with only some residual zeroes.
 
-There’s an `ASN1Bytes` subclass of `Bytes` that adds various methods for reading ASN.1-specific data types, as used in X.509 certificates, such as lengths, OIDs, and BitStrings.
+* **Async read** Since version 0.5 all read methods are async, and you can pass the `Bytes` constructor an async read function: `(bytes: number) => Promise<Uint8Array>`. That function will then be used to read only as much data as required.
 
-The other classes used in several places are the subclasses of `ReadQueue` (found in `src/util/readQueue.ts`). These turn data that arrives in arbitrary chunks, such as WebSocket messages or TLS records, into data that can be consumed a specified number of bytes at a time.
+There’s an `ASN1Bytes` subclass of `Bytes` that adds various methods for reading ASN.1-specific data types, as used in X.509 certificates, such as lengths, OIDs, and BitStrings. There’s also an `HPACKBytes` subclass that supports HPACK integers and strings.
+
+The other classes used in several places are the subclasses of `ReadQueue` (found in `src/util/readQueue.ts`). These turn data that arrives in arbitrary chunks, such as WebSocket messages or TLS records, into data that can be consumed a specified number of bytes at a time (via a function that can be fed to the `Bytes` constructor).
 
 ## Alternatives
 
