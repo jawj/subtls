@@ -52,11 +52,9 @@ export async function https(
   let response = '';
 
   if (protocolFromALPN === 'h2') {
-    chatty && log('It’s time for an HTTP/2 GET request. This starts with a fixed 24-byte preface ([RFC 9113 § 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface)), which is designed to make HTTP/1.1 servers throw in the towel, plus a mandatory [SETTINGS frame](https://datatracker.ietf.org/doc/html/rfc9113#section-6.5).');
-    chatty && log('Then we get on with sending the [HEADERS frame](https://datatracker.ietf.org/doc/html/rfc9113#name-headers), including [pseudo-headers](https://datatracker.ietf.org/doc/html/rfc9113#PseudoHeaderFields) — :scheme, :method, :path and :authority — that specify the request. We don’t wait to hear about the server’s settings first, because we can be pretty sure it’s going to accept a small request over a single stream.');
-    chatty && log('These HTTP/2 headers are compressed using a system called HPACK, which is complex enough to get its own RFC, [RFC 7542](https://datatracker.ietf.org/doc/html/rfc7541).');
-
-    const body = new GrowableData();
+    chatty && log('It’s time for an HTTP/2 GET request. This starts with a fixed 24-byte preface ([RFC 9113 § 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface)) that’s specifically designed to make HTTP/1.1 servers throw in the towel, plus a mandatory [SETTINGS frame](https://datatracker.ietf.org/doc/html/rfc9113#section-6.5).');
+    chatty && log('Then we get on with sending a [HEADERS frame](https://datatracker.ietf.org/doc/html/rfc9113#name-headers), including [pseudo-headers](https://datatracker.ietf.org/doc/html/rfc9113#PseudoHeaderFields) — :scheme, :method, :path and :authority — that specify the request. We don’t wait to hear about the server’s settings first, because we can be pretty sure it will accept our small request over a single stream.');
+    chatty && log('These HTTP/2 headers are compressed using HPACK, a compression scheme that involves indexed tables, Huffman encoding, and various kinds of bit-twiddling. It’s complex enough to get its own RFC, [RFC 7542](https://datatracker.ietf.org/doc/html/rfc7541).');
 
     const request = new HPACKBytes();
     request.writeUTF8String('PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n');
@@ -64,10 +62,10 @@ export async function https(
 
     const endSettingsFrame = writeFrame(request, HTTP2FrameType.SETTINGS, 0x0);
     request.writeUint16(0x0002, chatty && 'setting: SETTINGS_ENABLE_PUSH');
-    request.writeUint32(0x00000000, chatty && 'value: disabled');
+    request.writeUint32(0x00000000, chatty && 'value: disabled (we just want to fetch this page, thanks)');
     endSettingsFrame();
 
-    const endHeadersFrame = writeFrame(request, HTTP2FrameType.HEADERS, 0x1, 0x04 | 0x01, 'END_HEADERS (0x04) | END_STREAM (0x01)');
+    const endHeadersFrame = writeFrame(request, HTTP2FrameType.HEADERS, 0x1, 0x04 | 0x01, '= END_HEADERS (0x04) | END_STREAM (0x01)');
 
     request.writeHPACKInt(7, 1, 1);
     chatty && request.comment('= [indexed field](https://datatracker.ietf.org/doc/html/rfc7541#section-6.1), ":scheme: https"');
@@ -100,6 +98,7 @@ export async function https(
 
     const readQueue = new LazyReadFunctionReadQueue(read);
     const readFn = readQueue.read.bind(readQueue);
+    const body = new GrowableData();
 
     let flagEndStream = false;
     while (!flagEndStream) {
@@ -109,12 +108,12 @@ export async function https(
 
       switch (frameType) {
         case HTTP2FrameType.SETTINGS: {
-          if (streamId !== 0) throw new Error('Illegal SETTINGS for non-zero stream ID');
+          if (streamId !== 0) throw new Error('Illegal SETTINGS with non-zero stream ID');
 
           const ack = Boolean(flags & 0x01);
           if (ack) {
             chatty && log('And the server acknowledges our earlier SETTINGS frame:');
-            response.comment('ACK client settings', response.offset - 4);
+            response.comment('= ACK client settings', response.offset - 4);
             if (payloadRemaining() > 0) throw new Error('Illegal non-zero-length SETTINGS ACK');
             break;
           }
@@ -122,14 +121,14 @@ export async function https(
           if (payloadRemaining() % 6 !== 0) throw new Error('Illegal SETTINGS payload length');
           while (payloadRemaining() > 0) {
             const settingsType = await response.readUint16() as HTTP2SettingsType;
-            chatty && response.comment(`setting: ${HTTP2SettingsTypeNames[settingsType] ?? 'unknown setting'}`);
+            chatty && response.comment(`setting: ${HTTP2SettingsTypeNames[settingsType] ?? 'unrecognised ([GREASE](https://datatracker.ietf.org/doc/html/draft-bishop-httpbis-grease-01)?)'}`);
             const settingsValue = await response.readUint32();
             chatty && response.comment(`value: ${settingsValue}`);
           }
 
-          chatty && log('This is a SETTINGS frame from the server, which we’ll immediately acknowledge:');
+          chatty && log('This is the required initial SETTINGS frame from the server, which we immediately acknowledge:');
           ackFrame = new HPACKBytes();
-          writeFrame(ackFrame, HTTP2FrameType.SETTINGS, 0x0, 0x01, chatty && 'ACK server settings');
+          writeFrame(ackFrame, HTTP2FrameType.SETTINGS, 0x0, 0x01, chatty && '= ACK server settings');
           break;
         }
 
@@ -197,7 +196,7 @@ export async function https(
             }
 
           } else {  // i.e. DATA
-            chatty && log('And finally we receive the response body [DATA](https://datatracker.ietf.org/doc/html/rfc9113#name-data):');
+            chatty && log('And finally we receive the response body as one or more [DATA frames](https://datatracker.ietf.org/doc/html/rfc9113#name-data):');
             body.append(await response.readBytes(payloadRemaining() - paddingBytes));
             chatty && response.comment('data');
           }
@@ -213,6 +212,7 @@ export async function https(
       payloadEnd();
 
       chatty && log(...highlightBytes(response.commentedString(), LogColours.server));
+      chatty && log('That’s the page data. Let’s see it decoded as UTF-8:');
       if (frameType === HTTP2FrameType.DATA) chatty && log(txtDec.decode(body.getData()));
 
       if (ackFrame) {
@@ -239,8 +239,9 @@ export async function https(
 
     // chatty && log(...highlightBytes(serverGoAway.commentedString(), LogColours.server));
 
-    chatty && log('At this point, we could tell the server to [GOAWAY](https://datatracker.ietf.org/doc/html/rfc9113#name-goaway), but most servers appear not to do anything in response. We could also just close the underlying WebSocket/TCP connection.');
-    chatty && log('Instead, we take the middle way and send a TLS close-notify Alert record, which causes the server to hang up. Unencrypted, that’s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).');
+    chatty && log('Job done! At this point, we could send the server an HTTP/2 [GOAWAY frame](https://datatracker.ietf.org/doc/html/rfc9113#name-goaway), but most servers seem not to do anything in response. We could also just unceremoniously close the underlying WebSocket/TCP connection.');
+    chatty && log('What we actually do is something in-between: we send a TLS close-notify Alert record, which will generally cause the server to hang up. Unencrypted, that’s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).');
+
     await end();
 
   } else {

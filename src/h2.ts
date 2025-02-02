@@ -124,7 +124,7 @@ export function writeFrame(request: Bytes, frameType: HTTP2FrameType, streamId: 
   const payloadLengthOffset = request.offset;
   request.skipWrite(3);
   request.writeUint8(frameType, chatty && `frame type: ${HTTP2FrameTypeNames[frameType]}`);
-  request.writeUint8(flags, chatty && `frame flags: ${flagComments ?? 'none'}`);
+  request.writeUint8(flags, chatty && `frame flags ${flagComments ?? ''}`);
   request.writeUint32(streamId, chatty && `stream ID: ${streamId}`);
   chatty && streamId === 0 && request.comment('= applies to the connection as a whole');
   request.changeIndent(1);

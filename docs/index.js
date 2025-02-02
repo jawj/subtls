@@ -3302,7 +3302,7 @@ function writeFrame(request, frameType, streamId, flags = 0, flagComments) {
   const payloadLengthOffset = request.offset;
   request.skipWrite(3);
   request.writeUint8(frameType, `frame type: ${HTTP2FrameTypeNames[frameType]}`);
-  request.writeUint8(flags, `frame flags: ${flagComments ?? "none"}`);
+  request.writeUint8(flags, `frame flags ${flagComments ?? ""}`);
   request.writeUint32(streamId, `stream ID: ${streamId}`);
   streamId === 0 && request.comment("= applies to the connection as a whole");
   request.changeIndent(1);
@@ -3854,18 +3854,17 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
   const { read, write, end, protocolFromALPN } = await startTls(host, rootCerts, transport.read, transport.write, { protocolsForALPN: protocols });
   let response = "";
   if (protocolFromALPN === "h2") {
-    log("It\u2019s time for an HTTP/2 GET request. This starts with a fixed 24-byte preface ([RFC 9113 \xA7 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface)), which is designed to make HTTP/1.1 servers throw in the towel, plus a mandatory [SETTINGS frame](https://datatracker.ietf.org/doc/html/rfc9113#section-6.5).");
-    log("Then we get on with sending the [HEADERS frame](https://datatracker.ietf.org/doc/html/rfc9113#name-headers), including [pseudo-headers](https://datatracker.ietf.org/doc/html/rfc9113#PseudoHeaderFields) \u2014 :scheme, :method, :path and :authority \u2014 that specify the request. We don\u2019t wait to hear about the server\u2019s settings first, because we can be pretty sure it\u2019s going to accept a small request over a single stream.");
-    log("These HTTP/2 headers are compressed using a system called HPACK, which is complex enough to get its own RFC, [RFC 7542](https://datatracker.ietf.org/doc/html/rfc7541).");
-    const body = new GrowableData();
+    log("It\u2019s time for an HTTP/2 GET request. This starts with a fixed 24-byte preface ([RFC 9113 \xA7 3.4](https://datatracker.ietf.org/doc/html/rfc9113#name-http-2-connection-preface)) that\u2019s specifically designed to make HTTP/1.1 servers throw in the towel, plus a mandatory [SETTINGS frame](https://datatracker.ietf.org/doc/html/rfc9113#section-6.5).");
+    log("Then we get on with sending a [HEADERS frame](https://datatracker.ietf.org/doc/html/rfc9113#name-headers), including [pseudo-headers](https://datatracker.ietf.org/doc/html/rfc9113#PseudoHeaderFields) \u2014 :scheme, :method, :path and :authority \u2014 that specify the request. We don\u2019t wait to hear about the server\u2019s settings first, because we can be pretty sure it will accept our small request over a single stream.");
+    log("These HTTP/2 headers are compressed using HPACK, a compression scheme that involves indexed tables, Huffman encoding, and various kinds of bit-twiddling. It\u2019s complex enough to get its own RFC, [RFC 7542](https://datatracker.ietf.org/doc/html/rfc7541).");
     const request = new HPACKBytes();
     request.writeUTF8String("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
     request.comment("\u2014 the connection preface");
     const endSettingsFrame = writeFrame(request, 4 /* SETTINGS */, 0);
     request.writeUint16(2, "setting: SETTINGS_ENABLE_PUSH");
-    request.writeUint32(0, "value: disabled");
+    request.writeUint32(0, "value: disabled (we just want to fetch this page, thanks)");
     endSettingsFrame();
-    const endHeadersFrame = writeFrame(request, 1 /* HEADERS */, 1, 4 | 1, "END_HEADERS (0x04) | END_STREAM (0x01)");
+    const endHeadersFrame = writeFrame(request, 1 /* HEADERS */, 1, 4 | 1, "= END_HEADERS (0x04) | END_STREAM (0x01)");
     request.writeHPACKInt(7, 1, 1);
     request.comment('= [indexed field](https://datatracker.ietf.org/doc/html/rfc7541#section-6.1), ":scheme: https"');
     request.writeHPACKInt(2, 1, 1);
@@ -3888,6 +3887,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
     log("The server replies:");
     const readQueue = new LazyReadFunctionReadQueue(read);
     const readFn = readQueue.read.bind(readQueue);
+    const body = new GrowableData();
     let flagEndStream = false;
     while (!flagEndStream) {
       const response2 = new HPACKBytes(readFn);
@@ -3895,24 +3895,24 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
       let ackFrame;
       switch (frameType) {
         case 4 /* SETTINGS */: {
-          if (streamId !== 0) throw new Error("Illegal SETTINGS for non-zero stream ID");
+          if (streamId !== 0) throw new Error("Illegal SETTINGS with non-zero stream ID");
           const ack = Boolean(flags & 1);
           if (ack) {
             log("And the server acknowledges our earlier SETTINGS frame:");
-            response2.comment("ACK client settings", response2.offset - 4);
+            response2.comment("= ACK client settings", response2.offset - 4);
             if (payloadRemaining() > 0) throw new Error("Illegal non-zero-length SETTINGS ACK");
             break;
           }
           if (payloadRemaining() % 6 !== 0) throw new Error("Illegal SETTINGS payload length");
           while (payloadRemaining() > 0) {
             const settingsType = await response2.readUint16();
-            response2.comment(`setting: ${HTTP2SettingsTypeNames[settingsType] ?? "unknown setting"}`);
+            response2.comment(`setting: ${HTTP2SettingsTypeNames[settingsType] ?? "unrecognised ([GREASE](https://datatracker.ietf.org/doc/html/draft-bishop-httpbis-grease-01)?)"}`);
             const settingsValue = await response2.readUint32();
             response2.comment(`value: ${settingsValue}`);
           }
-          log("This is a SETTINGS frame from the server, which we\u2019ll immediately acknowledge:");
+          log("This is the required initial SETTINGS frame from the server, which we immediately acknowledge:");
           ackFrame = new HPACKBytes();
-          writeFrame(ackFrame, 4 /* SETTINGS */, 0, 1, "ACK server settings");
+          writeFrame(ackFrame, 4 /* SETTINGS */, 0, 1, "= ACK server settings");
           break;
         }
         case 8 /* WINDOW_UPDATE */: {
@@ -3969,7 +3969,7 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
               }
             }
           } else {
-            log("And finally we receive the response body [DATA](https://datatracker.ietf.org/doc/html/rfc9113#name-data):");
+            log("And finally we receive the response body as one or more [DATA frames](https://datatracker.ietf.org/doc/html/rfc9113#name-data):");
             body.append(await response2.readBytes(payloadRemaining() - paddingBytes));
             response2.comment("data");
           }
@@ -3983,14 +3983,15 @@ async function https(urlStr, method, transportFactory, rootCertsPromise2, {
       }
       payloadEnd();
       log(...highlightBytes(response2.commentedString(), "#88c" /* server */));
+      log("That\u2019s the page data. Let\u2019s see it decoded as UTF-8:");
       if (frameType === 0 /* DATA */) log(txtDec2.decode(body.getData()));
       if (ackFrame) {
         log(...highlightBytes(ackFrame.commentedString(), "#8cc" /* client */));
         await write(ackFrame.array());
       }
     }
-    log("At this point, we could tell the server to [GOAWAY](https://datatracker.ietf.org/doc/html/rfc9113#name-goaway), but most servers appear not to do anything in response. We could also just close the underlying WebSocket/TCP connection.");
-    log("Instead, we take the middle way and send a TLS close-notify Alert record, which causes the server to hang up. Unencrypted, that\u2019s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).");
+    log("Job done! At this point, we could send the server an HTTP/2 [GOAWAY frame](https://datatracker.ietf.org/doc/html/rfc9113#name-goaway), but most servers seem not to do anything in response. We could also just unceremoniously close the underlying WebSocket/TCP connection.");
+    log("What we actually do is something in-between: we send a TLS close-notify Alert record, which will generally cause the server to hang up. Unencrypted, that\u2019s three bytes: 0x01 (Alert type: warning), 0x00 (warning type: close notify), 0x15 (TLS record type: Alert).");
     await end();
   } else {
     headers["Host"] ?? (headers["Host"] = host);
