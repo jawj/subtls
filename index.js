@@ -3284,8 +3284,8 @@ var HPACKBytes = class extends Bytes {
       for (let i = 0; i < inBytesLength; i++) {
         const ch = inBytes[i];
         let [encodedValue, remainingBitCount] = HuffmanCodes[ch];
-        if (0) bitComment += ` ${encodedValue.toString(2)}=` + (ch >= 33 && ch <= 126 ? String.fromCharCode(ch) :
-        `0x${ch.toString(16).padStart(2, " ")}`);
+        if (0) bitComment += ` ${encodedValue.toString(2).padStart(remainingBitCount, "0")}=` + (ch >= 33 && ch <=
+        126 ? String.fromCharCode(ch) : `0x${ch.toString(16).padStart(2, " ")}`);
         while (remainingBitCount > 0) {
           if (outBitIndex === 8) {
             outBytes[outByteIndex++] = outByte;
