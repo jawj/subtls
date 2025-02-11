@@ -4,7 +4,7 @@ compatibility_flags = [ "no_web_socket_compression" ]
 main = "worker.ts"
 
 [vars]
-ADDRESS_REGEXP = "^(ep-crimson-sound-a8nnh11s-pooler[.]eastus2[.]azure[.]neon[.]tech:5432|bytebybyte[.]dev:443)$"
+ADDRESS_REGEXP = "^(bytebybyte[.]dev:443|ep-crimson-sound-a8nnh11s-pooler[.]eastus2[.]azure[.]neon[.]tech:5432|ep-broad-dew-a5k9hi1k(-pooler)?[.]us-east-2[.]aws[.]neon[.]tech:5432)$"
 
 [dev]
 port = 6544
