@@ -46,10 +46,11 @@ export default async function makeClientHello(host: string, publicKey: Uint8Arra
   if (protocolsForALPN) {
     h.writeUint16(0x0010, chatty && 'extension type: Application-Layer Protocol Negotiation, or ALPN ([RFC 7301](https://datatracker.ietf.org/doc/html/rfc7301))');
     const endALPNExt = h.writeLengthUint16(chatty && 'ALPN data');
-    const endALPN = h.writeLengthUint16(chatty && 'protocols');
+    const endALPN = h.writeLengthUint16(chatty && 'supported application-layer protocols');
     for (const protocol of protocolsForALPN) {
       const endProtocol = h.writeLengthUint8(chatty && 'protocol');
       h.writeUTF8String(protocol);
+      chatty && protocol === 'h2' && h.comment('= HTTP/2');
       endProtocol();
     }
     endALPN();

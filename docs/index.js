@@ -926,10 +926,11 @@ async function makeClientHello(host, publicKey, sessionId, useSNI = true, protoc
   if (protocolsForALPN) {
     h.writeUint16(16, "extension type: Application-Layer Protocol Negotiation, or ALPN ([RFC 7301](https://datatracker.ietf.org/doc/html/rfc7301))");
     const endALPNExt = h.writeLengthUint16("ALPN data");
-    const endALPN = h.writeLengthUint16("protocols");
+    const endALPN = h.writeLengthUint16("supported application-layer protocols");
     for (const protocol of protocolsForALPN) {
       const endProtocol = h.writeLengthUint8("protocol");
       h.writeUTF8String(protocol);
+      protocol === "h2" && h.comment("= HTTP/2");
       endProtocol();
     }
     endALPN();
@@ -2573,8 +2574,9 @@ async function parseEncryptedHandshake(host, hs, serverSecret, hellos, rootCerts
         hs.comment("ALPN");
         const [endALPN] = await hs.expectLengthUint16("ALPN data");
         const [endProtocols] = await hs.expectLengthUint16("protocols (but there can be only one)");
-        const [endProtocol, protocolRemaining] = await hs.expectLengthUint8("protocol");
+        const [endProtocol, protocolRemaining] = await hs.expectLengthUint8("preferred protocol");
         protocolFromALPN = await hs.readUTF8String(protocolRemaining());
+        protocolFromALPN === "h2" && hs.comment("= HTTP/2");
         endProtocol();
         endProtocols();
         endALPN();

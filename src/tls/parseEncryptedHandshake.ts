@@ -50,8 +50,9 @@ export async function parseEncryptedHandshake(
         chatty && hs.comment('ALPN');
         const [endALPN] = await hs.expectLengthUint16(chatty && 'ALPN data');
         const [endProtocols] = await hs.expectLengthUint16(chatty && 'protocols (but there can be only one)');
-        const [endProtocol, protocolRemaining] = await hs.expectLengthUint8(chatty && 'protocol');
+        const [endProtocol, protocolRemaining] = await hs.expectLengthUint8(chatty && 'preferred protocol');
         protocolFromALPN = await hs.readUTF8String(protocolRemaining());
+        chatty && protocolFromALPN === 'h2' && hs.comment('= HTTP/2');
         endProtocol();
         endProtocols();
         endALPN();
