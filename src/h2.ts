@@ -134,7 +134,7 @@ export function writeFrame(request: Bytes, frameType: HTTP2FrameType, streamId: 
     const frameEnd = request.offset;
     const payloadLength = frameEnd - payloadStart;
     request.offset = payloadLengthOffset;
-    request.writeUint24(payloadLength, chatty && `New HTTP/2 frame with payload length: ${payloadLength} bytes`);
+    request.writeUint24(payloadLength, chatty && `new HTTP/2 frame with payload length: ${payloadLength} bytes`);
     request.offset = frameEnd;
     request.changeIndent(-1);
   };
@@ -142,7 +142,7 @@ export function writeFrame(request: Bytes, frameType: HTTP2FrameType, streamId: 
 
 export async function readFrame(response: Bytes) {
   const payloadLength = await response.readUint24();
-  chatty && response.comment(`New HTTP/2 frame with payload length: ${payloadLength} bytes`);
+  chatty && response.comment(`new HTTP/2 frame with payload length: ${payloadLength} bytes`);
   const frameType = await response.readUint8() as HTTP2FrameType;
   chatty && response.comment(`frame type: ${HTTP2FrameTypeNames[frameType]}`);
   const flags = await response.readUint8(chatty && 'frame flags');

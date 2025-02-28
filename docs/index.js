@@ -3107,7 +3107,7 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
       while (paramsRemaining() > 0) {
         const k = await postAuthBytes.readUTF8StringNullTerminated();
         const v = await postAuthBytes.readUTF8StringNullTerminated();
-        void 0, v;
+        void k, v;
       }
       endParams();
     } else if (msgType === "K") {
@@ -3154,7 +3154,7 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
     const dataTypeSize = await queryResultBytes.readUint16("data type size");
     const dataTypeModifier = await queryResultBytes.readUint32("data type modifier");
     const formatCode = await queryResultBytes.readUint16("format code");
-    void 0, tableOID, colAttrNum, dataTypeOID, dataTypeSize, dataTypeModifier, formatCode;
+    void columnName, tableOID, colAttrNum, dataTypeOID, dataTypeSize, dataTypeModifier, formatCode;
   }
   endRowDescription();
   let lastColumnData;
@@ -3313,14 +3313,14 @@ function writeFrame(request, frameType, streamId, flags = 0, flagComments) {
     const frameEnd = request.offset;
     const payloadLength = frameEnd - payloadStart;
     request.offset = payloadLengthOffset;
-    request.writeUint24(payloadLength, `New HTTP/2 frame with payload length: ${payloadLength} bytes`);
+    request.writeUint24(payloadLength, `new HTTP/2 frame with payload length: ${payloadLength} bytes`);
     request.offset = frameEnd;
     request.changeIndent(-1);
   };
 }
 async function readFrame(response) {
   const payloadLength = await response.readUint24();
-  response.comment(`New HTTP/2 frame with payload length: ${payloadLength} bytes`);
+  response.comment(`new HTTP/2 frame with payload length: ${payloadLength} bytes`);
   const frameType = await response.readUint8();
   response.comment(`frame type: ${HTTP2FrameTypeNames[frameType]}`);
   const flags = await response.readUint8("frame flags");
