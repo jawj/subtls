@@ -986,7 +986,7 @@ async function makeClientHello(host, publicKey, sessionId, useSNI = true, protoc
 
 // src/util/hex.ts
 function u8FromHex(hex) {
-  return new Uint8Array(Array.from(hex.matchAll(/[0-9a-f]/g)).map((hex2) => parseInt(hex2[0], 16)));
+  return new Uint8Array(Array.from(hex.matchAll(/[0-9a-f]{2}/g)).map((hex2) => parseInt(hex2[0], 16)));
 }
 function hexFromU8(u8, spacer = "") {
   if (!(u8 instanceof Uint8Array)) u8 = new Uint8Array(u8);
