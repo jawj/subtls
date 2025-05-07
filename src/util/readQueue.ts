@@ -1,4 +1,5 @@
-import type { Socket } from 'net';
+import type { Socket as TCPSocket } from 'net';
+import type { Socket as UDPSocket } from 'dgram';
 
 export enum ReadMode {
   CONSUME = 0,
@@ -121,7 +122,7 @@ export class WebSocketReadQueue extends ReadQueue {
 
 export class SocketReadQueue extends ReadQueue {
 
-  constructor(protected socket: Socket) {
+  constructor(protected socket: TCPSocket) {
     super();
     socket.on('data', (data: Buffer) => this.enqueue(new Uint8Array(data)));
     socket.on('close', () => this.dequeue());
@@ -131,6 +132,23 @@ export class SocketReadQueue extends ReadQueue {
     const { socket } = this;
     const { readyState } = socket;
     return readyState === 'opening' || readyState === 'open';
+  }
+}
+
+export class UDPSocketReadQueue extends ReadQueue {
+  protected socketIsClosed = false;
+
+  constructor(protected socket: UDPSocket) {
+    super();
+    socket.on('message', (data: Buffer) => this.enqueue(new Uint8Array(data)));
+    socket.on('close', () => {
+      this.socketIsClosed = true;
+      this.dequeue();
+    });
+  }
+
+  moreDataMayFollow() {
+    return !this.socketIsClosed;
   }
 }
 
