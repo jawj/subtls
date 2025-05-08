@@ -48,9 +48,9 @@ export class Bytes {
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
 
-  changeIndent(indentDelta: number) {
+  changeIndent(indentDelta: number, atOffset?: number) {
     this.indent += indentDelta;
-    this.indents[this.offset] = this.indent;
+    this.indents[atOffset ?? this.offset] = this.indent;
   }
 
   readRemaining() {

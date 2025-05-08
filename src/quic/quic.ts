@@ -3,8 +3,11 @@ import cs from '../util/cryptoProxy';
 import { getRandomValues } from '../util/cryptoRandom';
 import { hkdfExtract, hkdfExpandLabel } from '../tls/hkdf';
 import { log } from '../presentation/log';
-import { highlightColonList } from '../presentation/highlights';
+import { highlightBytes, highlightColonList } from '../presentation/highlights';
 import { hexFromU8, u8FromHex } from '../util/hex';
+import { QUICBytes } from '../util/quicBytes';
+import { Crypter } from '../tls/aesgcm';
+import { LogColours } from '../presentation/appearance';
 
 const nullArray = new Uint8Array(0);
 
@@ -39,8 +42,8 @@ export async function quicConnect(
   const serverInitialSecret = await hkdfExpandLabel(initialSecret, 'server in', nullArray, 32, 256);
   chatty && log(...highlightColonList('server initial secret: ' + hexFromU8(serverInitialSecret)));
 
-  const clientInitialKey = await hkdfExpandLabel(clientInitialSecret, 'quic key', nullArray, 16, 256);
-  chatty && log(...highlightColonList('client initial key: ' + hexFromU8(clientInitialKey)));
+  const clientInitialKeyData = await hkdfExpandLabel(clientInitialSecret, 'quic key', nullArray, 16, 256);
+  chatty && log(...highlightColonList('client initial key: ' + hexFromU8(clientInitialKeyData)));
 
   const serverInitialKey = await hkdfExpandLabel(serverInitialSecret, 'quic key', nullArray, 16, 256);
   chatty && log(...highlightColonList('server initial key: ' + hexFromU8(serverInitialKey)));
@@ -57,19 +60,56 @@ export async function quicConnect(
   const serverInitialHPKey = await hkdfExpandLabel(serverInitialSecret, 'quic hp', nullArray, 16, 256);
   chatty && log(...highlightColonList('server initial header protection key: ' + hexFromU8(serverInitialHPKey)));
 
+  const initialPacket = new QUICBytes();
 
   const unprotectedFirstByte = 0b11000000;
+  // https://datatracker.ietf.org/doc/html/rfc9000#packet-initial
   //  1 = long header format
   //  1 = fixed bit, always set
   // 00 =	packet type: initial
   // 00 =	reserved, always unset
-  // 00	= length of packet number field, 00 -> 1 byte!
+  // 00	= length of packet number field - 1, see https://datatracker.ietf.org/doc/html/rfc9000#long-header
 
+  // initialPacket.skipWrite(1);  // reserved for first byte after XOR protection
+  initialPacket.writeUint8(unprotectedFirstByte, chatty && 'first byte (unprotected)');  // TODO: protect, after encryption
 
-  const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
-  const rawPublicKeyBuffer = await cs.exportKey('raw', ecdhKeys.publicKey);
-  const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
+  initialPacket.writeUint32(1, chatty && 'QUIC version: 1');
 
+  const endDestConnID = initialPacket.writeLengthUint8(chatty && 'destination connection ID');
+  initialPacket.writeBytes(initialRandom);
+  chatty && initialPacket.comment('destination connection ID = initial random data');
+  endDestConnID();
+
+  const sourceConnectionId = u8FromHex('635f636964'); // TODO: randomise
+  const endSourceConnID = initialPacket.writeLengthUint8(chatty && 'source connection ID');
+  initialPacket.writeBytes(sourceConnectionId);
+  chatty && initialPacket.comment('source connection ID');
+  endSourceConnID();
+
+  initialPacket.writeQUICInt(0, chatty && 'token length');
+
+  const endPacket = initialPacket.writeQUICLength(chatty && 'packet');
+  initialPacket.writeUint8(0x00, 'packet number');  // TODO: protect, after encryption
+  const packetHeaderMinusLengthValueLength = initialPacket.offset;
+
+  const plaintextPayload = u8FromHex('06 00 40 ee 01 00 00 ea 03 03 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f 00 00 06 13 01 13 02 13 03 01 00 00 bb 00 00 00 18 00 16 00 00 13 65 78 61 6d 70 6c 65 2e 75 6c 66 68 65 69 6d 2e 6e 65 74 00 0a 00 08 00 06 00 1d 00 17 00 18 00 10 00 0b 00 09 08 70 69 6e 67 2f 31 2e 30 00 0d 00 14 00 12 04 03 08 04 04 01 05 03 08 05 05 01 08 06 06 01 02 01 00 33 00 26 00 24 00 1d 00 20 35 80 72 d6 36 58 80 d1 ae ea 32 9a df 91 21 38 38 51 ed 21 a2 8e 3b 75 e9 65 d0 d2 cd 16 62 54 00 2d 00 02 01 01 00 2b 00 03 02 03 04 00 39 00 31 03 04 80 00 ff f7 04 04 80 a0 00 00 05 04 80 10 00 00 06 04 80 10 00 00 07 04 80 10 00 00 08 01 0a 09 01 0a 0a 01 03 0b 01 19 0f 05 63 5f 63 69 64');
+  initialPacket.skipWrite(plaintextPayload.length + 16);  // reserve space for encrypted payload + auth tag
+  const packetLengthValueLength = endPacket();  // write length value already, becauyse needed for encryption extra data
+
+  const clientInitialKey = await cs.importKey('raw', clientInitialKeyData, { name: 'AES-GCM' }, false, ['encrypt']);
+  const crypter = new Crypter('encrypt', clientInitialKey, clientInitialIV);
+  const encryptedPayload = await crypter.process(plaintextPayload, 16, initialPacket.data.subarray(0, packetHeaderMinusLengthValueLength + packetLengthValueLength));
+
+  initialPacket.offset -= encryptedPayload.length;
+  initialPacket.writeBytes(encryptedPayload.subarray(0, encryptedPayload.length - 16));
+  chatty && initialPacket.comment('encrypted payload');
+  initialPacket.writeBytes(encryptedPayload.subarray(encryptedPayload.length - 16));
+  chatty && initialPacket.comment('auth tag');
+
+  // const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
+  // const rawPublicKeyBuffer = await cs.exportKey('raw', ecdhKeys.publicKey);
+  // const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
+  log(...highlightBytes(initialPacket.commentedString(), LogColours.client));
 }
 
 quicConnect('example.com', '', async () => new Uint8Array(0), () => { }, {
