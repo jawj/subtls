@@ -107,6 +107,7 @@ export async function quicConnect(
   chatty && initialPacket.comment('auth tag');
 
   // header protection: https://datatracker.ietf.org/doc/html/rfc9001#name-sample-packet-protection
+  // note that SubtleCrypto has no AEC-ECB, but encrypting a sequence of zeroes using the key as the IV is equivalent here:
   const sampleStart = packetNumberStartUnshifted + packetLengthValueLength + 4;
   const headerProtectionPayloadSample = initialPacket.data.subarray(sampleStart, sampleStart + 16);
 
