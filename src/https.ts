@@ -113,7 +113,7 @@ export async function https(
           const ack = Boolean(flags & 0x01);
           if (ack) {
             chatty && log('And the server acknowledges our earlier SETTINGS frame:');
-            response.comment('= ACK client settings', response.offset - 4);
+            chatty && response.comment('= ACK client settings', response.offset - 4);
             if (payloadRemaining() > 0) throw new Error('Illegal non-zero-length SETTINGS ACK');
             break;
           }

@@ -1,4 +1,3 @@
-import { start } from 'repl';
 import { Bytes } from './bytes';
 
 export class QUICBytes extends Bytes {
@@ -14,8 +13,8 @@ export class QUICBytes extends Bytes {
     const firstByte = await this.readUint8();
     const prefix = firstByte >>> 6;
     if (prefix === 3) throw new Error('8-byte QUIC integers are currently unsupported');
-    let bytes = 1 << prefix;
     let v = firstByte & 0x3f;
+    let bytes = 1 << prefix;
     while (--bytes > 0) v = v << 8 | await this.readUint8();
     return v;
   }
