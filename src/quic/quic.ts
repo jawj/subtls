@@ -1,6 +1,5 @@
-import { TrustedCert, type RootCertsDatabase } from '../tls/cert';
+import { type RootCertsDatabase } from '../tls/cert';
 import cs from '../util/cryptoProxy';
-import { getRandomValues } from '../util/cryptoRandom';
 import { hkdfExtract, hkdfExpandLabel } from '../tls/hkdf';
 import { log } from '../presentation/log';
 import { highlightBytes, highlightColonList } from '../presentation/highlights';
@@ -8,6 +7,8 @@ import { hexFromU8, u8FromHex } from '../util/hex';
 import { QUICBytes } from '../util/quicBytes';
 import { Crypter } from '../tls/aesgcm';
 import { LogColours } from '../presentation/appearance';
+import udpTransport from '../util/udpTransport';
+import makeClientHello from '../tls/makeClientHello';
 
 const nullArray = new Uint8Array(0);
 
@@ -88,9 +89,43 @@ export async function quicConnect(
   initialPacket.writeQUICInt(0, chatty && 'token length');
 
   // from https://quic.xargs.org/#client-initial-packet
-  const tlsHandshake = u8FromHex('06 00 40 ee 01 00 00 ea 03 03 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f 00 00 06 13 01 13 02 13 03 01 00 00 bb 00 00 00 18 00 16 00 00 13 65 78 61 6d 70 6c 65 2e 75 6c 66 68 65 69 6d 2e 6e 65 74 00 0a 00 08 00 06 00 1d 00 17 00 18 00 10 00 0b 00 09 08 70 69 6e 67 2f 31 2e 30 00 0d 00 14 00 12 04 03 08 04 04 01 05 03 08 05 05 01 08 06 06 01 02 01 00 33 00 26 00 24 00 1d 00 20 35 80 72 d6 36 58 80 d1 ae ea 32 9a df 91 21 38 38 51 ed 21 a2 8e 3b 75 e9 65 d0 d2 cd 16 62 54 00 2d 00 02 01 01 00 2b 00 03 02 03 04 00 39 00 31 03 04 80 00 ff f7 04 04 80 a0 00 00 05 04 80 10 00 00 06 04 80 10 00 00 07 04 80 10 00 00 08 01 0a 09 01 0a 0a 01 03 0b 01 19 0f 05 63 5f 63 69 64');
+  // const tlsHandshake = u8FromHex('06 00 40 ee 01 00 00 ea 03 03 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f 00 00 06 13 01 13 02 13 03 01 00 00 bb 00 00 00 18 00 16 00 00 13 65 78 61 6d 70 6c 65 2e 75 6c 66 68 65 69 6d 2e 6e 65 74 00 0a 00 08 00 06 00 1d 00 17 00 18 00 10 00 0b 00 09 08 70 69 6e 67 2f 31 2e 30 00 0d 00 14 00 12 04 03 08 04 04 01 05 03 08 05 05 01 08 06 06 01 02 01 00 33 00 26 00 24 00 1d 00 20 35 80 72 d6 36 58 80 d1 ae ea 32 9a df 91 21 38 38 51 ed 21 a2 8e 3b 75 e9 65 d0 d2 cd 16 62 54 00 2d 00 02 01 01 00 2b 00 03 02 03 04 00 39 00 31 03 04 80 00 ff f7 04 04 80 a0 00 00 05 04 80 10 00 00 06 04 80 10 00 00 07 04 80 10 00 00 08 01 0a 09 01 0a 0a 01 03 0b 01 19 0f 05 63 5f 63 69 64');
 
-  const payloadLength = 1 /* packet number */ + tlsHandshake.length + 16 /* auth tag */;
+  const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
+  const rawPublicKeyBuffer = await cs.exportKey('raw', ecdhKeys.publicKey);
+  const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
+
+  const cryptoFrame = new QUICBytes();
+  cryptoFrame.writeUint8(0x06, 'frame type: CRYPTO');
+  cryptoFrame.writeQUICInt(0x00, 'offset of this CRYPTO stream data');
+  const endCryptoFrame = cryptoFrame.writeQUICLength('TLS ClientHello');
+
+  await makeClientHello(cryptoFrame, host, rawPublicKey, new Uint8Array(0), true, protocolsForALPN, h => {
+    h.writeUint16(0x0039, chatty && 'extension type: QUIC transport parameters');
+    const endExtData = h.writeLengthUint16(chatty && 'key share data');
+
+    h.writeUint8(0x08, chatty && 'parameter: initial_max_streams_bidi');
+    const endBidi = h.writeLengthUint8('variable-length integer');
+    h.writeQUICInt(0x0a, '10');
+    endBidi();
+
+    h.writeUint8(0x09, chatty && 'parameter: initial_max_streams_uni');
+    const endUni = h.writeLengthUint8('variable-length integer');
+    h.writeQUICInt(0x0a, '10');
+    endUni();
+
+    h.writeUint8(0x0f, chatty && 'initial_source_connection_id');  // critical, otherwise we get: initial_source_connection_id does not match
+    const endCid = h.writeLengthUint8('variable-length integer');
+    h.writeBytes(sourceConnectionId);
+    endCid();
+
+    endExtData();
+  });
+
+  endCryptoFrame();
+  log(...highlightBytes(cryptoFrame.commentedString(), LogColours.client));
+
+  const payloadLength = 1 /* packet number */ + cryptoFrame.offset + 16 /* auth tag */;
 
   const endPacket = initialPacket.writeKnownQUICLength(payloadLength, chatty && 'payload');
 
@@ -100,7 +135,7 @@ export async function quicConnect(
 
   const clientInitialKey = await cs.importKey('raw', clientInitialKeyData, { name: 'AES-GCM' }, false, ['encrypt']);
   const crypter = new Crypter('encrypt', clientInitialKey, clientInitialIV);  // TODO: use raw `encrypt` method instead?
-  const encryptedPayload = await crypter.process(tlsHandshake, 16, initialPacket.data.subarray(0, packetNumberEnd));
+  const encryptedPayload = await crypter.process(cryptoFrame.array(), 16, initialPacket.data.subarray(0, packetNumberEnd));
 
   initialPacket.writeBytes(encryptedPayload.subarray(0, encryptedPayload.length - 16));
   chatty && initialPacket.comment('encrypted payload: CRYPTO frame containing the TLS ClientHello');
@@ -128,21 +163,24 @@ export async function quicConnect(
     initialPacket.data[i] ^= headerProtectionResult[j];
   }
 
-  // const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
-  // const rawPublicKeyBuffer = await cs.exportKey('raw', ecdhKeys.publicKey);
-  // const rawPublicKey = new Uint8Array(rawPublicKeyBuffer);
+  initialPacket.skipWrite(1200 - initialPacket.offset, chatty && 'padding up to 1200 bytes');
+
   log(...highlightBytes(initialPacket.commentedString(), LogColours.client));
+  networkWrite(initialPacket.array());
 }
 
-quicConnect('example.com', '', async () => new Uint8Array(0), () => { }, {
+const host = 'pgjones.dev';
+const { read, write } = await udpTransport(host, 443);
+
+quicConnect(host, '', read, write, {
   useSNI: true,
-  protocolsForALPN: ['h2'],
+  protocolsForALPN: ['h3'],
   requireServerTlsExtKeyUsage: true,
   requireDigitalSigKeyUsage: true,
 })
   .then(() => {
-    console.log('QUIC connection established');
+    console.log('QUIC connection begun');
   })
   .catch((error) => {
-    console.error('QUIC connection failed:', error);
+    console.error('QUIC connection failure:', error);
   });

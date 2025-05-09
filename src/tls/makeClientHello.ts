@@ -1,8 +1,7 @@
 import { Bytes } from '../util/bytes';
 import { getRandomValues } from '../util/cryptoRandom';
 
-export default async function makeClientHello(h: Bytes, host: string, publicKey: Uint8Array, sessionId: Uint8Array, useSNI = true, protocolsForALPN?: string[], extensionsCallback?: (h: Bytes) => void) {
-  const endRecordHeader = h.writeLengthUint16('TLS record');
+export default async function makeClientHello<H extends Bytes>(h: H, host: string, publicKey: Uint8Array, sessionId: Uint8Array, useSNI = true, protocolsForALPN?: string[], extensionsCallback?: (h: H) => void) {
   h.writeUint8(0x01, chatty && 'handshake type: client hello');
 
   const endHandshakeHeader = h.writeLengthUint24();
@@ -105,5 +104,4 @@ export default async function makeClientHello(h: Bytes, host: string, publicKey:
   endExtensions();
 
   endHandshakeHeader();
-  endRecordHeader();
 }

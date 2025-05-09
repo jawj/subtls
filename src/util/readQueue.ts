@@ -140,7 +140,10 @@ export class UDPSocketReadQueue extends ReadQueue {
 
   constructor(protected socket: UDPSocket) {
     super();
-    socket.on('message', (data: Buffer) => this.enqueue(new Uint8Array(data)));
+    socket.on('message', (data: Buffer) => {
+      console.log('UDP:', data);
+      this.enqueue(new Uint8Array(data));
+    });
     socket.on('close', () => {
       this.socketIsClosed = true;
       this.dequeue();

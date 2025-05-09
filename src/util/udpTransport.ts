@@ -11,7 +11,7 @@ export interface UDPSocketOptions {
 export default async function udpTransport(
   host: string,
   port: string | number,
-  opts: UDPSocketOptions,
+  opts: UDPSocketOptions = {},
 ) {
   const socket = createSocket('udp4');
 
