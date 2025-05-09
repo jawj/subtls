@@ -891,7 +891,7 @@ async function getRandomValues(...args) {
 }
 
 // src/tls/makeClientHello.ts
-async function makeClientHello(h, host, publicKey, sessionId, useSNI = true, protocolsForALPN) {
+async function makeClientHello(h, host, publicKey, sessionId, useSNI = true, protocolsForALPN, extensionsCallback) {
   const endRecordHeader = h.writeLengthUint16("TLS record");
   h.writeUint8(1, "handshake type: client hello");
   const endHandshakeHeader = h.writeLengthUint24();
@@ -919,19 +919,6 @@ async function makeClientHello(h, host, publicKey, sessionId, useSNI = true, pro
     endHostname();
     endSNI();
     endSNIExt();
-  }
-  if (protocolsForALPN) {
-    h.writeUint16(16, "extension type: Application-Layer Protocol Negotiation, or ALPN ([RFC 7301](https://datatracker.ietf.org/doc/html/rfc7301))");
-    const endALPNExt = h.writeLengthUint16("ALPN data");
-    const endALPN = h.writeLengthUint16("supported application-layer protocols");
-    for (const protocol of protocolsForALPN) {
-      const endProtocol = h.writeLengthUint8("protocol");
-      h.writeUTF8String(protocol);
-      protocol === "h2" && h.comment("= HTTP/2");
-      endProtocol();
-    }
-    endALPN();
-    endALPNExt();
   }
   h.writeUint16(11, "extension type: supported Elliptic Curve point formats (for middlebox compatibility, from TLS 1.2: [RFC 8422 \xA75.1.2](https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2))");
   const endFormatTypesExt = h.writeLengthUint16("point formats data");
@@ -975,6 +962,20 @@ async function makeClientHello(h, host, publicKey, sessionId, useSNI = true, pro
   endKeyShare();
   endKeyShares();
   endKeyShareExt();
+  if (protocolsForALPN) {
+    h.writeUint16(16, "extension type: Application-Layer Protocol Negotiation, or ALPN ([RFC 7301](https://datatracker.ietf.org/doc/html/rfc7301))");
+    const endALPNExt = h.writeLengthUint16("ALPN data");
+    const endALPN = h.writeLengthUint16("supported application-layer protocols");
+    for (const protocol of protocolsForALPN) {
+      const endProtocol = h.writeLengthUint8("protocol");
+      h.writeUTF8String(protocol);
+      protocol === "h2" && h.comment("= HTTP/2");
+      endProtocol();
+    }
+    endALPN();
+    endALPNExt();
+  }
+  if (extensionsCallback) extensionsCallback(h);
   endExtensions();
   endHandshakeHeader();
   endRecordHeader();
