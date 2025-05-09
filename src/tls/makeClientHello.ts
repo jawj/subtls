@@ -1,12 +1,7 @@
 import { Bytes } from '../util/bytes';
 import { getRandomValues } from '../util/cryptoRandom';
 
-export default async function makeClientHello(host: string, publicKey: Uint8Array, sessionId: Uint8Array, useSNI = true, protocolsForALPN?: string[]) {
-  const h = new Bytes();
-
-  h.writeUint8(0x16, chatty && 'record type: handshake');
-  h.writeUint16(0x0301, chatty && 'TLS legacy record version 1.0 ([RFC 8446 §5.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))');
-
+export default async function makeClientHello(h: Bytes, host: string, publicKey: Uint8Array, sessionId: Uint8Array, useSNI = true, protocolsForALPN?: string[], extensionsCallback?: (h: Bytes) => void) {
   const endRecordHeader = h.writeLengthUint16('TLS record');
   h.writeUint8(0x01, chatty && 'handshake type: client hello');
 
@@ -41,20 +36,6 @@ export default async function makeClientHello(host: string, publicKey: Uint8Arra
     endHostname();
     endSNI();
     endSNIExt();
-  }
-
-  if (protocolsForALPN) {
-    h.writeUint16(0x0010, chatty && 'extension type: Application-Layer Protocol Negotiation, or ALPN ([RFC 7301](https://datatracker.ietf.org/doc/html/rfc7301))');
-    const endALPNExt = h.writeLengthUint16(chatty && 'ALPN data');
-    const endALPN = h.writeLengthUint16(chatty && 'supported application-layer protocols');
-    for (const protocol of protocolsForALPN) {
-      const endProtocol = h.writeLengthUint8(chatty && 'protocol');
-      h.writeUTF8String(protocol);
-      chatty && protocol === 'h2' && h.comment('= HTTP/2');
-      endProtocol();
-    }
-    endALPN();
-    endALPNExt();
   }
 
   h.writeUint16(0x000b, chatty && 'extension type: supported Elliptic Curve point formats (for middlebox compatibility, from TLS 1.2: [RFC 8422 §5.1.2](https://datatracker.ietf.org/doc/html/rfc8422#section-5.1.2))');
@@ -105,10 +86,24 @@ export default async function makeClientHello(host: string, publicKey: Uint8Arra
   endKeyShares();
   endKeyShareExt();
 
+  if (protocolsForALPN) {
+    h.writeUint16(0x0010, chatty && 'extension type: Application-Layer Protocol Negotiation, or ALPN ([RFC 7301](https://datatracker.ietf.org/doc/html/rfc7301))');
+    const endALPNExt = h.writeLengthUint16(chatty && 'ALPN data');
+    const endALPN = h.writeLengthUint16(chatty && 'supported application-layer protocols');
+    for (const protocol of protocolsForALPN) {
+      const endProtocol = h.writeLengthUint8(chatty && 'protocol');
+      h.writeUTF8String(protocol);
+      chatty && protocol === 'h2' && h.comment('= HTTP/2');
+      endProtocol();
+    }
+    endALPN();
+    endALPNExt();
+  }
+
+  if (extensionsCallback) extensionsCallback(h);
+
   endExtensions();
 
   endHandshakeHeader();
   endRecordHeader();
-
-  return h;
 }

@@ -57,9 +57,13 @@ export async function startTls(
   const sessionId = new Uint8Array(32);
   await getRandomValues(sessionId);
 
-  const clientHello = await makeClientHello(host, rawPublicKey, sessionId, useSNI, protocolsForALPN);
-  chatty && log(...highlightBytes(clientHello.commentedString(), LogColours.client));
-  const clientHelloData = clientHello.array();
+  const clientHelloRecord = new Bytes();
+  clientHelloRecord.writeUint8(0x16, chatty && 'record type: handshake');
+  clientHelloRecord.writeUint16(0x0301, chatty && 'TLS legacy record version 1.0 ([RFC 8446 §5.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))');
+
+  await makeClientHello(clientHelloRecord, host, rawPublicKey, sessionId, useSNI, protocolsForALPN);
+  chatty && log(...highlightBytes(clientHelloRecord.commentedString(), LogColours.client));
+  const clientHelloData = clientHelloRecord.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
   networkWrite(initialData);
 

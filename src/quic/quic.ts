@@ -87,28 +87,35 @@ export async function quicConnect(
 
   initialPacket.writeQUICInt(0, chatty && 'token length');
 
-  const endPacket = initialPacket.writeQUICLength(chatty && 'packet');
-  const packetNumberStartUnshifted = initialPacket.offset;
-  initialPacket.writeUint8(0x00, 'packet number (protected)');
-  const packetNumberEndUnshifted = initialPacket.offset;
+  // from https://quic.xargs.org/#client-initial-packet
+  const tlsHandshake = u8FromHex('06 00 40 ee 01 00 00 ea 03 03 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f 00 00 06 13 01 13 02 13 03 01 00 00 bb 00 00 00 18 00 16 00 00 13 65 78 61 6d 70 6c 65 2e 75 6c 66 68 65 69 6d 2e 6e 65 74 00 0a 00 08 00 06 00 1d 00 17 00 18 00 10 00 0b 00 09 08 70 69 6e 67 2f 31 2e 30 00 0d 00 14 00 12 04 03 08 04 04 01 05 03 08 05 05 01 08 06 06 01 02 01 00 33 00 26 00 24 00 1d 00 20 35 80 72 d6 36 58 80 d1 ae ea 32 9a df 91 21 38 38 51 ed 21 a2 8e 3b 75 e9 65 d0 d2 cd 16 62 54 00 2d 00 02 01 01 00 2b 00 03 02 03 04 00 39 00 31 03 04 80 00 ff f7 04 04 80 a0 00 00 05 04 80 10 00 00 06 04 80 10 00 00 07 04 80 10 00 00 08 01 0a 09 01 0a 0a 01 03 0b 01 19 0f 05 63 5f 63 69 64');
 
-  const plaintextPayload = u8FromHex('06 00 40 ee 01 00 00 ea 03 03 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f 00 00 06 13 01 13 02 13 03 01 00 00 bb 00 00 00 18 00 16 00 00 13 65 78 61 6d 70 6c 65 2e 75 6c 66 68 65 69 6d 2e 6e 65 74 00 0a 00 08 00 06 00 1d 00 17 00 18 00 10 00 0b 00 09 08 70 69 6e 67 2f 31 2e 30 00 0d 00 14 00 12 04 03 08 04 04 01 05 03 08 05 05 01 08 06 06 01 02 01 00 33 00 26 00 24 00 1d 00 20 35 80 72 d6 36 58 80 d1 ae ea 32 9a df 91 21 38 38 51 ed 21 a2 8e 3b 75 e9 65 d0 d2 cd 16 62 54 00 2d 00 02 01 01 00 2b 00 03 02 03 04 00 39 00 31 03 04 80 00 ff f7 04 04 80 a0 00 00 05 04 80 10 00 00 06 04 80 10 00 00 07 04 80 10 00 00 08 01 0a 09 01 0a 0a 01 03 0b 01 19 0f 05 63 5f 63 69 64');
-  initialPacket.skipWrite(plaintextPayload.length + 16);  // reserve space for encrypted payload + auth tag
-  const packetLengthValueLength = endPacket();  // write length value already, becauyse needed for encryption extra data
+  const payloadLength = 1 /* packet number */ + tlsHandshake.length + 16 /* auth tag */;
+
+  const endPacket = initialPacket.writeKnownQUICLength(payloadLength, chatty && 'payload');
+
+  const packetNumberStart = initialPacket.offset;
+  initialPacket.writeUint8(0x00, 'packet number (protected)');
+  const packetNumberEnd = initialPacket.offset;
 
   const clientInitialKey = await cs.importKey('raw', clientInitialKeyData, { name: 'AES-GCM' }, false, ['encrypt']);
   const crypter = new Crypter('encrypt', clientInitialKey, clientInitialIV);  // TODO: use raw `encrypt` method instead?
-  const encryptedPayload = await crypter.process(plaintextPayload, 16, initialPacket.data.subarray(0, packetNumberEndUnshifted + packetLengthValueLength));
+  const encryptedPayload = await crypter.process(tlsHandshake, 16, initialPacket.data.subarray(0, packetNumberEnd));
 
-  initialPacket.offset -= encryptedPayload.length;
   initialPacket.writeBytes(encryptedPayload.subarray(0, encryptedPayload.length - 16));
-  chatty && initialPacket.comment('encrypted payload');
+  chatty && initialPacket.comment('encrypted payload: CRYPTO frame containing the TLS ClientHello');
+
   initialPacket.writeBytes(encryptedPayload.subarray(encryptedPayload.length - 16));
   chatty && initialPacket.comment('auth tag');
 
-  // header protection: https://datatracker.ietf.org/doc/html/rfc9001#name-sample-packet-protection
+  endPacket();
+
+  // header protection: 
+  // https://datatracker.ietf.org/doc/html/rfc9001#name-header-protection
+  // https://datatracker.ietf.org/doc/html/rfc9001#name-sample-packet-protection
   // note that SubtleCrypto has no AEC-ECB, but encrypting a sequence of zeroes using the key as the IV is equivalent here:
-  const sampleStart = packetNumberStartUnshifted + packetLengthValueLength + 4;
+
+  const sampleStart = packetNumberStart + 4;
   const headerProtectionPayloadSample = initialPacket.data.subarray(sampleStart, sampleStart + 16);
 
   const headerProtectionKey = await cs.importKey('raw', clientInitialHPKeyData, { name: 'AES-CBC' }, false, ['encrypt']);
@@ -117,7 +124,7 @@ export async function quicConnect(
   log(hexFromU8(headerProtectionResult));
 
   initialPacket.data[0] ^= headerProtectionResult[0] & 0x0f;
-  for (let i = packetNumberStartUnshifted + packetLengthValueLength, j = 1; i < packetNumberEndUnshifted + packetLengthValueLength; i++, j++) {
+  for (let i = packetNumberStart, j = 1; i < packetNumberEnd; i++, j++) {
     initialPacket.data[i] ^= headerProtectionResult[j];
   }
 

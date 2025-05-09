@@ -441,9 +441,9 @@ var Bytes = class {
     }
     this.dataView = new DataView(this.data.buffer, this.data.byteOffset, this.data.byteLength);
   }
-  changeIndent(indentDelta) {
+  changeIndent(indentDelta, atOffset) {
     this.indent += indentDelta;
-    this.indents[this.offset] = this.indent;
+    this.indents[atOffset ?? this.offset] = this.indent;
   }
   readRemaining() {
     return this.endOfReadableData - this.offset;
@@ -891,10 +891,7 @@ async function getRandomValues(...args) {
 }
 
 // src/tls/makeClientHello.ts
-async function makeClientHello(host, publicKey, sessionId, useSNI = true, protocolsForALPN) {
-  const h = new Bytes();
-  h.writeUint8(22, "record type: handshake");
-  h.writeUint16(769, "TLS legacy record version 1.0 ([RFC 8446 \xA75.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))");
+async function makeClientHello(h, host, publicKey, sessionId, useSNI = true, protocolsForALPN) {
   const endRecordHeader = h.writeLengthUint16("TLS record");
   h.writeUint8(1, "handshake type: client hello");
   const endHandshakeHeader = h.writeLengthUint24();
@@ -981,7 +978,6 @@ async function makeClientHello(host, publicKey, sessionId, useSNI = true, protoc
   endExtensions();
   endHandshakeHeader();
   endRecordHeader();
-  return h;
 }
 
 // src/util/hex.ts
@@ -2721,9 +2717,12 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   log("Now we have a public/private key pair, we can start the TLS handshake by sending a client hello message ([source](https://github.com/jawj/subtls/blob/main/src/tls/makeClientHello.ts)). This includes the public key:");
   const sessionId = new Uint8Array(32);
   await getRandomValues(sessionId);
-  const clientHello = await makeClientHello(host, rawPublicKey, sessionId, useSNI, protocolsForALPN);
-  log(...highlightBytes(clientHello.commentedString(), "#8cc" /* client */));
-  const clientHelloData = clientHello.array();
+  const clientHelloRecord = new Bytes();
+  clientHelloRecord.writeUint8(22, "record type: handshake");
+  clientHelloRecord.writeUint16(769, "TLS legacy record version 1.0 ([RFC 8446 \xA75.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))");
+  await makeClientHello(clientHelloRecord, host, rawPublicKey, sessionId, useSNI, protocolsForALPN);
+  log(...highlightBytes(clientHelloRecord.commentedString(), "#8cc" /* client */));
+  const clientHelloData = clientHelloRecord.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;
   networkWrite(initialData);
   log("The server returns a response, which includes its own public key, and we parse it ([source](https://github.com/jawj/subtls/blob/main/src/tls/parseServerHello.ts)):");

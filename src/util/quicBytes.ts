@@ -19,6 +19,17 @@ export class QUICBytes extends Bytes {
     return v;
   }
 
+  writeKnownQUICLength(length: number, comment?: string) {
+    this.writeQUICInt(length, chatty && this.lengthComment(length, comment));
+    const endOffset = this.offset;
+    this.changeIndent(1);
+    return () => {
+      const actualLength = this.offset - endOffset;
+      if (actualLength !== length) throw new Error(`QUIC length mismatch: expected ${length} bytes, got ${actualLength} bytes`);
+      this.changeIndent(-1);
+    };
+  }
+
   writeQUICLength(comment?: string) {
     // number of bytes required is not known ahead of time: we reserve nothing and shift the written bytes forward when done
     const startOffset = this.offset;
