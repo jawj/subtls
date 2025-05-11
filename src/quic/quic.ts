@@ -1,67 +1,21 @@
 import { type RootCertsDatabase } from '../tls/cert';
 import cs from '../util/cryptoProxy';
-import { hkdfExtract, hkdfExpandLabel } from '../tls/hkdf';
+
+import { getInitialKeys, type Keys } from './keys';
 import { log } from '../presentation/log';
-import { highlightBytes, highlightColonList } from '../presentation/highlights';
-import { hexFromU8, u8FromHex } from '../util/hex';
+import { highlightBytes } from '../presentation/highlights';
+import { hexFromU8 } from '../util/hex';
 import { QUICBytes } from '../util/quicBytes';
-import { Crypter } from '../tls/aesgcm';
 import { LogColours } from '../presentation/appearance';
 import udpTransport from '../util/udpTransport';
 import makeClientHello from '../tls/makeClientHello';
+import { getRandomValues } from '../util/cryptoRandom';
+import { concat, equal } from '../util/array';
+import { Crypter } from '../tls/aesgcm';
 
-const nullArray = new Uint8Array(0);
 
-export async function quicConnect(
-  host: string,
-  rootCertsDatabase: RootCertsDatabase | string,
-  networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
-  networkWrite: (data: Uint8Array) => void,
-  { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage }: {
-    useSNI?: boolean,
-    protocolsForALPN?: string[],
-    requireServerTlsExtKeyUsage?: boolean,
-    requireDigitalSigKeyUsage?: boolean,
-  } = {}
-) {
-  useSNI ??= true;
-  requireServerTlsExtKeyUsage ??= true;
-  requireDigitalSigKeyUsage ??= true;
-
-  const initialRandom = u8FromHex('0001020304050607'); //await getRandomValues(new Uint8Array(8));
-  chatty && log(...highlightColonList('initial random: ' + hexFromU8(initialRandom)));
-
-  const initialSalt = u8FromHex('38762cf7f55934b34d179ae6a4c80cadccbb7f0a');  // the first SHA-1 collision
-  chatty && log(...highlightColonList('initial salt: ' + hexFromU8(initialSalt)));
-
-  const initialSecret = await hkdfExtract(initialSalt, initialRandom, 256);
-  chatty && log(...highlightColonList('initial secret: ' + hexFromU8(initialSecret)));
-
-  const clientInitialSecret = await hkdfExpandLabel(initialSecret, 'client in', nullArray, 32, 256);
-  chatty && log(...highlightColonList('client initial secret: ' + hexFromU8(clientInitialSecret)));
-
-  const serverInitialSecret = await hkdfExpandLabel(initialSecret, 'server in', nullArray, 32, 256);
-  chatty && log(...highlightColonList('server initial secret: ' + hexFromU8(serverInitialSecret)));
-
-  const clientInitialKeyData = await hkdfExpandLabel(clientInitialSecret, 'quic key', nullArray, 16, 256);
-  chatty && log(...highlightColonList('client initial key: ' + hexFromU8(clientInitialKeyData)));
-
-  const serverInitialKey = await hkdfExpandLabel(serverInitialSecret, 'quic key', nullArray, 16, 256);
-  chatty && log(...highlightColonList('server initial key: ' + hexFromU8(serverInitialKey)));
-
-  const clientInitialIV = await hkdfExpandLabel(clientInitialSecret, 'quic iv', nullArray, 12, 256);
-  chatty && log(...highlightColonList('client initial iv: ' + hexFromU8(clientInitialIV)));
-
-  const serverInitialIV = await hkdfExpandLabel(serverInitialSecret, 'quic iv', nullArray, 12, 256);
-  chatty && log(...highlightColonList('server initial iv: ' + hexFromU8(serverInitialIV)));
-
-  const clientInitialHPKeyData = await hkdfExpandLabel(clientInitialSecret, 'quic hp', nullArray, 16, 256);
-  chatty && log(...highlightColonList('client initial header protection key: ' + hexFromU8(clientInitialHPKeyData)));
-
-  const serverInitialHPKey = await hkdfExpandLabel(serverInitialSecret, 'quic hp', nullArray, 16, 256);
-  chatty && log(...highlightColonList('server initial header protection key: ' + hexFromU8(serverInitialHPKey)));
-
-  const initialPacket = new QUICBytes(1200);  // we're going to pad it to 1200 bytes anyway
+async function makeClientInitialPacket(keys: Keys, sourceConnectionId: Uint8Array, protocolsForALPN: string[]) {
+  const p = new QUICBytes(1200);  // we're going to pad it to 1200 bytes anyway
 
   const unprotectedFirstByte = 0b11000000;
   // https://datatracker.ietf.org/doc/html/rfc9000#packet-initial
@@ -71,25 +25,20 @@ export async function quicConnect(
   // 00 =	reserved, always unset
   // 00	= length of packet number field - 1, see https://datatracker.ietf.org/doc/html/rfc9000#long-header
 
-  initialPacket.writeUint8(unprotectedFirstByte, chatty && 'first byte (protected)');
+  p.writeUint8(unprotectedFirstByte, chatty && `first byte, protected (raw value: 0x${hexFromU8([unprotectedFirstByte])})`);
+  p.writeUint32(1, chatty && 'QUIC version: 1');
 
-  initialPacket.writeUint32(1, chatty && 'QUIC version: 1');
-
-  const endDestConnID = initialPacket.writeLengthUint8(chatty && 'destination connection ID');
-  initialPacket.writeBytes(initialRandom);
-  chatty && initialPacket.comment('destination connection ID = initial random data');
+  const endDestConnID = p.writeLengthUint8(chatty && 'destination connection ID');
+  p.writeBytes(keys.initialRandom);
+  chatty && p.comment('destination connection ID = initial random data');
   endDestConnID();
 
-  const sourceConnectionId = u8FromHex('635f636964'); // TODO: randomise
-  const endSourceConnID = initialPacket.writeLengthUint8(chatty && 'source connection ID');
-  initialPacket.writeBytes(sourceConnectionId);
-  chatty && initialPacket.comment('source connection ID');
+  const endSourceConnID = p.writeLengthUint8(chatty && 'source connection ID');
+  p.writeBytes(sourceConnectionId);
+  chatty && p.comment('source connection ID');
   endSourceConnID();
 
-  initialPacket.writeQUICInt(0, chatty && 'token length');
-
-  // from https://quic.xargs.org/#client-initial-packet
-  // const tlsHandshake = u8FromHex('06 00 40 ee 01 00 00 ea 03 03 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f 00 00 06 13 01 13 02 13 03 01 00 00 bb 00 00 00 18 00 16 00 00 13 65 78 61 6d 70 6c 65 2e 75 6c 66 68 65 69 6d 2e 6e 65 74 00 0a 00 08 00 06 00 1d 00 17 00 18 00 10 00 0b 00 09 08 70 69 6e 67 2f 31 2e 30 00 0d 00 14 00 12 04 03 08 04 04 01 05 03 08 05 05 01 08 06 06 01 02 01 00 33 00 26 00 24 00 1d 00 20 35 80 72 d6 36 58 80 d1 ae ea 32 9a df 91 21 38 38 51 ed 21 a2 8e 3b 75 e9 65 d0 d2 cd 16 62 54 00 2d 00 02 01 01 00 2b 00 03 02 03 04 00 39 00 31 03 04 80 00 ff f7 04 04 80 a0 00 00 05 04 80 10 00 00 06 04 80 10 00 00 07 04 80 10 00 00 08 01 0a 09 01 0a 0a 01 03 0b 01 19 0f 05 63 5f 63 69 64');
+  p.writeQUICInt(0, chatty && 'token length');
 
   const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
   const rawPublicKeyBuffer = await cs.exportKey('raw', ecdhKeys.publicKey);
@@ -115,9 +64,9 @@ export async function quicConnect(
     endUni();
 
     h.writeUint8(0x0f, chatty && 'initial_source_connection_id');  // critical, otherwise we get: initial_source_connection_id does not match
-    const endCid = h.writeLengthUint8('variable-length integer');
+    const endScid = h.writeLengthUint8('variable-length integer');
     h.writeBytes(sourceConnectionId);
-    endCid();
+    endScid();
 
     endExtData();
   });
@@ -125,23 +74,26 @@ export async function quicConnect(
   endCryptoFrame();
   log(...highlightBytes(cryptoFrame.commentedString(), LogColours.client));
 
-  const payloadLength = 1 /* packet number */ + cryptoFrame.offset + 16 /* auth tag */;
+  const cryptoFrameData = cryptoFrame.array();
+  const payloadLength = 1 /* packet number */ + cryptoFrameData.length + 16 /* auth tag */;
 
-  const endPacket = initialPacket.writeKnownQUICLength(payloadLength, chatty && 'payload');
+  const endPacket = p.writeKnownQUICLength(payloadLength, chatty && 'payload');
 
-  const packetNumberStart = initialPacket.offset;
-  initialPacket.writeUint8(0x00, 'packet number (protected)');
-  const packetNumberEnd = initialPacket.offset;
+  const packetNumberStart = p.offset;
+  p.writeUint8(0x00, 'packet number, protected (raw value: 0)');
+  const packetNumberEnd = p.offset;
 
-  const clientInitialKey = await cs.importKey('raw', clientInitialKeyData, { name: 'AES-GCM' }, false, ['encrypt']);
-  const crypter = new Crypter('encrypt', clientInitialKey, clientInitialIV);  // TODO: use raw `encrypt` method instead?
-  const encryptedPayload = await crypter.process(cryptoFrame.array(), 16, initialPacket.data.subarray(0, packetNumberEnd));
+  const clientInitialKey = await cs.importKey('raw', keys.clientInitialKeyData, { name: 'AES-GCM' }, false, ['encrypt']);
 
-  initialPacket.writeBytes(encryptedPayload.subarray(0, encryptedPayload.length - 16));
-  chatty && initialPacket.comment('encrypted payload: CRYPTO frame containing the TLS ClientHello');
+  const encrypter = new Crypter('encrypt', clientInitialKey, keys.clientInitialIV);
+  const initialPacketPrefix = p.data.subarray(0, packetNumberEnd);
+  const encryptedPayload = await encrypter.process(cryptoFrameData, 16, initialPacketPrefix);
 
-  initialPacket.writeBytes(encryptedPayload.subarray(encryptedPayload.length - 16));
-  chatty && initialPacket.comment('auth tag');
+  p.writeBytes(encryptedPayload.subarray(0, encryptedPayload.length - 16));
+  chatty && p.comment('encrypted payload: CRYPTO frame containing the TLS ClientHello');
+
+  p.writeBytes(encryptedPayload.subarray(encryptedPayload.length - 16));
+  chatty && p.comment('auth tag');
 
   endPacket();
 
@@ -151,36 +103,114 @@ export async function quicConnect(
   // note that SubtleCrypto has no AEC-ECB, but encrypting a sequence of zeroes using the key as the IV is equivalent here:
 
   const sampleStart = packetNumberStart + 4;
-  const headerProtectionPayloadSample = initialPacket.data.subarray(sampleStart, sampleStart + 16);
+  const headerProtectionPayloadSample = p.data.subarray(sampleStart, sampleStart + 16);
 
-  const headerProtectionKey = await cs.importKey('raw', clientInitialHPKeyData, { name: 'AES-CBC' }, false, ['encrypt']);
+  const headerProtectionKey = await cs.importKey('raw', keys.clientInitialHPKeyData, { name: 'AES-CBC' }, false, ['encrypt']);
   const headerProtectionBuffer = await cs.encrypt({ name: 'AES-CBC', iv: headerProtectionPayloadSample }, headerProtectionKey, new Uint8Array(16));
   const headerProtectionResult = new Uint8Array(headerProtectionBuffer);
-  log(hexFromU8(headerProtectionResult));
 
-  initialPacket.data[0] ^= headerProtectionResult[0] & 0x0f;
+  p.data[0] ^= headerProtectionResult[0] & 0x0f;
   for (let i = packetNumberStart, j = 1; i < packetNumberEnd; i++, j++) {
-    initialPacket.data[i] ^= headerProtectionResult[j];
+    p.data[i] ^= headerProtectionResult[j];
   }
 
-  initialPacket.skipWrite(1200 - initialPacket.offset, chatty && 'padding up to 1200 bytes');
+  p.skipWrite(1200 - p.offset, chatty && 'padding up to 1200 bytes');
+  return p;
+}
+
+async function parseServerInitialPacket(keys: Keys, sourceConnectionId: Uint8Array, networkRead: (bytes: number) => Promise<Uint8Array | undefined>) {
+  const responsePacket = new QUICBytes(networkRead);
+  const protectedServerFirstByte = await responsePacket.readUint8(chatty && 'first byte, protected');
+  await responsePacket.expectUint32(0x00000001, chatty && 'QUIC version');
+
+  const [endServerDcid, serverDcidRemaining] = await responsePacket.expectLengthUint8(chatty && 'destination connection ID');
+  const serverDcid = await responsePacket.readBytes(serverDcidRemaining());
+  chatty && responsePacket.comment('destination connection ID (same as specified by client above)');
+  if (!equal(serverDcid, sourceConnectionId)) throw new Error('Connection ID mismatch');
+  endServerDcid();
+
+  const [endServerScid, serverScidRemaining] = await responsePacket.expectLengthUint8(chatty && 'source connection ID');
+  const serverScid = await responsePacket.readBytes(serverScidRemaining());
+  chatty && responsePacket.comment('source connection ID');
+  endServerScid();
+
+  await responsePacket.expectUint8(0, chatty && 'token length');
+
+  const [endResponsePayload, responsePayloadRemaining] = await responsePacket.expectQUICLength(chatty && 'payload length');
+  const responsePacketNumberStart = responsePacket.offset;
+
+  //const responsePacketNumber = await responsePacket.readUint8(chatty && 'packet number, protected');
+  //const responsePacketNumberEnd = responsePacket.offset;
+
+  const encryptedResponsePayload = await responsePacket.readBytes(responsePayloadRemaining() - 16);
+  chatty && responsePacket.comment('encrypted payload');
+  const encryptedResponseAuthTag = await responsePacket.readBytes(responsePayloadRemaining());
+  chatty && responsePacket.comment('auth tag');
+  endResponsePayload();
+
+  log(...highlightBytes(responsePacket.commentedString(), LogColours.server));
+
+  // header protection
+  const responseSampleStart = responsePacketNumberStart + 4;
+  const responseHeaderProtectionPayloadSample = responsePacket.data.subarray(responseSampleStart, responseSampleStart + 16);
+
+  const responseHeaderProtectionKey = await cs.importKey('raw', keys.serverInitialHPKeyData, { name: 'AES-CBC' }, false, ['encrypt']);
+  const responseHeaderProtectionBuffer = await cs.encrypt({ name: 'AES-CBC', iv: responseHeaderProtectionPayloadSample }, responseHeaderProtectionKey, new Uint8Array(16));
+  const responseHeaderProtectionResult = new Uint8Array(responseHeaderProtectionBuffer);
+
+  const serverFirstByte = responsePacket.data[0] ^= responseHeaderProtectionResult[0] & 0x0f;
+  const packetNumberBytes = (serverFirstByte & 0x03) + 1;
+  const responsePacketNumberEnd = responsePacketNumberStart + packetNumberBytes;
+
+  for (let i = responsePacketNumberStart, j = 1; i < responsePacketNumberEnd; i++, j++) {
+    responsePacket.data[i] ^= responseHeaderProtectionResult[j];
+  }
+
+  // decryption
+
+  log(...highlightBytes(responsePacket.commentedString(), LogColours.server));
+
+  const serverInitialKey = await cs.importKey('raw', keys.serverInitialKeyData, { name: 'AES-GCM' }, false, ['decrypt']);
+
+  const decrypter = new Crypter('decrypt', serverInitialKey, keys.serverInitialIV);
+  const responsePacketPrefix = responsePacket.data.subarray(0, responsePacketNumberEnd);
+  const decryptedPayload = await decrypter.process(concat(encryptedResponsePayload.slice(packetNumberBytes), encryptedResponseAuthTag), 16, responsePacketPrefix);
+
+  log(decryptedPayload);
+}
+
+export async function quicConnect(
+  host: string,
+  rootCertsDatabase: RootCertsDatabase | string,
+  networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
+  networkWrite: (data: Uint8Array) => void,
+  { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage }: {
+    useSNI?: boolean,
+    protocolsForALPN?: string[],
+    requireServerTlsExtKeyUsage?: boolean,
+    requireDigitalSigKeyUsage?: boolean,
+  } = {}
+) {
+  useSNI ??= true;
+  requireServerTlsExtKeyUsage ??= true;
+  requireDigitalSigKeyUsage ??= true;
+
+  const keys = await getInitialKeys();
+  const sourceConnectionId = await getRandomValues(new Uint8Array(5));
+  const initialPacket = await makeClientInitialPacket(keys, sourceConnectionId, protocolsForALPN ?? []);
 
   log(...highlightBytes(initialPacket.commentedString(), LogColours.client));
   networkWrite(initialPacket.array());
+
+  await parseServerInitialPacket(keys, sourceConnectionId, networkRead);
 }
 
 const host = 'pgjones.dev';
 const { read, write } = await udpTransport(host, 443);
 
-quicConnect(host, '', read, write, {
+await quicConnect(host, '', read, write, {
   useSNI: true,
   protocolsForALPN: ['h3'],
   requireServerTlsExtKeyUsage: true,
   requireDigitalSigKeyUsage: true,
-})
-  .then(() => {
-    console.log('QUIC connection begun');
-  })
-  .catch((error) => {
-    console.error('QUIC connection failure:', error);
-  });
+});

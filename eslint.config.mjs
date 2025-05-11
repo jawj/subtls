@@ -20,6 +20,7 @@ export default tseslint.config(
       '@stylistic': stylistic,
     },
     rules: {
+      '@typsescript-eslint/no-unused-vars': 'warn',
       '@typescript-eslint/no-unused-expressions': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',

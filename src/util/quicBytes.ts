@@ -9,14 +9,21 @@ export class QUICBytes extends Bytes {
     else throw new Error(`QUIC integer out of range: ${i}`);
   }
 
-  async readQUICInt() {  // TODO: support 8-byte integers using BigInt
+  async readQUICInt(comment?: string) {  // TODO: support 8-byte integers using BigInt
     const firstByte = await this.readUint8();
     const prefix = firstByte >>> 6;
     if (prefix === 3) throw new Error('8-byte QUIC integers are currently unsupported');
     let v = firstByte & 0x3f;
     let bytes = 1 << prefix;
     while (--bytes > 0) v = v << 8 | await this.readUint8();
+    if (chatty && comment) this.comment(comment.replace(/%/g, String(v)));
     return v;
+  }
+
+  async expectQUICLength(comment?: string) {
+    const length = await this.readQUICInt();
+    chatty && this.comment(this.lengthComment(length, comment));
+    return this.expectReadLength(length);
   }
 
   writeKnownQUICLength(length: number, comment?: string) {
