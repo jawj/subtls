@@ -115,70 +115,70 @@ async function makeClientInitialPacket(keys: Keys, sourceConnectionId: Uint8Arra
   }
 
   p.skipWrite(1200 - p.offset, chatty && 'padding up to 1200 bytes');
+
+  log(...highlightBytes(p.commentedString(), LogColours.client));
   return p;
 }
 
 async function parseServerInitialPacket(keys: Keys, sourceConnectionId: Uint8Array, networkRead: (bytes: number) => Promise<Uint8Array | undefined>) {
   const p = new QUICBytes(networkRead);
-  const protectedFirstByte = await p.readUint8(chatty && 'first byte, protected');
+  await p.readUint8(chatty && 'first byte, unprotected (protected value: 0x%)');
   await p.expectUint32(0x00000001, chatty && 'QUIC version');
 
-  const [endServerDcid, serverDcidRemaining] = await p.expectLengthUint8(chatty && 'destination connection ID');
-  const serverDcid = await p.readBytes(serverDcidRemaining());
+  const [endDcid, dcidRemaining] = await p.expectLengthUint8(chatty && 'destination connection ID');
+  const dcid = await p.readBytes(dcidRemaining());
   chatty && p.comment('destination connection ID (same as specified by client above)');
-  if (!equal(serverDcid, sourceConnectionId)) throw new Error('Connection ID mismatch');
-  endServerDcid();
+  if (!equal(dcid, sourceConnectionId)) throw new Error('Connection ID mismatch');
+  endDcid();
 
-  const [endServerScid, serverScidRemaining] = await p.expectLengthUint8(chatty && 'source connection ID');
-  const serverScid = await p.readBytes(serverScidRemaining());
+  const [endScid, scidRemaining] = await p.expectLengthUint8(chatty && 'source connection ID');
+  const scid = await p.readBytes(scidRemaining());
   chatty && p.comment('source connection ID');
-  endServerScid();
+  endScid();
 
-  await p.expectUint8(0, chatty && 'token length');
+  await p.expectUint8(0, chatty && 'token length: zero (i.e. no token)');
 
-  const [endResponsePayload, responsePayloadRemaining] = await p.expectQUICLength(chatty && 'payload length');
-  const responsePacketNumberStart = p.offset;
+  const [endPayload, payloadRemaining] = await p.expectQUICLength(chatty && 'payload length');
+  const packetNumberStart = p.offset;
 
-  const encryptedPayload = await p.readBytes(responsePayloadRemaining() - 16);
+  const encryptedPayload = await p.readBytes(payloadRemaining() - 16);
   chatty && p.comment('encrypted payload');
-  const encryptedAuthTag = await p.readBytes(responsePayloadRemaining());
+  const encryptedAuthTag = await p.readBytes(payloadRemaining());
   chatty && p.comment('auth tag');
   const packetEnd = p.offset;
-  endResponsePayload();
-
-  log(...highlightBytes(p.commentedString(), LogColours.server));
+  endPayload();
 
   // header protection
-  const responseSampleStart = responsePacketNumberStart + 4;
-  const responseHeaderProtectionPayloadSample = p.data.subarray(responseSampleStart, responseSampleStart + 16);
+  const sampleStart = packetNumberStart + 4;
+  const headerProtectionSample = p.data.subarray(sampleStart, sampleStart + 16);
 
-  const responseHeaderProtectionKey = await cs.importKey('raw', keys.serverInitialHPKeyData, { name: 'AES-CBC' }, false, ['encrypt']);
-  const responseHeaderProtectionBuffer = await cs.encrypt({ name: 'AES-CBC', iv: responseHeaderProtectionPayloadSample }, responseHeaderProtectionKey, new Uint8Array(16));
-  const responseHeaderProtectionResult = new Uint8Array(responseHeaderProtectionBuffer);
+  const headerProtectionKey = await cs.importKey('raw', keys.serverInitialHPKeyData, { name: 'AES-CBC' }, false, ['encrypt']);
+  const headerProtectionBuffer = await cs.encrypt({ name: 'AES-CBC', iv: headerProtectionSample }, headerProtectionKey, new Uint8Array(16));
+  const headerProtectionResult = new Uint8Array(headerProtectionBuffer);
 
-  const serverFirstByte = p.data[0] ^= responseHeaderProtectionResult[0] & 0x0f;
+  const serverFirstByte = p.data[0] ^= headerProtectionResult[0] & 0x0f;
   const packetNumberBytes = (serverFirstByte & 0x03) + 1;
 
-  p.offset = responsePacketNumberStart;
-  const packetNumber = await [p.readUint8, p.readUint16, p.readUint24, p.readUint32][packetNumberBytes - 1].bind(p)(chatty && 'packet number');
+  p.offset = packetNumberStart;
+  const readBits = ([8, 16, 24, 32] as const)[packetNumberBytes - 1];
+  const packetNumber = await p.readUintN(readBits, chatty && 'packet number, unprotected (protected value: 0x%)');
 
-  const responsePacketNumberEnd = p.offset;
+  const packetNumberEnd = p.offset;
   p.offset = packetEnd;
 
-  for (let i = responsePacketNumberStart, j = 1; i < responsePacketNumberEnd; i++, j++) {
-    p.data[i] ^= responseHeaderProtectionResult[j];
+  for (let i = packetNumberStart, j = 1; i < packetNumberEnd; i++, j++) {
+    p.data[i] ^= headerProtectionResult[j];
   }
 
   log(...highlightBytes(p.commentedString(), LogColours.server));
 
   // decryption
   const serverInitialKey = await cs.importKey('raw', keys.serverInitialKeyData, { name: 'AES-GCM' }, false, ['decrypt']);
-
   const decrypter = new Crypter('decrypt', serverInitialKey, keys.serverInitialIV);
-  const responsePacketPrefix = p.data.subarray(0, responsePacketNumberEnd);
+  const responsePacketPrefix = p.data.subarray(0, packetNumberEnd);
   const decryptedPayload = await decrypter.process(concat(encryptedPayload.slice(packetNumberBytes), encryptedAuthTag), 16, responsePacketPrefix);
 
-  log(decryptedPayload);
+  return { packetNumber, decryptedPayload };
 }
 
 export async function quicConnect(
@@ -199,12 +199,12 @@ export async function quicConnect(
 
   const keys = await getInitialKeys();
   const sourceConnectionId = await getRandomValues(new Uint8Array(5));
-  const initialPacket = await makeClientInitialPacket(keys, sourceConnectionId, protocolsForALPN ?? []);
 
-  log(...highlightBytes(initialPacket.commentedString(), LogColours.client));
+  const initialPacket = await makeClientInitialPacket(keys, sourceConnectionId, protocolsForALPN ?? []);
   networkWrite(initialPacket.array());
 
-  await parseServerInitialPacket(keys, sourceConnectionId, networkRead);
+  const { packetNumber, decryptedPayload } = await parseServerInitialPacket(keys, sourceConnectionId, networkRead);
+  log(decryptedPayload);
 }
 
 const host = 'pgjones.dev';

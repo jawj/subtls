@@ -1,6 +1,7 @@
 import { equal } from './array';
 import { indentChars } from '../presentation/appearance';
 import type { Uint8ArrayWithFetchPoints } from './readQueue';
+import { hexFromU8, u8FromHex } from './hex';
 
 const initialSize = 256;
 const growthFactor = 2;
@@ -165,36 +166,37 @@ export class Bytes {
     return str;
   }
 
-  async readUint8(comment?: string) {
-    await this.ensureReadAvailable(1);
-    const result = this.dataView.getUint8(this.offset);
-    this.offset += 1;
-    if (chatty && comment) this.comment(comment.replace(/%/g, String(result)));
+  async readUintN(bits: 8 | 16 | 24 | 32, comment?: string) {
+    const bytes = bits >>> 3;
+    await this.ensureReadAvailable(bytes);
+    const result = [
+      () => this.dataView.getUint8(this.offset),
+      () => this.dataView.getUint16(this.offset),
+      () => this.dataView.getUint8(this.offset) << 16 | this.dataView.getUint16(this.offset + 1),
+      () => this.dataView.getUint32(this.offset),
+    ][bytes - 1]();
+    this.offset += bytes;
+    if (chatty && comment) {
+      this.comment(comment.replace(/(0x)?%/g,
+        m => m.startsWith('0x') ? `0x${hexFromU8([result])}` : String(result)));
+    }
     return result;
+  }
+
+  async readUint8(comment?: string) {
+    return this.readUintN(8, comment);
   }
 
   async readUint16(comment?: string) {
-    await this.ensureReadAvailable(2);
-    const result = this.dataView.getUint16(this.offset);
-    this.offset += 2;
-    if (chatty && comment) this.comment(comment.replace(/%/g, String(result)));
-    return result;
+    return this.readUintN(16, comment);
   }
 
   async readUint24(comment?: string) {
-    const msb = await this.readUint8();
-    const lsbs = await this.readUint16();
-    const result = (msb << 16) + lsbs;
-    if (chatty && comment) this.comment(comment.replace(/%/g, String(result)));
-    return result;
+    return this.readUintN(24, comment);
   }
 
   async readUint32(comment?: string) {
-    await this.ensureReadAvailable(4);
-    const result = this.dataView.getUint32(this.offset);
-    this.offset += 4;
-    if (chatty && comment) this.comment(comment.replace(/%/g, String(result)));
-    return result;
+    return this.readUintN(32, comment);
   }
 
   async expectBytes(expected: Uint8Array | number[], comment?: string) {
