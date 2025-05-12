@@ -22,7 +22,7 @@ export default async function parseServerHello(h: Bytes, sessionId: Uint8Array) 
   chatty && h.comment('server random — [not SHA256("HelloRetryRequest")](https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.3)');
 
   await h.expectUint8(sessionId.length, chatty && 'session ID length (matches client session ID)');
-  await h.expectBytes(sessionId, chatty && 'session ID (matches client session ID)');
+  if (sessionId.length > 0) await h.expectBytes(sessionId, chatty && 'session ID (matches client session ID)');
 
   await h.expectUint16(0x1301, chatty && 'cipher (matches client hello)');
   await h.expectUint8(0x00, chatty && 'no compression');

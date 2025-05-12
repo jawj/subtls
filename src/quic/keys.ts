@@ -3,8 +3,7 @@ import { getRandomValues } from '../util/cryptoRandom';
 import { log } from '../presentation/log';
 import { highlightColonList } from '../presentation/highlights';
 import { hexFromU8, u8FromHex } from '../util/hex';
-
-const nullArray = new Uint8Array(0);
+import { nullArray } from '../util/array';
 
 export type Keys = Awaited<ReturnType<typeof getInitialKeys>>;
 

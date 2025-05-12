@@ -12,7 +12,8 @@ import makeClientHello from '../tls/makeClientHello';
 import { getRandomValues } from '../util/cryptoRandom';
 import { concat, equal } from '../util/array';
 import { Crypter } from '../tls/aesgcm';
-
+import parseServerHello from '../tls/parseServerHello';
+import { nullArray } from '../util/array';
 
 async function makeClientInitialPacket(keys: Keys, sourceConnectionId: Uint8Array, protocolsForALPN: string[]) {
   const p = new QUICBytes(1200);  // we're going to pad it to 1200 bytes anyway
@@ -49,7 +50,7 @@ async function makeClientInitialPacket(keys: Keys, sourceConnectionId: Uint8Arra
   cryptoFrame.writeQUICInt(0x00, 'offset of this CRYPTO stream data');
   const endCryptoFrame = cryptoFrame.writeQUICLength('TLS ClientHello');
 
-  await makeClientHello(cryptoFrame, host, rawPublicKey, new Uint8Array(0), true, protocolsForALPN, h => {
+  await makeClientHello(cryptoFrame, host, rawPublicKey, nullArray, true, protocolsForALPN, h => {
     h.writeUint16(0x0039, chatty && 'extension type: QUIC transport parameters');
     const endExtData = h.writeLengthUint16(chatty && 'transport parameter data');
 
@@ -182,10 +183,11 @@ async function parseServerInitialPacket(keys: Keys, sourceConnectionId: Uint8Arr
   const f = new QUICBytes(decryptedPayload);
 
   while (f.readRemaining() > 0) {
-    const frameType = await f.readQUICInt(chatty && 'frame type');
-    if (frameType === 0x02 || frameType === 0x03) {
-      chatty && f.comment('= ACK');
+    const frameType = await f.readQUICInt();
+    if (frameType === 0) continue;  // padding
 
+    if (frameType === 0x02 || frameType === 0x03) {
+      chatty && f.comment('frame type: ACK');
       const largestAcked = await f.readQUICInt(chatty && 'largest packet number acknowledged');
       const ackDelay = await f.readQUICInt(chatty && 'acknowledgment delay (undecoded): %');
       let rangeCount = await f.readQUICInt(chatty && 'number of additional ACK ranges that will follow the first ACK range: %');
@@ -200,11 +202,18 @@ async function parseServerInitialPacket(keys: Keys, sourceConnectionId: Uint8Arr
         const ect1Count = await f.readQUICInt(chatty && 'ECT1 count: %');
         const ecnceCount = await f.readQUICInt(chatty && 'ECN-CE count: %');
       }
-    }
 
-    log(...highlightBytes(f.commentedString(), LogColours.server));
-    break;
+
+    } else if (frameType === 0x06) {
+      chatty && f.comment('frame type: CRYPTO');
+      const offset = await f.readQUICInt(chatty && 'byte offset in stream');
+      const [endCryptoData] = await f.expectQUICLength(chatty && 'stream data');
+      const serverPublicKey = await parseServerHello(f, nullArray);
+      endCryptoData();
+    }
   }
+
+  log(...highlightBytes(f.commentedString(), LogColours.server));
 
   return { serverConnectionId, packetNumber, decryptedPayload };
 }
@@ -233,10 +242,12 @@ export async function quicConnect(
 
   const { serverConnectionId, packetNumber, decryptedPayload } = await parseServerInitialPacket(keys, clientConnectionId, networkRead);
   log(decryptedPayload);
+
+
 }
 
 const host = 'pgjones.dev';
-const { read, write } = await udpTransport(host, 443);
+const { read, write, end } = await udpTransport(host, 443);
 
 await quicConnect(host, '', read, write, {
   useSNI: true,
