@@ -399,6 +399,44 @@ var GrowableData = class {
 // src/presentation/appearance.ts
 var indentChars = "\xB7\xB7 ";
 
+// src/util/hex.ts
+function u8FromHex(hex) {
+  return new Uint8Array(Array.from(hex.matchAll(/[0-9a-f]{2}/g)).map((hex2) => parseInt(hex2[0], 16)));
+}
+function hexFromU8(u8, spacer = "") {
+  if (!(u8 instanceof Uint8Array)) u8 = new Uint8Array(u8);
+  if (spacer === "") return toHex(u8);
+  if (spacer === " ") return toHexSpaced(u8);
+  throw new Error("Spacer may only be empty or a single space");
+}
+var te2 = new TextEncoder();
+var td2 = new TextDecoder();
+var littleEndian2 = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+var hexChars = te2.encode("0123456789abcdef");
+var ccEvens = new Uint16Array(256);
+var ccOdds = new Uint32Array(256);
+if (littleEndian2) for (let i = 0; i < 256; i++) {
+  ccEvens[i] = hexChars[i & 15] << 8 | hexChars[i >>> 4];
+  ccOdds[i] = 32 << 16 | hexChars[i >>> 4] << 24 | hexChars[i & 15] | 32 << 8;
+}
+else for (let i = 0; i < 256; i++) {
+  ccEvens[i] = hexChars[i & 15] | hexChars[i >>> 4] << 8;
+  ccOdds[i] = 32 << 24 | hexChars[i >>> 4] << 16 | hexChars[i & 15] << 8 | 32;
+}
+function toHexSpaced(in8) {
+  const bytes = in8.length;
+  const out16 = new Uint16Array(bytes * 1.5 << 0);
+  let outIndex = 0;
+  for (let i = 0; i < bytes; i += 2) {
+    out16[outIndex++] = ccEvens[in8[i]];
+    const ccOdd = ccOdds[in8[i + 1]];
+    out16[outIndex++] = ccOdd >>> 16;
+    out16[outIndex++] = ccOdd & 65535;
+  }
+  const out8 = new Uint8Array(out16.buffer);
+  return td2.decode(out8.subarray(0, bytes * 3 - 1));
+}
+
 // src/util/bytes.ts
 var initialSize = 256;
 var growthFactor = 2;
@@ -542,33 +580,35 @@ var Bytes = class {
     await this.expectUint8(0, "end of string");
     return str;
   }
-  async readUint8(comment) {
-    await this.ensureReadAvailable(1);
-    const result = this.dataView.getUint8(this.offset);
-    this.offset += 1;
-    if (comment) this.comment(comment.replace(/%/g, String(result)));
+  async readUintN(bits, comment) {
+    const bytes = bits >>> 3;
+    await this.ensureReadAvailable(bytes);
+    const result = [
+      () => this.dataView.getUint8(this.offset),
+      () => this.dataView.getUint16(this.offset),
+      () => this.dataView.getUint8(this.offset) << 16 | this.dataView.getUint16(this.offset + 1),
+      () => this.dataView.getUint32(this.offset)
+    ][bytes - 1]();
+    this.offset += bytes;
+    if (comment) {
+      this.comment(comment.replace(
+        /(0x)?%/g,
+        (m) => m.startsWith("0x") ? `0x${hexFromU8([result])}` : String(result)
+      ));
+    }
     return result;
+  }
+  async readUint8(comment) {
+    return this.readUintN(8, comment);
   }
   async readUint16(comment) {
-    await this.ensureReadAvailable(2);
-    const result = this.dataView.getUint16(this.offset);
-    this.offset += 2;
-    if (comment) this.comment(comment.replace(/%/g, String(result)));
-    return result;
+    return this.readUintN(16, comment);
   }
   async readUint24(comment) {
-    const msb = await this.readUint8();
-    const lsbs = await this.readUint16();
-    const result = (msb << 16) + lsbs;
-    if (comment) this.comment(comment.replace(/%/g, String(result)));
-    return result;
+    return this.readUintN(24, comment);
   }
   async readUint32(comment) {
-    await this.ensureReadAvailable(4);
-    const result = this.dataView.getUint32(this.offset);
-    this.offset += 4;
-    if (comment) this.comment(comment.replace(/%/g, String(result)));
-    return result;
+    return this.readUintN(32, comment);
   }
   async expectBytes(expected, comment) {
     await this.ensureReadAvailable(expected.length);
@@ -576,25 +616,21 @@ var Bytes = class {
     if (comment) this.comment(comment);
     if (!equal(actual, expected)) throw new Error("Unexpected bytes");
   }
+  async expectUintN(bits, expectedValue, comment) {
+    const actualValue = await this.readUintN(bits, comment);
+    if (actualValue !== expectedValue) throw new Error(`Expected u${bits} ${expectedValue}, got ${actualValue}`);
+  }
   async expectUint8(expectedValue, comment) {
-    const actualValue = await this.readUint8();
-    if (comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected u8 ${expectedValue}, got ${actualValue}`);
+    return this.expectUintN(8, expectedValue, comment);
   }
   async expectUint16(expectedValue, comment) {
-    const actualValue = await this.readUint16();
-    if (comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected u16 ${expectedValue}, got ${actualValue}`);
+    return this.expectUintN(16, expectedValue, comment);
   }
   async expectUint24(expectedValue, comment) {
-    const actualValue = await this.readUint24();
-    if (comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected u24 ${expectedValue}, got ${actualValue}`);
+    return this.expectUintN(24, expectedValue, comment);
   }
   async expectUint32(expectedValue, comment) {
-    const actualValue = await this.readUint32();
-    if (comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected u32 ${expectedValue}, got ${actualValue}`);
+    return this.expectUintN(32, expectedValue, comment);
   }
   async expectReadLength(length, indentDelta = 1) {
     await this.ensureReadAvailable(length);
@@ -892,7 +928,6 @@ async function getRandomValues(...args) {
 
 // src/tls/makeClientHello.ts
 async function makeClientHello(h, host, publicKey, sessionId, useSNI = true, protocolsForALPN, extensionsCallback) {
-  const endRecordHeader = h.writeLengthUint16("TLS record");
   h.writeUint8(1, "handshake type: client hello");
   const endHandshakeHeader = h.writeLengthUint24();
   h.writeUint16(771, "TLS version 1.2 (middlebox compatibility: see [blog.cloudflare.com](https://blog.cloudflare.com/why-tls-1-3-isnt-in-browsers-yet))");
@@ -978,45 +1013,6 @@ async function makeClientHello(h, host, publicKey, sessionId, useSNI = true, pro
   if (extensionsCallback) extensionsCallback(h);
   endExtensions();
   endHandshakeHeader();
-  endRecordHeader();
-}
-
-// src/util/hex.ts
-function u8FromHex(hex) {
-  return new Uint8Array(Array.from(hex.matchAll(/[0-9a-f]{2}/g)).map((hex2) => parseInt(hex2[0], 16)));
-}
-function hexFromU8(u8, spacer = "") {
-  if (!(u8 instanceof Uint8Array)) u8 = new Uint8Array(u8);
-  if (spacer === "") return toHex(u8);
-  if (spacer === " ") return toHexSpaced(u8);
-  throw new Error("Spacer may only be empty or a single space");
-}
-var te2 = new TextEncoder();
-var td2 = new TextDecoder();
-var littleEndian2 = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
-var hexChars = te2.encode("0123456789abcdef");
-var ccEvens = new Uint16Array(256);
-var ccOdds = new Uint32Array(256);
-if (littleEndian2) for (let i = 0; i < 256; i++) {
-  ccEvens[i] = hexChars[i & 15] << 8 | hexChars[i >>> 4];
-  ccOdds[i] = 32 << 16 | hexChars[i >>> 4] << 24 | hexChars[i & 15] | 32 << 8;
-}
-else for (let i = 0; i < 256; i++) {
-  ccEvens[i] = hexChars[i & 15] | hexChars[i >>> 4] << 8;
-  ccOdds[i] = 32 << 24 | hexChars[i >>> 4] << 16 | hexChars[i & 15] << 8 | 32;
-}
-function toHexSpaced(in8) {
-  const bytes = in8.length;
-  const out16 = new Uint16Array(bytes * 1.5 << 0);
-  let outIndex = 0;
-  for (let i = 0; i < bytes; i += 2) {
-    out16[outIndex++] = ccEvens[in8[i]];
-    const ccOdd = ccOdds[in8[i + 1]];
-    out16[outIndex++] = ccOdd >>> 16;
-    out16[outIndex++] = ccOdd & 65535;
-  }
-  const out8 = new Uint8Array(out16.buffer);
-  return td2.decode(out8.subarray(0, bytes * 3 - 1));
 }
 
 // src/tls/parseServerHello.ts
@@ -2721,7 +2717,9 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   const clientHelloRecord = new Bytes();
   clientHelloRecord.writeUint8(22, "record type: handshake");
   clientHelloRecord.writeUint16(769, "TLS legacy record version 1.0 ([RFC 8446 \xA75.1](https://datatracker.ietf.org/doc/html/rfc8446#section-5.1))");
+  const endRecordHeader = clientHelloRecord.writeLengthUint16("TLS record");
   await makeClientHello(clientHelloRecord, host, rawPublicKey, sessionId, useSNI, protocolsForALPN);
+  endRecordHeader();
   log(...highlightBytes(clientHelloRecord.commentedString(), "#8cc" /* client */));
   const clientHelloData = clientHelloRecord.array();
   const initialData = writePreData ? concat(writePreData, clientHelloData) : clientHelloData;

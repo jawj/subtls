@@ -1,7 +1,7 @@
 import { equal } from './array';
 import { indentChars } from '../presentation/appearance';
 import type { Uint8ArrayWithFetchPoints } from './readQueue';
-import { hexFromU8, u8FromHex } from './hex';
+import { hexFromU8 } from './hex';
 
 const initialSize = 256;
 const growthFactor = 2;

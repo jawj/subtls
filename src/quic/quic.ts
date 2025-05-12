@@ -51,7 +51,7 @@ async function makeClientInitialPacket(keys: Keys, sourceConnectionId: Uint8Arra
 
   await makeClientHello(cryptoFrame, host, rawPublicKey, new Uint8Array(0), true, protocolsForALPN, h => {
     h.writeUint16(0x0039, chatty && 'extension type: QUIC transport parameters');
-    const endExtData = h.writeLengthUint16(chatty && 'key share data');
+    const endExtData = h.writeLengthUint16(chatty && 'transport parameter data');
 
     h.writeUint8(0x08, chatty && 'parameter: initial_max_streams_bidi');
     const endBidi = h.writeLengthUint8('variable-length integer');
@@ -132,7 +132,7 @@ async function parseServerInitialPacket(keys: Keys, sourceConnectionId: Uint8Arr
   endDcid();
 
   const [endScid, scidRemaining] = await p.expectLengthUint8(chatty && 'source connection ID');
-  const scid = await p.readBytes(scidRemaining());
+  const serverConnectionId = await p.readBytes(scidRemaining());
   chatty && p.comment('source connection ID');
   endScid();
 
@@ -178,7 +178,7 @@ async function parseServerInitialPacket(keys: Keys, sourceConnectionId: Uint8Arr
   const responsePacketPrefix = p.data.subarray(0, packetNumberEnd);
   const decryptedPayload = await decrypter.process(concat(encryptedPayload.slice(packetNumberBytes), encryptedAuthTag), 16, responsePacketPrefix);
 
-  return { packetNumber, decryptedPayload };
+  return { serverConnectionId, packetNumber, decryptedPayload };
 }
 
 export async function quicConnect(
@@ -198,12 +198,12 @@ export async function quicConnect(
   requireDigitalSigKeyUsage ??= true;
 
   const keys = await getInitialKeys();
-  const sourceConnectionId = await getRandomValues(new Uint8Array(5));
+  const clientConnectionId = await getRandomValues(new Uint8Array(5));
 
-  const initialPacket = await makeClientInitialPacket(keys, sourceConnectionId, protocolsForALPN ?? []);
+  const initialPacket = await makeClientInitialPacket(keys, clientConnectionId, protocolsForALPN ?? []);
   networkWrite(initialPacket.array());
 
-  const { packetNumber, decryptedPayload } = await parseServerInitialPacket(keys, sourceConnectionId, networkRead);
+  const { serverConnectionId, packetNumber, decryptedPayload } = await parseServerInitialPacket(keys, clientConnectionId, networkRead);
   log(decryptedPayload);
 }
 
