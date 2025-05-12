@@ -183,21 +183,10 @@ export class Bytes {
     return result;
   }
 
-  async readUint8(comment?: string) {
-    return this.readUintN(8, comment);
-  }
-
-  async readUint16(comment?: string) {
-    return this.readUintN(16, comment);
-  }
-
-  async readUint24(comment?: string) {
-    return this.readUintN(24, comment);
-  }
-
-  async readUint32(comment?: string) {
-    return this.readUintN(32, comment);
-  }
+  async readUint8(comment?: string) { return this.readUintN(8, comment); }
+  async readUint16(comment?: string) { return this.readUintN(16, comment); }
+  async readUint24(comment?: string) { return this.readUintN(24, comment); }
+  async readUint32(comment?: string) { return this.readUintN(32, comment); }
 
   async expectBytes(expected: Uint8Array | number[], comment?: string) {
     await this.ensureReadAvailable(expected.length);
@@ -206,29 +195,15 @@ export class Bytes {
     if (!equal(actual, expected)) throw new Error('Unexpected bytes');
   }
 
-  async expectUint8(expectedValue: number, comment?: string) {
-    const actualValue = await this.readUint8();
-    if (chatty && comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected u8 ${expectedValue}, got ${actualValue}`);
+  async expectUintN(bits: 8 | 16 | 24 | 32, expectedValue: number, comment?: string) {
+    const actualValue = await this.readUintN(bits, comment);
+    if (actualValue !== expectedValue) throw new Error(`Expected u${bits} ${expectedValue}, got ${actualValue}`);
   }
 
-  async expectUint16(expectedValue: number, comment?: string) {
-    const actualValue = await this.readUint16();
-    if (chatty && comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected u16 ${expectedValue}, got ${actualValue}`);
-  }
-
-  async expectUint24(expectedValue: number, comment?: string) {
-    const actualValue = await this.readUint24();
-    if (chatty && comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected u24 ${expectedValue}, got ${actualValue}`);
-  }
-
-  async expectUint32(expectedValue: number, comment?: string) {
-    const actualValue = await this.readUint32();
-    if (chatty && comment) this.comment(comment);
-    if (actualValue !== expectedValue) throw new Error(`Expected u32 ${expectedValue}, got ${actualValue}`);
-  }
+  async expectUint8(expectedValue: number, comment?: string) { return this.expectUintN(8, expectedValue, comment); }
+  async expectUint16(expectedValue: number, comment?: string) { return this.expectUintN(16, expectedValue, comment); }
+  async expectUint24(expectedValue: number, comment?: string) { return this.expectUintN(24, expectedValue, comment); }
+  async expectUint32(expectedValue: number, comment?: string) { return this.expectUintN(32, expectedValue, comment); }
 
   async expectReadLength(length: number, indentDelta = 1) {
     await this.ensureReadAvailable(length);  // not required, but should mean length has to be extended fewer times
