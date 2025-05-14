@@ -178,7 +178,7 @@ export class Bytes {
     this.offset += bytes;
     if (chatty && comment) {
       this.comment(comment.replace(/(0x)?%/g,
-        m => m.startsWith('0x') ? `0x${hexFromU8([result])}` : String(result)));
+        m => m.startsWith('0x') ? `0x${hexFromU8(this.data.subarray(this.offset - bytes, this.offset))}` : String(result)));  // NOTE: assumes big-endian!
     }
     return result;
   }
