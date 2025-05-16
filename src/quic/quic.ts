@@ -8,6 +8,7 @@ import { hexFromU8, u8FromHex } from '../util/hex';
 import { QUICBytes } from '../util/quicBytes';
 import { LogColours } from '../presentation/appearance';
 import udpTransport from '../util/udpTransport';
+import udpPacketTransport from '../util/udpPacketTransport';
 import makeClientHello from '../tls/makeClientHello';
 import { getRandomValues } from '../util/cryptoRandom';
 import { concat, equal } from '../util/array';
@@ -124,9 +125,11 @@ async function makeClientInitialPacket(initialKeys: Keys, ecdhKeys: CryptoKeyPai
   return { clientInitialPacket: p, clientHello };
 }
 
-async function parsePacket(packetType: 'initial' | 'handshake', hpKeyData: Uint8Array, decrypter: Crypter, sourceConnectionId: Uint8Array, networkRead: (bytes: number) => Promise<Uint8Array | undefined>) {
-  const p = new QUICBytes(networkRead);
+async function parsePacket(packetType: 'initial' | 'handshake', hpKeyData: Uint8Array, decrypter: Crypter | undefined, sourceConnectionId: Uint8Array, packetRead: () => Promise<Uint8Array | undefined>) {
+  const packet = await packetRead();
+  const p = new QUICBytes(packet);
   await p.readUint8(chatty && 'first byte, unprotected (protected value: 0x%)');
+  //log({ p })
   await p.expectUint32(0x00000001, chatty && 'QUIC version');
 
   const [endDcid, dcidRemaining] = await p.expectLengthUint8(chatty && 'destination connection ID');
@@ -165,14 +168,19 @@ async function parsePacket(packetType: 'initial' | 'handshake', hpKeyData: Uint8
 
   p.offset = packetNumberStart;
   const readBits = ([8, 16, 24, 32] as const)[packetNumberBytes - 1];
-  const packetNumber = await p.readUintN(readBits, chatty && 'packet number, unprotected (protected value: 0x%)');
+  const protectedPacketNumber = await p.readUintN(readBits, chatty && 'packet number, unprotected (protected value: 0x%)');
   const packetNumberEnd = p.offset;
 
   for (let i = packetNumberStart, j = 1; i < packetNumberEnd; i++, j++) {
     p.data[i] ^= headerProtectionResult[j];
   }
 
+  p.offset -= packetNumberBytes;
+  const packetNumber = await p.readUintN(readBits);
+
   p.offset = packetEnd;
+  const remaining = p.readRemaining();
+  if (remaining > 0) await p.skipRead(remaining, chatty && 'padding');
 
   log(...highlightBytes(p.commentedString(), LogColours.server));
 
@@ -180,61 +188,62 @@ async function parsePacket(packetType: 'initial' | 'handshake', hpKeyData: Uint8
   const packetPrefix = p.data.subarray(0, packetNumberEnd);
   const encryptedPayload = packetNumberPlusEncryptedPayload.subarray(packetNumberBytes);
   log({ packetPrefix });
-  const decryptedPayload = await decrypter.process(concat(encryptedPayload, encryptedAuthTag), 16, packetPrefix);
+  const decryptedPayload = decrypter ? await decrypter.process(concat(encryptedPayload, encryptedAuthTag), 16, packetPrefix) : nullArray;
 
   return { serverConnectionId, packetNumber, decryptedPayload };
 }
 
-async function parseServerInitialPacket(initialKeys: Keys, sourceConnectionId: Uint8Array, networkRead: (bytes: number) => Promise<Uint8Array | undefined>) {
+async function parseServerInitialPacket(initialKeys: Keys, sourceConnectionId: Uint8Array, packetRead: () => Promise<Uint8Array | undefined>) {
   const serverInitialKey = await cs.importKey('raw', initialKeys.serverInitialKeyData, { name: 'AES-GCM' }, false, ['decrypt']);
   const decrypter = new Crypter('decrypt', serverInitialKey, initialKeys.serverInitialIV);
-
-  const { serverConnectionId, packetNumber, decryptedPayload } = await parsePacket('initial', initialKeys.serverInitialHPKeyData, decrypter, sourceConnectionId, networkRead);
-  const f = new QUICBytes(decryptedPayload);
-
   let serverPublicKey, serverHello;
 
-  while (f.readRemaining() > 0) {
-    const frameType = await f.readQUICInt();
-    if (frameType === 0) continue;  // padding
+  while (!serverHello) {
+    const { serverConnectionId, packetNumber, decryptedPayload } = await parsePacket('initial', initialKeys.serverInitialHPKeyData, decrypter, sourceConnectionId, packetRead);
+    const f = new QUICBytes(decryptedPayload);
 
-    if (frameType === 0x02 || frameType === 0x03) {
-      chatty && f.comment('frame type: ACK');
-      const largestAcked = await f.readQUICInt(chatty && 'largest packet number acknowledged');
-      const ackDelay = await f.readQUICInt(chatty && 'acknowledgment delay (undecoded): %');
-      let rangeCount = await f.readQUICInt(chatty && 'number of additional ACK ranges that will follow the first ACK range: %');
-      const firstAckRange = await f.readQUICInt(chatty && 'first ACK range: %');
-      while (rangeCount-- > 0) {
-        const ackGap = await f.readQUICInt(chatty && 'ACK range gap: %');
-        const ackLength = await f.readQUICInt(chatty && 'ACK range length: %');
+    while (f.readRemaining() > 0) {
+      const frameType = await f.readQUICInt();
+      if (frameType === 0) continue;  // padding
+
+      if (frameType === 0x02 || frameType === 0x03) {
+        chatty && f.comment('frame type: ACK');
+        const largestAcked = await f.readQUICInt(chatty && 'largest packet number acknowledged');
+        const ackDelay = await f.readQUICInt(chatty && 'acknowledgment delay (undecoded): %');
+        let rangeCount = await f.readQUICInt(chatty && 'number of additional ACK ranges that will follow the first ACK range: %');
+        const firstAckRange = await f.readQUICInt(chatty && 'first ACK range: %');
+        while (rangeCount-- > 0) {
+          const ackGap = await f.readQUICInt(chatty && 'ACK range gap: %');
+          const ackLength = await f.readQUICInt(chatty && 'ACK range length: %');
+        }
+
+        if (frameType === 0x03) {
+          const ect0Count = await f.readQUICInt(chatty && 'ECT0 count: %');
+          const ect1Count = await f.readQUICInt(chatty && 'ECT1 count: %');
+          const ecnceCount = await f.readQUICInt(chatty && 'ECN-CE count: %');
+        }
+
+
+      } else if (frameType === 0x06) {
+        chatty && f.comment('frame type: CRYPTO');
+        const offset = await f.readQUICInt(chatty && 'byte offset in stream');
+        const [endCryptoData] = await f.expectQUICLength(chatty && 'stream data');
+        const serverHelloStart = f.offset;
+        serverPublicKey = await parseServerHello(f, nullArray);
+        serverHello = f.data.subarray(serverHelloStart, f.offset);
+        endCryptoData();
       }
-
-      if (frameType === 0x03) {
-        const ect0Count = await f.readQUICInt(chatty && 'ECT0 count: %');
-        const ect1Count = await f.readQUICInt(chatty && 'ECT1 count: %');
-        const ecnceCount = await f.readQUICInt(chatty && 'ECN-CE count: %');
-      }
-
-
-    } else if (frameType === 0x06) {
-      chatty && f.comment('frame type: CRYPTO');
-      const offset = await f.readQUICInt(chatty && 'byte offset in stream');
-      const [endCryptoData] = await f.expectQUICLength(chatty && 'stream data');
-      const serverHelloStart = f.offset;
-      serverPublicKey = await parseServerHello(f, nullArray);
-      serverHello = f.data.subarray(serverHelloStart, f.offset);
-      endCryptoData();
     }
-  }
 
-  log(...highlightBytes(f.commentedString(), LogColours.server));
-  return { serverConnectionId, packetNumber, decryptedPayload, serverPublicKey, serverHello };
+    log(...highlightBytes(f.commentedString(), LogColours.server));
+  }
+  return { serverPublicKey, serverHello, decrypter };
 }
 
 export async function quicConnect(
   host: string,
   rootCertsDatabase: RootCertsDatabase | string,
-  networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
+  packetRead: () => Promise<Uint8Array | undefined>,
   networkWrite: (data: Uint8Array) => void,
   { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage }: {
     useSNI?: boolean,
@@ -257,14 +266,15 @@ export async function quicConnect(
   const { clientInitialPacket, clientHello } = await makeClientInitialPacket(initialKeys, ecdhKeys, localConnectionId, protocolsForALPN ?? []);
   networkWrite(clientInitialPacket.array());
 
-  const { serverConnectionId, serverPublicKey, serverHello } = await parseServerInitialPacket(initialKeys, localConnectionId, networkRead);
+  const { serverPublicKey, serverHello } = await parseServerInitialPacket(initialKeys, localConnectionId, packetRead);
+  // await parseServerInitialPacket(initialKeys, localConnectionId, packetRead);
 
   // handshake keys + encryption/decryption instances
   chatty && log('Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:');
   chatty && log('%c%s', `color: ${LogColours.header}`, 'handshake key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))');
 
   console.log({ clientHello, serverHello });
-  const hellos = concat(clientHello, serverHello!);
+  const hellos = concat(clientHello, serverHello);
   const handshakeKeys = await getHandshakeKeys(serverPublicKey!, ecdhKeys.privateKey, hellos, 256, 16, true);
   const serverHandshakeKey = await cs.importKey('raw', handshakeKeys.serverHandshakeKey, { name: 'AES-GCM' }, false, ['decrypt']);
   const handshakeDecrypter = new Crypter('decrypt', serverHandshakeKey, handshakeKeys.serverHandshakeIV);
@@ -272,12 +282,14 @@ export async function quicConnect(
   const handshakeEncrypter = new Crypter('encrypt', clientHandshakeKey, handshakeKeys.clientHandshakeIV);
 
   // next packet
-  const packet = await parsePacket('handshake', handshakeKeys.serverHandshakeHpKey, handshakeDecrypter, localConnectionId, networkRead);
-  console.log(packet);
+  while (true) {
+    const packet = await parsePacket('handshake', handshakeKeys.serverHandshakeHpKey, /*handshakeDecrypter*/ undefined, localConnectionId, packetRead);
+    console.log(packet);
+  }
 }
 
 const host = 'gridpointgb.uk';
-const { read, write, end } = await udpTransport(host, 443);
+const { read, write, end } = await udpPacketTransport(host, 443);
 
 await quicConnect(host, '', read, write, {
   useSNI: true,
