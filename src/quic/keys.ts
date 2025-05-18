@@ -23,27 +23,27 @@ export async function getInitialKeys() {
   const serverInitialSecret = await hkdfExpandLabel(initialSecret, 'server in', nullArray, 32, 256);
   chatty && log(...highlightColonList('server initial secret: ' + hexFromU8(serverInitialSecret)));
 
-  const clientInitialKeyData = await hkdfExpandLabel(clientInitialSecret, 'quic key', nullArray, 16, 256);
-  chatty && log(...highlightColonList('client initial key: ' + hexFromU8(clientInitialKeyData)));
+  const clientKey = await hkdfExpandLabel(clientInitialSecret, 'quic key', nullArray, 16, 256);
+  chatty && log(...highlightColonList('client initial key: ' + hexFromU8(clientKey)));
 
-  const serverInitialKeyData = await hkdfExpandLabel(serverInitialSecret, 'quic key', nullArray, 16, 256);
-  chatty && log(...highlightColonList('server initial key: ' + hexFromU8(serverInitialKeyData)));
+  const serverKey = await hkdfExpandLabel(serverInitialSecret, 'quic key', nullArray, 16, 256);
+  chatty && log(...highlightColonList('server initial key: ' + hexFromU8(serverKey)));
 
-  const clientInitialIV = await hkdfExpandLabel(clientInitialSecret, 'quic iv', nullArray, 12, 256);
-  chatty && log(...highlightColonList('client initial iv: ' + hexFromU8(clientInitialIV)));
+  const clientIV = await hkdfExpandLabel(clientInitialSecret, 'quic iv', nullArray, 12, 256);
+  chatty && log(...highlightColonList('client initial iv: ' + hexFromU8(clientIV)));
 
-  const serverInitialIV = await hkdfExpandLabel(serverInitialSecret, 'quic iv', nullArray, 12, 256);
-  chatty && log(...highlightColonList('server initial iv: ' + hexFromU8(serverInitialIV)));
+  const serverIV = await hkdfExpandLabel(serverInitialSecret, 'quic iv', nullArray, 12, 256);
+  chatty && log(...highlightColonList('server initial iv: ' + hexFromU8(serverIV)));
 
-  const clientInitialHPKeyData = await hkdfExpandLabel(clientInitialSecret, 'quic hp', nullArray, 16, 256);
-  chatty && log(...highlightColonList('client initial header protection key: ' + hexFromU8(clientInitialHPKeyData)));
+  const clientHPKey = await hkdfExpandLabel(clientInitialSecret, 'quic hp', nullArray, 16, 256);
+  chatty && log(...highlightColonList('client initial header protection key: ' + hexFromU8(clientHPKey)));
 
-  const serverInitialHPKeyData = await hkdfExpandLabel(serverInitialSecret, 'quic hp', nullArray, 16, 256);
-  chatty && log(...highlightColonList('server initial header protection key: ' + hexFromU8(serverInitialHPKeyData)));
+  const serverHPKey = await hkdfExpandLabel(serverInitialSecret, 'quic hp', nullArray, 16, 256);
+  chatty && log(...highlightColonList('server initial header protection key: ' + hexFromU8(serverHPKey)));
 
   return {
     initialRandom,
-    clientInitialKeyData, clientInitialIV, clientInitialHPKeyData,
-    serverInitialKeyData, serverInitialIV, serverInitialHPKeyData,
-  }
+    clientKey, clientIV, clientHPKey,
+    serverKey, serverIV, serverHPKey,
+  };
 }

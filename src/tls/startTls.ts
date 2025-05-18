@@ -94,10 +94,8 @@ export async function startTls(
   const serverHelloContent = serverHello.array();    // 5-byte record header is already excluded
   const hellos = concat(clientHelloContent, serverHelloContent);
   const handshakeKeys = await getHandshakeKeys(serverPublicKey, ecdhKeys.privateKey, hellos, 256, 16);  // would be 384, 32 for AES256_SHA384
-  const serverHandshakeKey = await cs.importKey('raw', handshakeKeys.serverHandshakeKey, { name: 'AES-GCM' }, false, ['decrypt']);
-  const handshakeDecrypter = new Crypter('decrypt', serverHandshakeKey, handshakeKeys.serverHandshakeIV);
-  const clientHandshakeKey = await cs.importKey('raw', handshakeKeys.clientHandshakeKey, { name: 'AES-GCM' }, false, ['encrypt']);
-  const handshakeEncrypter = new Crypter('encrypt', clientHandshakeKey, handshakeKeys.clientHandshakeIV);
+  const handshakeDecrypter = new Crypter('decrypt', handshakeKeys.serverKey, handshakeKeys.serverIV);
+  const handshakeEncrypter = new Crypter('encrypt', handshakeKeys.clientKey, handshakeKeys.clientIV);
 
   // parse encrypted handshake
   chatty && log('The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the ‘certificate verify’ message, which we check on the spot, and the full certificate chain, which we verify a bit later on:');
@@ -175,11 +173,9 @@ export async function startTls(
   // application keys, encryption/decryption instances
   chatty && log('Both parties now have what they need to calculate the keys and IVs that will protect the application data:');
   chatty && log('%c%s', `color: ${LogColours.header}`, 'application key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))');
-  const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, partialHandshakeHash, 256, 16);
-  const clientApplicationKey = await cs.importKey('raw', applicationKeys.clientApplicationKey, { name: 'AES-GCM' }, true /* TODO make false */, ['encrypt']);
-  const applicationEncrypter = new Crypter('encrypt', clientApplicationKey, applicationKeys.clientApplicationIV);
-  const serverApplicationKey = await cs.importKey('raw', applicationKeys.serverApplicationKey, { name: 'AES-GCM' }, true /* TODO make false */, ['decrypt']);
-  const applicationDecrypter = new Crypter('decrypt', serverApplicationKey, applicationKeys.serverApplicationIV);
+  const applicationKeys = await getApplicationKeys(handshakeKeys.masterSecret, partialHandshakeHash, 256, 16);
+  const applicationEncrypter = new Crypter('encrypt', applicationKeys.clientKey, applicationKeys.clientIV);
+  const applicationDecrypter = new Crypter('decrypt', applicationKeys.serverKey, applicationKeys.serverIV);
 
   let wroteFinishedRecords = false;
 

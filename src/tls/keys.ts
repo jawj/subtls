@@ -28,34 +28,34 @@ export async function getHandshakeKeys(serverPublicKey: Uint8Array, privateKey: 
   const derivedSecret = await hkdfExpandLabel(earlySecret, 'derived', emptyHash, hashBytes, hashBits);
   chatty && log(...highlightColonList('derived secret: ' + hexFromU8(derivedSecret)));
 
-  const handshakeSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
-  chatty && log(...highlightColonList('handshake secret: ' + hexFromU8(handshakeSecret)));
+  const masterSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
+  chatty && log(...highlightColonList('handshake secret: ' + hexFromU8(masterSecret)));
 
-  const clientSecret = await hkdfExpandLabel(handshakeSecret, 'c hs traffic', hellosHash, hashBytes, hashBits);
+  const clientSecret = await hkdfExpandLabel(masterSecret, 'c hs traffic', hellosHash, hashBytes, hashBits);
   chatty && log(...highlightColonList('client secret: ' + hexFromU8(clientSecret)));
 
-  const serverSecret = await hkdfExpandLabel(handshakeSecret, 's hs traffic', hellosHash, hashBytes, hashBits);
+  const serverSecret = await hkdfExpandLabel(masterSecret, 's hs traffic', hellosHash, hashBytes, hashBits);
   chatty && log(...highlightColonList('server secret: ' + hexFromU8(serverSecret)));
 
-  const clientHandshakeKey = await hkdfExpandLabel(clientSecret, quic ? 'quic key' : 'key', nullArray, keyLength, hashBits);
-  chatty && log(...highlightColonList('client handshake key: ' + hexFromU8(clientHandshakeKey)));
+  const clientKey = await hkdfExpandLabel(clientSecret, quic ? 'quic key' : 'key', nullArray, keyLength, hashBits);
+  chatty && log(...highlightColonList('client handshake key: ' + hexFromU8(clientKey)));
 
-  const serverHandshakeKey = await hkdfExpandLabel(serverSecret, quic ? 'quic key' : 'key', nullArray, keyLength, hashBits);
-  chatty && log(...highlightColonList('server handshake key: ' + hexFromU8(serverHandshakeKey)));
+  const serverKey = await hkdfExpandLabel(serverSecret, quic ? 'quic key' : 'key', nullArray, keyLength, hashBits);
+  chatty && log(...highlightColonList('server handshake key: ' + hexFromU8(serverKey)));
 
-  const clientHandshakeIV = await hkdfExpandLabel(clientSecret, quic ? 'quic iv' : 'iv', nullArray, 12, hashBits);
-  chatty && log(...highlightColonList('client handshake iv: ' + hexFromU8(clientHandshakeIV)));
+  const clientIV = await hkdfExpandLabel(clientSecret, quic ? 'quic iv' : 'iv', nullArray, 12, hashBits);
+  chatty && log(...highlightColonList('client handshake iv: ' + hexFromU8(clientIV)));
 
-  const serverHandshakeIV = await hkdfExpandLabel(serverSecret, quic ? 'quic iv' : 'iv', nullArray, 12, hashBits);
-  chatty && log(...highlightColonList('server handshake iv: ' + hexFromU8(serverHandshakeIV)));
+  const serverIV = await hkdfExpandLabel(serverSecret, quic ? 'quic iv' : 'iv', nullArray, 12, hashBits);
+  chatty && log(...highlightColonList('server handshake iv: ' + hexFromU8(serverIV)));
 
-  const clientHandshakeHpKey = quic ? await hkdfExpandLabel(clientSecret, 'quic hp', nullArray, keyLength, hashBits) : nullArray;
-  chatty && quic && log(...highlightColonList('client handshake header protection key: ' + hexFromU8(clientHandshakeHpKey!)));
+  const clientHPKey = quic ? await hkdfExpandLabel(clientSecret, 'quic hp', nullArray, keyLength, hashBits) : nullArray;
+  chatty && quic && log(...highlightColonList('client handshake header protection key: ' + hexFromU8(clientHPKey)));
 
-  const serverHandshakeHpKey = quic ? await hkdfExpandLabel(serverSecret, 'quic hp', nullArray, keyLength, hashBits) : nullArray;
-  chatty && quic && log(...highlightColonList('server handshake header protection key: ' + hexFromU8(serverHandshakeHpKey!)));
+  const serverHPKey = quic ? await hkdfExpandLabel(serverSecret, 'quic hp', nullArray, keyLength, hashBits) : nullArray;
+  chatty && quic && log(...highlightColonList('server handshake header protection key: ' + hexFromU8(serverHPKey)));
 
-  return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV, handshakeSecret, clientSecret, serverSecret, clientHandshakeHpKey, serverHandshakeHpKey };
+  return { masterSecret, clientSecret, clientKey, clientIV, clientHPKey, serverSecret, serverKey, serverIV, serverHPKey };
 }
 
 export async function getApplicationKeys(handshakeSecret: Uint8Array, handshakeHash: Uint8Array, hashBits: 256 | 384, keyLength: 16 | 32) {  // keyLength: 16 for ASE128, 32 for AES256
@@ -78,17 +78,17 @@ export async function getApplicationKeys(handshakeSecret: Uint8Array, handshakeH
   const serverSecret = await hkdfExpandLabel(masterSecret, 's ap traffic', handshakeHash, hashBytes, hashBits);
   chatty && log(...highlightColonList('server secret: ' + hexFromU8(serverSecret)));
 
-  const clientApplicationKey = await hkdfExpandLabel(clientSecret, 'key', nullArray, keyLength, hashBits);
-  chatty && log(...highlightColonList('client application key: ' + hexFromU8(clientApplicationKey)));
+  const clientKey = await hkdfExpandLabel(clientSecret, 'key', nullArray, keyLength, hashBits);
+  chatty && log(...highlightColonList('client application key: ' + hexFromU8(clientKey)));
 
-  const serverApplicationKey = await hkdfExpandLabel(serverSecret, 'key', nullArray, keyLength, hashBits);
-  chatty && log(...highlightColonList('server application key: ' + hexFromU8(serverApplicationKey)));
+  const serverKey = await hkdfExpandLabel(serverSecret, 'key', nullArray, keyLength, hashBits);
+  chatty && log(...highlightColonList('server application key: ' + hexFromU8(serverKey)));
 
-  const clientApplicationIV = await hkdfExpandLabel(clientSecret, 'iv', nullArray, 12, hashBits);
-  chatty && log(...highlightColonList('client application iv: ' + hexFromU8(clientApplicationIV)));
+  const clientIV = await hkdfExpandLabel(clientSecret, 'iv', nullArray, 12, hashBits);
+  chatty && log(...highlightColonList('client application iv: ' + hexFromU8(clientIV)));
 
-  const serverApplicationIV = await hkdfExpandLabel(serverSecret, 'iv', nullArray, 12, hashBits);
-  chatty && log(...highlightColonList('server application iv: ' + hexFromU8(serverApplicationIV)));
+  const serverIV = await hkdfExpandLabel(serverSecret, 'iv', nullArray, 12, hashBits);
+  chatty && log(...highlightColonList('server application iv: ' + hexFromU8(serverIV)));
 
-  return { serverApplicationKey, serverApplicationIV, clientApplicationKey, clientApplicationIV };
+  return { serverKey, serverIV, clientKey, clientIV };
 }
