@@ -244,7 +244,7 @@ async function parseServerInitialPackets(keys: KeySets, sourceConnectionId: Uint
   let serverPublicKey, serverHello;
 
   while (!serverHello) {
-    const { serverConnectionId, packetNumber, decryptedPayload } = await parsePacket(keys, sourceConnectionId, packetRead);
+    const { decryptedPayload } = await parsePacket(keys, sourceConnectionId, packetRead);
     const f = new QUICBytes(decryptedPayload);
 
     while (f.readRemaining() > 0) {
@@ -324,8 +324,30 @@ export async function quicConnect(
 
   // next packet
   while (true) {
-    const packet = await parsePacket(keySets, localConnectionId, packetRead);
-    console.log(packet);
+    const { headerFormat, packetType, decryptedPayload } = await parsePacket(keySets, localConnectionId, packetRead);
+
+    if (headerFormat === HeaderFormats.Long && packetType === LongHeaderPacketTypes.Handshake) {
+      const f = new QUICBytes(decryptedPayload);
+
+      while (f.readRemaining() > 0) {
+        const frameType = await f.readQUICInt();
+        if (frameType === 0) continue;  // padding
+
+        if (frameType === 0x06) {
+          chatty && f.comment('frame type: CRYPTO');
+          const offset = await f.readQUICInt(chatty && 'byte offset in stream: %');
+          const [endCryptoData, cryptoDataRemaining] = await f.expectQUICLength(chatty && 'stream data');
+
+          await f.readBytes(cryptoDataRemaining());
+          log(...highlightBytes(f.commentedString(), LogColours.server));
+
+          endCryptoData();
+        }
+      }
+
+    } else {
+      log({ headerFormat, packetType, decryptedPayload });
+    }
   }
 }
 
