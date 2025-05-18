@@ -1,7 +1,7 @@
 import { type RootCertsDatabase } from '../tls/cert';
 import cs from '../util/cryptoProxy';
 
-import { getInitialKeys, type Keys } from './keys';
+import { getInitialKeys, type InitialKeys } from './keys';
 import { log } from '../presentation/log';
 import { highlightBytes } from '../presentation/highlights';
 import { hexFromU8 } from '../util/hex';
@@ -14,9 +14,28 @@ import { concat, equal } from '../util/array';
 import { aesGcmWithXorIv } from '../tls/aesgcm';
 import parseServerHello from '../tls/parseServerHello';
 import { nullArray } from '../util/array';
-import { getHandshakeKeys } from '../tls/keys';
+import { ApplicationKeys, getHandshakeKeys, HandshakeKeys } from '../tls/keys';
 
-async function makeClientInitialPacket(initialKeys: Keys, ecdhKeys: CryptoKeyPair, localConnectionId: Uint8Array, protocolsForALPN: string[]) {
+enum HeaderFormats {
+  Short = 0b0,
+  Long = 0b1,
+}
+
+enum LongHeaderPacketTypes {
+  Initial = 0b00,
+  // ZeroRTT = 0b01,
+  Handshake = 0b10,
+  // Retry = 0b11,
+}
+
+interface KeySets {
+  initialKeys?: InitialKeys;
+  handshakeKeys?: HandshakeKeys;
+  applicationKeys?: ApplicationKeys;
+}
+
+async function makeClientInitialPacket(keySets: KeySets, ecdhKeys: CryptoKeyPair, localConnectionId: Uint8Array, protocolsForALPN: string[]) {
+  const keys = keySets.initialKeys!;
   const p = new QUICBytes(1200);  // we're going to pad it to 1200 bytes anyway
 
   const unprotectedFirstByte = 0b11000000;
@@ -31,7 +50,7 @@ async function makeClientInitialPacket(initialKeys: Keys, ecdhKeys: CryptoKeyPai
   p.writeUint32(1, chatty && 'QUIC version: 1');
 
   const endDestConnID = p.writeLengthUint8(chatty && 'destination connection ID');
-  p.writeBytes(initialKeys.initialRandom);
+  p.writeBytes(keys.initialRandom);
   chatty && p.comment('destination connection ID = initial random data');
   endDestConnID();
 
@@ -90,8 +109,8 @@ async function makeClientInitialPacket(initialKeys: Keys, ecdhKeys: CryptoKeyPai
   const initialPacketPrefix = p.data.subarray(0, packetNumberEnd);
   const encryptedPayload = await aesGcmWithXorIv('encrypt', {
     data: cryptoFrameData,
-    key: initialKeys.clientKey,
-    iv: initialKeys.clientIV,
+    key: keys.clientKey,
+    iv: keys.clientIV,
     xorValue: 0n,  // packet number
     additionalData: initialPacketPrefix,
     authTagByteLength: 16,
@@ -113,7 +132,7 @@ async function makeClientInitialPacket(initialKeys: Keys, ecdhKeys: CryptoKeyPai
   const sampleStart = packetNumberStart + 4;
   const headerProtectionPayloadSample = p.data.subarray(sampleStart, sampleStart + 16);
 
-  const headerProtectionKey = await cs.importKey('raw', initialKeys.clientHPKey, { name: 'AES-CBC' }, false, ['encrypt']);
+  const headerProtectionKey = await cs.importKey('raw', keys.clientHPKey, { name: 'AES-CBC' }, false, ['encrypt']);
   const headerProtectionBuffer = await cs.encrypt({ name: 'AES-CBC', iv: headerProtectionPayloadSample }, headerProtectionKey, new Uint8Array(16));
   const headerProtectionResult = new Uint8Array(headerProtectionBuffer);
 
@@ -128,10 +147,22 @@ async function makeClientInitialPacket(initialKeys: Keys, ecdhKeys: CryptoKeyPai
   return { clientInitialPacket: p, clientHello };
 }
 
-async function parsePacket(packetType: 'initial' | 'handshake', keys: Record<string, Uint8Array>, sourceConnectionId: Uint8Array, packetRead: () => Promise<Uint8Array | undefined>) {
+async function parsePacket(keySets: KeySets, sourceConnectionId: Uint8Array, packetRead: () => Promise<Uint8Array | undefined>) {
   const packet = await packetRead();
   const p = new QUICBytes(packet);
-  await p.readUint8(chatty && 'first byte, unprotected (protected value: 0x%)');
+
+  const firstByte = await p.readUint8(chatty && 'first byte, unprotected (protected value: 0x%)');
+  const headerFormat: HeaderFormats = firstByte >>> 7;
+  if (headerFormat !== HeaderFormats.Long) throw new Error('At present only long headers are supported');
+  const packetType: LongHeaderPacketTypes = (firstByte >>> 4) & 0b11;
+
+  const keys = {
+    [LongHeaderPacketTypes.Initial]: keySets.initialKeys,
+    [LongHeaderPacketTypes.Handshake]: keySets.handshakeKeys,
+  }[packetType]!;
+
+  // can't parse the last 4 bits yet, since they're protected
+
   await p.expectUint32(0x00000001, chatty && 'QUIC version');
 
   const [endDcid, dcidRemaining] = await p.expectLengthUint8(chatty && 'destination connection ID');
@@ -145,7 +176,14 @@ async function parsePacket(packetType: 'initial' | 'handshake', keys: Record<str
   chatty && p.comment('source connection ID');
   endScid();
 
-  if (packetType === 'initial') await p.expectUint8(0, chatty && 'token length: zero (i.e. no token)');
+  if (packetType === LongHeaderPacketTypes.Initial) {
+    const [endToken, tokenRemaining] = await p.expectQUICLength(chatty && 'token length');
+    if (tokenRemaining() > 0) {
+      const token = await p.readBytes(tokenRemaining());
+      chatty && p.comment('token');
+    }
+    endToken();
+  }
 
   const [endPayload, payloadRemaining] = await p.expectQUICLength(chatty && 'payload length');
   const packetNumberStart = p.offset;
@@ -199,14 +237,14 @@ async function parsePacket(packetType: 'initial' | 'handshake', keys: Record<str
     authTagByteLength: 16,
   });
 
-  return { serverConnectionId, packetNumber, decryptedPayload };
+  return { serverConnectionId, headerFormat, packetType, packetNumber, decryptedPayload };
 }
 
-async function parseServerInitialPacket(initialKeys: Keys, sourceConnectionId: Uint8Array, packetRead: () => Promise<Uint8Array | undefined>) {
+async function parseServerInitialPackets(keys: KeySets, sourceConnectionId: Uint8Array, packetRead: () => Promise<Uint8Array | undefined>) {
   let serverPublicKey, serverHello;
 
   while (!serverHello) {
-    const { serverConnectionId, packetNumber, decryptedPayload } = await parsePacket('initial', initialKeys, sourceConnectionId, packetRead);
+    const { serverConnectionId, packetNumber, decryptedPayload } = await parsePacket(keys, sourceConnectionId, packetRead);
     const f = new QUICBytes(decryptedPayload);
 
     while (f.readRemaining() > 0) {
@@ -263,29 +301,30 @@ export async function quicConnect(
   requireServerTlsExtKeyUsage ??= true;
   requireDigitalSigKeyUsage ??= true;
 
+  const keySets: KeySets = {};
+
   // QUIC initial keys
-  const initialKeys = await getInitialKeys();
+  keySets.initialKeys = await getInitialKeys();
   const localConnectionId = await getRandomValues(new Uint8Array(5));
 
   // TLS keys
   const ecdhKeys = await cs.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
 
-  const { clientInitialPacket, clientHello } = await makeClientInitialPacket(initialKeys, ecdhKeys, localConnectionId, protocolsForALPN ?? []);
+  const { clientInitialPacket, clientHello } = await makeClientInitialPacket(keySets, ecdhKeys, localConnectionId, protocolsForALPN ?? []);
   networkWrite(clientInitialPacket.array());
 
-  const { serverPublicKey, serverHello } = await parseServerInitialPacket(initialKeys, localConnectionId, packetRead);
+  const { serverPublicKey, serverHello } = await parseServerInitialPackets(keySets, localConnectionId, packetRead);
 
   // handshake keys + encryption/decryption instances
   chatty && log('Both sides of the exchange now have everything they need to calculate the keys and IVs that will protect the rest of the handshake:');
   chatty && log('%c%s', `color: ${LogColours.header}`, 'handshake key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))');
 
-  console.log({ clientHello, serverHello });
   const hellos = concat(clientHello, serverHello);
-  const handshakeKeys = await getHandshakeKeys(serverPublicKey!, ecdhKeys.privateKey, hellos, 256, 16, true);
+  keySets.handshakeKeys = await getHandshakeKeys(serverPublicKey!, ecdhKeys.privateKey, hellos, 256, 16, true);
 
   // next packet
   while (true) {
-    const packet = await parsePacket('handshake', handshakeKeys, localConnectionId, packetRead);
+    const packet = await parsePacket(keySets, localConnectionId, packetRead);
     console.log(packet);
   }
 }

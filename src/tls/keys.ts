@@ -5,6 +5,8 @@ import cs from '../util/cryptoProxy';
 import { hkdfExtract, hkdfExpandLabel } from './hkdf';
 import { nullArray } from '../util/array';
 
+export type HandshakeKeys = Awaited<ReturnType<typeof getHandshakeKeys>>;
+
 export async function getHandshakeKeys(serverPublicKey: Uint8Array, privateKey: CryptoKey, hellos: Uint8Array, hashBits: 256 | 384, keyLength: 16 | 32, quic = false) {  // keyLength: 16 for AES128, 32 for AES256
   const hashBytes = hashBits >>> 3;
   const zeroKey = new Uint8Array(hashBytes);
@@ -57,6 +59,8 @@ export async function getHandshakeKeys(serverPublicKey: Uint8Array, privateKey: 
 
   return { masterSecret, clientSecret, clientKey, clientIV, clientHPKey, serverSecret, serverKey, serverIV, serverHPKey };
 }
+
+export type ApplicationKeys = Awaited<ReturnType<typeof getApplicationKeys>>;
 
 export async function getApplicationKeys(handshakeSecret: Uint8Array, handshakeHash: Uint8Array, hashBits: 256 | 384, keyLength: 16 | 32) {  // keyLength: 16 for ASE128, 32 for AES256
   const hashBytes = hashBits >>> 3;

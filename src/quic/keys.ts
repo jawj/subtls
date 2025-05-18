@@ -5,7 +5,7 @@ import { highlightColonList } from '../presentation/highlights';
 import { hexFromU8, u8FromHex } from '../util/hex';
 import { nullArray } from '../util/array';
 
-export type Keys = Awaited<ReturnType<typeof getInitialKeys>>;
+export type InitialKeys = Awaited<ReturnType<typeof getInitialKeys>>;
 
 export async function getInitialKeys() {
   const initialRandom = await getRandomValues(new Uint8Array(8));
