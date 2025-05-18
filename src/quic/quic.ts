@@ -129,7 +129,6 @@ async function parsePacket(packetType: 'initial' | 'handshake', hpKeyData: Uint8
   const packet = await packetRead();
   const p = new QUICBytes(packet);
   await p.readUint8(chatty && 'first byte, unprotected (protected value: 0x%)');
-  //log({ p })
   await p.expectUint32(0x00000001, chatty && 'QUIC version');
 
   const [endDcid, dcidRemaining] = await p.expectLengthUint8(chatty && 'destination connection ID');
@@ -188,7 +187,7 @@ async function parsePacket(packetType: 'initial' | 'handshake', hpKeyData: Uint8
   const packetPrefix = p.data.subarray(0, packetNumberEnd);
   const encryptedPayload = packetNumberPlusEncryptedPayload.subarray(packetNumberBytes);
   log({ packetPrefix });
-  const decryptedPayload = decrypter ? await decrypter.process(concat(encryptedPayload, encryptedAuthTag), 16, packetPrefix) : nullArray;
+  const decryptedPayload = decrypter ? await decrypter.process(concat(encryptedPayload, encryptedAuthTag), 16, packetPrefix, BigInt(packetNumber)) : nullArray;
 
   return { serverConnectionId, packetNumber, decryptedPayload };
 }
@@ -283,7 +282,7 @@ export async function quicConnect(
 
   // next packet
   while (true) {
-    const packet = await parsePacket('handshake', handshakeKeys.serverHandshakeHpKey, /*handshakeDecrypter*/ undefined, localConnectionId, packetRead);
+    const packet = await parsePacket('handshake', handshakeKeys.serverHandshakeHpKey, handshakeDecrypter /* undefined */, localConnectionId, packetRead);
     console.log(packet);
   }
 }

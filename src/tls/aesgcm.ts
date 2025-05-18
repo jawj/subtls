@@ -12,8 +12,8 @@ export class Crypter {
 
   // The `Promise`s returned by successive calls to this function always resolve in sequence,
   // which is not true for `processUnsequenced` in Node (even if it seems to be in browsers)
-  async process(data: Uint8Array, authTagLength: number, additionalData: Uint8Array) {
-    return this.sequence(this.processUnsequenced(data, authTagLength, additionalData));
+  async process(data: Uint8Array, authTagLength: number, additionalData: Uint8Array, xorValue?: bigint) {
+    return this.sequence(this.processUnsequenced(data, authTagLength, additionalData, xorValue));
   }
 
   async sequence<T>(promise: Promise<T>) {
@@ -22,9 +22,16 @@ export class Crypter {
     return sequenced;
   }
 
-  // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
-  async processUnsequenced(data: Uint8Array, authTagByteLength: number, additionalData: Uint8Array) {
-    const recordIndex = this.recordsProcessed;
+  /**
+   * Encrypt or decrypt AES-GCM data for TLS/QUIC.
+   * @param data plaintext for encrypt, concat(ciphertext, authTag) for decrypt
+   * @param authTagByteLength 
+   * @param additionalData 
+   * @param xorValue used when decrypting QUIC packets, which may arrive out of order, and must be set to the packet number
+   * @returns plaintext for decrypt, concat(ciphertext, authTag) for encrypt
+   */
+  async processUnsequenced(data: Uint8Array, authTagByteLength: number, additionalData: Uint8Array, xorValue?: bigint) {
+    const recordIndex = xorValue ?? this.recordsProcessed;
     this.recordsProcessed += 1n;
 
     const iv = this.initialIv.slice();
