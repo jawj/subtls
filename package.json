@@ -24,7 +24,9 @@
     "nodeQuiet": "esbuild --define:chatty=0 src/node.ts --bundle --format=esm --target=es2022 --platform=node --external:ws | node --input-type=module",
     "== these are for npm package export ==": "",
     "_exportTypes": "tsc && npx @microsoft/api-extractor run --local && sed -i.orig -r -e '/^export [{] *[}]$/d' declarations/_extracted.d.ts && (echo '/// <reference types=\"node\" />'; echo; cat declarations/_extracted.d.ts) > index.d.ts",
-    "export": "npm run lint && npm run _exportTypes && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2020 --external:crypto --external:fs/promises --external:net --outfile=index.js --line-limit=110"
+    "export": "npm run lint && npm run _exportTypes && esbuild --define:chatty=0 src/export.ts --bundle --format=esm --target=es2020 --external:crypto --external:fs/promises --external:net --outfile=index.js --line-limit=110",
+    "== experimental QUIC in Node ==": "",
+    "quic": "npx esbuild --bundle --platform=node --format=esm --define:chatty=1 src/quic/quic.ts | node --input-type=module"
   },
   "author": "George MacKerron",
   "license": "MIT",
