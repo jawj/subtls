@@ -22,11 +22,12 @@ export async function startTls(
   rootCertsDatabase: RootCertsDatabase | string,
   networkRead: (bytes: number) => Promise<Uint8Array | undefined>,
   networkWrite: (data: Uint8Array) => void,
-  { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData }: {
+  { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, verifyCA, writePreData, expectPreData, commentPreData }: {
     useSNI?: boolean,
     protocolsForALPN?: string[],
     requireServerTlsExtKeyUsage?: boolean,
     requireDigitalSigKeyUsage?: boolean,
+    verifyCA?: boolean,
     writePreData?: Uint8Array,
     expectPreData?: Uint8Array,
     commentPreData?: string,
@@ -35,6 +36,7 @@ export async function startTls(
   useSNI ??= true;
   requireServerTlsExtKeyUsage ??= true;
   requireDigitalSigKeyUsage ??= true;
+  verifyCA ??= true;
 
   if (typeof rootCertsDatabase === 'string') rootCertsDatabase = await TrustedCert.databaseFromPEM(rootCertsDatabase);
 
@@ -108,6 +110,7 @@ export async function startTls(
     rootCertsDatabase,
     requireServerTlsExtKeyUsage,
     requireDigitalSigKeyUsage,
+    verifyCA,
   );
 
   // send dummy cipher change

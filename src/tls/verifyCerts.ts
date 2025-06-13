@@ -19,7 +19,6 @@ export async function verifyCerts(
   requireServerTlsExtKeyUsage = true,
   requireDigitalSigKeyUsage = true,
 ) {
-
   // end-user certificate checks
   chatty && log('%c%s', `color: ${LogColours.header}`, 'certificates received from host');
   for (const cert of certs) chatty && log(...highlightColonList(cert.description()));

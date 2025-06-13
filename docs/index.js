@@ -357,6 +357,7 @@ function fromBase64(s, options = {}) {
 }
 
 // src/util/array.ts
+var nullArray = new Uint8Array(0);
 function concat(...arrs) {
   if (arrs.length === 1 && arrs[0] instanceof Uint8Array) return arrs[0];
   const length = arrs.reduce((memo, arr) => memo + arr.length, 0);
@@ -593,7 +594,7 @@ var Bytes = class {
     if (comment) {
       this.comment(comment.replace(
         /(0x)?%/g,
-        (m) => m.startsWith("0x") ? `0x${hexFromU8([result])}` : String(result)
+        (m) => m.startsWith("0x") ? `0x${hexFromU8(this.data.subarray(this.offset - bytes, this.offset))}` : String(result)
       ));
     }
     return result;
@@ -1061,7 +1062,7 @@ async function parseServerHello(h, sessionId) {
   ])) throw new Error("Unexpected HelloRetryRequest");
   h.comment('server random \u2014 [not SHA256("HelloRetryRequest")](https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.3)');
   await h.expectUint8(sessionId.length, "session ID length (matches client session ID)");
-  await h.expectBytes(sessionId, "session ID (matches client session ID)");
+  if (sessionId.length > 0) await h.expectBytes(sessionId, "session ID (matches client session ID)");
   await h.expectUint16(4865, "cipher (matches client hello)");
   await h.expectUint8(0, "no compression");
   const [endExtensions, extensionsRemaining] = await h.expectLengthUint16("extensions");
@@ -1935,7 +1936,7 @@ async function hkdfExpandLabel(key, label, context, length, hashBits) {
 }
 
 // src/tls/keys.ts
-async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, keyLength) {
+async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, keyLength, quic = false) {
   const hashBytes = hashBits >>> 3;
   const zeroKey = new Uint8Array(hashBytes);
   const publicKey = await cryptoProxy_default.importKey("raw", serverPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
@@ -1947,26 +1948,30 @@ async function getHandshakeKeys(serverPublicKey, privateKey, hellos, hashBits, k
   log(...highlightColonList("hellos hash: " + hexFromU8(hellosHash)));
   const earlySecret = await hkdfExtract(new Uint8Array(1), zeroKey, hashBits);
   log(...highlightColonList("early secret: " + hexFromU8(new Uint8Array(earlySecret))));
-  const emptyHashBuffer = await cryptoProxy_default.digest(`SHA-${hashBits}`, new Uint8Array(0));
+  const emptyHashBuffer = await cryptoProxy_default.digest(`SHA-${hashBits}`, nullArray);
   const emptyHash = new Uint8Array(emptyHashBuffer);
   log(...highlightColonList("empty hash: " + hexFromU8(emptyHash)));
   const derivedSecret = await hkdfExpandLabel(earlySecret, "derived", emptyHash, hashBytes, hashBits);
   log(...highlightColonList("derived secret: " + hexFromU8(derivedSecret)));
-  const handshakeSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
-  log(...highlightColonList("handshake secret: " + hexFromU8(handshakeSecret)));
-  const clientSecret = await hkdfExpandLabel(handshakeSecret, "c hs traffic", hellosHash, hashBytes, hashBits);
+  const masterSecret = await hkdfExtract(derivedSecret, sharedSecret, hashBits);
+  log(...highlightColonList("handshake secret: " + hexFromU8(masterSecret)));
+  const clientSecret = await hkdfExpandLabel(masterSecret, "c hs traffic", hellosHash, hashBytes, hashBits);
   log(...highlightColonList("client secret: " + hexFromU8(clientSecret)));
-  const serverSecret = await hkdfExpandLabel(handshakeSecret, "s hs traffic", hellosHash, hashBytes, hashBits);
+  const serverSecret = await hkdfExpandLabel(masterSecret, "s hs traffic", hellosHash, hashBytes, hashBits);
   log(...highlightColonList("server secret: " + hexFromU8(serverSecret)));
-  const clientHandshakeKey = await hkdfExpandLabel(clientSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log(...highlightColonList("client handshake key: " + hexFromU8(clientHandshakeKey)));
-  const serverHandshakeKey = await hkdfExpandLabel(serverSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log(...highlightColonList("server handshake key: " + hexFromU8(serverHandshakeKey)));
-  const clientHandshakeIV = await hkdfExpandLabel(clientSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log(...highlightColonList("client handshake iv: " + hexFromU8(clientHandshakeIV)));
-  const serverHandshakeIV = await hkdfExpandLabel(serverSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log(...highlightColonList("server handshake iv: " + hexFromU8(serverHandshakeIV)));
-  return { serverHandshakeKey, serverHandshakeIV, clientHandshakeKey, clientHandshakeIV, handshakeSecret, clientSecret, serverSecret };
+  const clientKey = await hkdfExpandLabel(clientSecret, quic ? "quic key" : "key", nullArray, keyLength, hashBits);
+  log(...highlightColonList("client handshake key: " + hexFromU8(clientKey)));
+  const serverKey = await hkdfExpandLabel(serverSecret, quic ? "quic key" : "key", nullArray, keyLength, hashBits);
+  log(...highlightColonList("server handshake key: " + hexFromU8(serverKey)));
+  const clientIV = await hkdfExpandLabel(clientSecret, quic ? "quic iv" : "iv", nullArray, 12, hashBits);
+  log(...highlightColonList("client handshake iv: " + hexFromU8(clientIV)));
+  const serverIV = await hkdfExpandLabel(serverSecret, quic ? "quic iv" : "iv", nullArray, 12, hashBits);
+  log(...highlightColonList("server handshake iv: " + hexFromU8(serverIV)));
+  const clientHPKey = quic ? await hkdfExpandLabel(clientSecret, "quic hp", nullArray, keyLength, hashBits) : nullArray;
+  quic && log(...highlightColonList("client handshake header protection key: " + hexFromU8(clientHPKey)));
+  const serverHPKey = quic ? await hkdfExpandLabel(serverSecret, "quic hp", nullArray, keyLength, hashBits) : nullArray;
+  quic && log(...highlightColonList("server handshake header protection key: " + hexFromU8(serverHPKey)));
+  return { masterSecret, clientSecret, clientKey, clientIV, clientHPKey, serverSecret, serverKey, serverIV, serverHPKey };
 }
 async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyLength) {
   const hashBytes = hashBits >>> 3;
@@ -1982,18 +1987,35 @@ async function getApplicationKeys(handshakeSecret, handshakeHash, hashBits, keyL
   log(...highlightColonList("client secret: " + hexFromU8(clientSecret)));
   const serverSecret = await hkdfExpandLabel(masterSecret, "s ap traffic", handshakeHash, hashBytes, hashBits);
   log(...highlightColonList("server secret: " + hexFromU8(serverSecret)));
-  const clientApplicationKey = await hkdfExpandLabel(clientSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log(...highlightColonList("client application key: " + hexFromU8(clientApplicationKey)));
-  const serverApplicationKey = await hkdfExpandLabel(serverSecret, "key", new Uint8Array(0), keyLength, hashBits);
-  log(...highlightColonList("server application key: " + hexFromU8(serverApplicationKey)));
-  const clientApplicationIV = await hkdfExpandLabel(clientSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log(...highlightColonList("client application iv: " + hexFromU8(clientApplicationIV)));
-  const serverApplicationIV = await hkdfExpandLabel(serverSecret, "iv", new Uint8Array(0), 12, hashBits);
-  log(...highlightColonList("server application iv: " + hexFromU8(serverApplicationIV)));
-  return { serverApplicationKey, serverApplicationIV, clientApplicationKey, clientApplicationIV };
+  const clientKey = await hkdfExpandLabel(clientSecret, "key", nullArray, keyLength, hashBits);
+  log(...highlightColonList("client application key: " + hexFromU8(clientKey)));
+  const serverKey = await hkdfExpandLabel(serverSecret, "key", nullArray, keyLength, hashBits);
+  log(...highlightColonList("server application key: " + hexFromU8(serverKey)));
+  const clientIV = await hkdfExpandLabel(clientSecret, "iv", nullArray, 12, hashBits);
+  log(...highlightColonList("client application iv: " + hexFromU8(clientIV)));
+  const serverIV = await hkdfExpandLabel(serverSecret, "iv", nullArray, 12, hashBits);
+  log(...highlightColonList("server application iv: " + hexFromU8(serverIV)));
+  return { serverKey, serverIV, clientKey, clientIV };
 }
 
 // src/tls/aesgcm.ts
+async function aesGcmWithXorIv(mode, args) {
+  const { data, key: keyData, iv: originalIv, xorValue, authTagByteLength, additionalData } = args;
+  const key = await cryptoProxy_default.importKey("raw", keyData, { name: "AES-GCM" }, false, [mode]);
+  const iv = originalIv.slice();
+  const ivLength = BigInt(iv.length);
+  const lastIndex = ivLength - 1n;
+  for (let i = 0n; i < ivLength; i++) {
+    const shifted = xorValue >> (i << 3n);
+    if (shifted === 0n) break;
+    iv[Number(lastIndex - i)] ^= Number(shifted & 0xffn);
+  }
+  const authTagBitLength = authTagByteLength << 3;
+  const algorithm = { name: "AES-GCM", iv, tagLength: authTagBitLength, additionalData };
+  const resultBuffer = await cryptoProxy_default[mode](algorithm, key, data);
+  const result = new Uint8Array(resultBuffer);
+  return result;
+}
 var Crypter = class {
   constructor(mode, key, initialIv) {
     this.mode = mode;
@@ -2012,23 +2034,25 @@ var Crypter = class {
     this.priorPromise = sequenced;
     return sequenced;
   }
-  // data is plainText for encrypt, concat(ciphertext, authTag) for decrypt
+  /**
+   * Encrypt or decrypt AES-GCM data for TLS/QUIC.
+   * @param data plaintext for encrypt, concat(ciphertext, authTag) for decrypt
+   * @param authTagByteLength 
+   * @param additionalData 
+   * @param xorValue used when decrypting QUIC packets, which may arrive out of order, and must be set to the packet number
+   * @returns plaintext for decrypt, concat(ciphertext, authTag) for encrypt
+   */
   async processUnsequenced(data, authTagByteLength, additionalData) {
     const recordIndex = this.recordsProcessed;
     this.recordsProcessed += 1n;
-    const iv = this.initialIv.slice();
-    const ivLength = BigInt(iv.length);
-    const lastIndex = ivLength - 1n;
-    for (let i = 0n; i < ivLength; i++) {
-      const shifted = recordIndex >> (i << 3n);
-      if (shifted === 0n) break;
-      iv[Number(lastIndex - i)] ^= Number(shifted & 0xffn);
-    }
-    const authTagBitLength = authTagByteLength << 3;
-    const algorithm = { name: "AES-GCM", iv, tagLength: authTagBitLength, additionalData };
-    const resultBuffer = await cryptoProxy_default[this.mode](algorithm, this.key, data);
-    const result = new Uint8Array(resultBuffer);
-    return result;
+    return aesGcmWithXorIv(this.mode, {
+      data,
+      key: this.key,
+      iv: this.initialIv,
+      xorValue: recordIndex,
+      additionalData,
+      authTagByteLength
+    });
   }
 };
 
@@ -2551,7 +2575,7 @@ async function verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKe
 
 // src/tls/parseEncryptedHandshake.ts
 var txtEnc3 = new TextEncoder();
-async function parseEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true) {
+async function parseEncryptedHandshake(host, hs, serverSecret, hellos, rootCertsDatabase, requireServerTlsExtKeyUsage = true, requireDigitalSigKeyUsage = true, verifyCA = true) {
   let protocolFromALPN = void 0;
   await hs.expectUint8(8, "handshake record type: encrypted extensions ([RFC 8446 \xA74.3.1](https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1))");
   const [eeMessageEnd] = await hs.expectLengthUint24();
@@ -2689,16 +2713,21 @@ async function parseEncryptedHandshake(host, hs, serverSecret, hellos, rootCerts
   if (verifyHashVerified !== true) throw new Error("Invalid server verify hash");
   log("Decrypted using the server handshake key, the server\u2019s handshake messages are parsed as follows ([source](https://github.com/jawj/subtls/blob/main/src/tls/readEncryptedHandshake.ts)). This is a long section, since X.509 certificates are quite complex and there will be several of them:");
   log(...highlightBytes(hs.commentedString(), "#88c" /* server */));
-  const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
-  if (!verifiedToTrustedRoot) throw new Error("Validated certificate chain did not end in a trusted root");
+  if (verifyCA) {
+    const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
+    if (!verifiedToTrustedRoot) throw new Error("Validated certificate chain did not end in a trusted root");
+  } else {
+    log("%c%s", `color: ${"#c88" /* header */}`, "*** WARNING! Not validating certificates back to a trusted root ***");
+  }
   return { handshakeData: hs.data.subarray(0, hs.offset), clientCertRequested, userCert, protocolFromALPN };
 }
 
 // src/tls/startTls.ts
-async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, writePreData, expectPreData, commentPreData } = {}) {
+async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { useSNI, protocolsForALPN, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage, verifyCA, writePreData, expectPreData, commentPreData } = {}) {
   useSNI ?? (useSNI = true);
   requireServerTlsExtKeyUsage ?? (requireServerTlsExtKeyUsage = true);
   requireDigitalSigKeyUsage ?? (requireDigitalSigKeyUsage = true);
+  verifyCA ?? (verifyCA = true);
   if (typeof rootCertsDatabase === "string") rootCertsDatabase = await TrustedCert.databaseFromPEM(rootCertsDatabase);
   const ecdhKeys = await cryptoProxy_default.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]);
   const rawPublicKeyBuffer = await cryptoProxy_default.exportKey("raw", ecdhKeys.publicKey);
@@ -2743,10 +2772,8 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   const serverHelloContent = serverHello.array();
   const hellos = concat(clientHelloContent, serverHelloContent);
   const handshakeKeys = await getHandshakeKeys(serverPublicKey, ecdhKeys.privateKey, hellos, 256, 16);
-  const serverHandshakeKey = await cryptoProxy_default.importKey("raw", handshakeKeys.serverHandshakeKey, { name: "AES-GCM" }, false, ["decrypt"]);
-  const handshakeDecrypter = new Crypter("decrypt", serverHandshakeKey, handshakeKeys.serverHandshakeIV);
-  const clientHandshakeKey = await cryptoProxy_default.importKey("raw", handshakeKeys.clientHandshakeKey, { name: "AES-GCM" }, false, ["encrypt"]);
-  const handshakeEncrypter = new Crypter("encrypt", clientHandshakeKey, handshakeKeys.clientHandshakeIV);
+  const handshakeDecrypter = new Crypter("decrypt", handshakeKeys.serverKey, handshakeKeys.serverIV);
+  const handshakeEncrypter = new Crypter("encrypt", handshakeKeys.clientKey, handshakeKeys.clientIV);
   log("The server continues by sending one or more encrypted records containing the rest of its handshake messages. These include the \u2018certificate verify\u2019 message, which we check on the spot, and the full certificate chain, which we verify a bit later on:");
   const handshakeBytes = bytesFromEncryptedTlsRecords(networkRead, handshakeDecrypter, 22 /* Handshake */);
   const { handshakeData: serverHandshake, clientCertRequested, userCert, protocolFromALPN } = await parseEncryptedHandshake(
@@ -2756,7 +2783,8 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
     hellos,
     rootCertsDatabase,
     requireServerTlsExtKeyUsage,
-    requireDigitalSigKeyUsage
+    requireDigitalSigKeyUsage,
+    verifyCA
   );
   log("For the benefit of badly-written middleboxes that are following along expecting TLS 1.2, it\u2019s the client\u2019s turn to send a meaningless cipher change record:");
   const clientCipherChange = new Bytes();
@@ -2805,11 +2833,9 @@ async function startTls(host, rootCertsDatabase, networkRead, networkWrite, { us
   }
   log("Both parties now have what they need to calculate the keys and IVs that will protect the application data:");
   log("%c%s", `color: ${"#c88" /* header */}`, "application key computations ([source](https://github.com/jawj/subtls/blob/main/src/tls/keys.ts))");
-  const applicationKeys = await getApplicationKeys(handshakeKeys.handshakeSecret, partialHandshakeHash, 256, 16);
-  const clientApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.clientApplicationKey, { name: "AES-GCM" }, true, ["encrypt"]);
-  const applicationEncrypter = new Crypter("encrypt", clientApplicationKey, applicationKeys.clientApplicationIV);
-  const serverApplicationKey = await cryptoProxy_default.importKey("raw", applicationKeys.serverApplicationKey, { name: "AES-GCM" }, true, ["decrypt"]);
-  const applicationDecrypter = new Crypter("decrypt", serverApplicationKey, applicationKeys.serverApplicationIV);
+  const applicationKeys = await getApplicationKeys(handshakeKeys.masterSecret, partialHandshakeHash, 256, 16);
+  const applicationEncrypter = new Crypter("encrypt", applicationKeys.clientKey, applicationKeys.clientIV);
+  const applicationDecrypter = new Crypter("decrypt", applicationKeys.serverKey, applicationKeys.serverIV);
   let wroteFinishedRecords = false;
   log("The TLS connection is established, and server and client can start exchanging encrypted application data.");
   const read = () => {
@@ -2880,6 +2906,7 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
     useSNI: !pipelinedPasswordAuth,
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false
+    // verifyCA: false,  // `verifyCA: false` matches sslmode=require behaviour rather than sslrootcert=system
   });
   const readQueue = new LazyReadFunctionReadQueue(readChunk);
   const read = readQueue.read.bind(readQueue);
@@ -3090,9 +3117,22 @@ async function postgres(urlStr, transportFactory, rootCertsPromise2, pipelinedPa
     const remoteServerSignatureB64 = Object.fromEntries(saslOutcome.split(",").map((v) => [v[0], v.slice(2)])).v;
     if (remoteServerSignatureB64 !== serverSignatureB64) throw new Error("Server signature mismatch");
     log("%c\u2713 server signature matches locally-generated server signature", "color: #8c8;");
+  } else if (!pipelinedPasswordAuth) {
+    log("The server has asked for a password in cleartext (within the TLS connection), which we duly send.");
+    const passwordAuthMsg = new Bytes();
+    passwordAuthMsg.writeUTF8String("p");
+    passwordAuthMsg.comment("= [PasswordMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)");
+    const endPasswordAuthMessage = passwordAuthMsg.writeLengthUint32Incl("password message");
+    passwordAuthMsg.writeUTF8StringNullTerminated(password);
+    endPasswordAuthMessage();
+    log(...highlightBytes(passwordAuthMsg.commentedString(), "#8cc" /* client */));
+    log("As ciphertext:");
+    await write(passwordAuthMsg.array());
   }
   log("The server tells us we\u2019re in, and provides some other useful data.");
+  console.log("a");
   const postAuthBytes = new Bytes(read);
+  console.log("b");
   await postAuthBytes.expectUint8("R".charCodeAt(0), '"R" = authentication request');
   const [endAuthOK] = await postAuthBytes.expectLengthUint32Incl("authentication result");
   await postAuthBytes.expectUint32(0, "[AuthenticationOk](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)");

@@ -21,6 +21,7 @@ export async function parseEncryptedHandshake(
   rootCertsDatabase: RootCertsDatabase,
   requireServerTlsExtKeyUsage = true,
   requireDigitalSigKeyUsage = true,
+  verifyCA = true,
 ) {
   let protocolFromALPN = undefined;
 
@@ -225,8 +226,13 @@ export async function parseEncryptedHandshake(
   chatty && log('Decrypted using the server handshake key, the server’s handshake messages are parsed as follows ([source](https://github.com/jawj/subtls/blob/main/src/tls/readEncryptedHandshake.ts)). This is a long section, since X.509 certificates are quite complex and there will be several of them:');
   chatty && log(...highlightBytes(hs.commentedString(), LogColours.server));
 
-  const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
-  if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in a trusted root');
+  if (verifyCA) {
+    const verifiedToTrustedRoot = await verifyCerts(host, certs, rootCertsDatabase, requireServerTlsExtKeyUsage, requireDigitalSigKeyUsage);
+    if (!verifiedToTrustedRoot) throw new Error('Validated certificate chain did not end in a trusted root');
+
+  } else {
+    chatty && log('%c%s', `color: ${LogColours.header}`, '*** WARNING! Not validating certificates back to a trusted root ***');
+  }
 
   return { handshakeData: hs.data.subarray(0, hs.offset), clientCertRequested, userCert, protocolFromALPN } as const;
 }

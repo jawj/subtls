@@ -69,6 +69,7 @@ export async function postgres(
     useSNI: !pipelinedPasswordAuth,
     requireServerTlsExtKeyUsage: false,
     requireDigitalSigKeyUsage: false,
+    // verifyCA: false,  // `verifyCA: false` matches sslmode=require behaviour rather than sslrootcert=system
   });
 
   const readQueue = new LazyReadFunctionReadQueue(readChunk);
@@ -373,11 +374,26 @@ export async function postgres(
     if (remoteServerSignatureB64 !== serverSignatureB64) throw new Error('Server signature mismatch');
 
     chatty && log('%c✓ server signature matches locally-generated server signature', 'color: #8c8;');
+
+  } else if (!pipelinedPasswordAuth) {
+    chatty && log('The server has asked for a password in cleartext (within the TLS connection), which we duly send.');
+    const passwordAuthMsg = new Bytes();
+    passwordAuthMsg.writeUTF8String('p');
+    chatty && passwordAuthMsg.comment('= [PasswordMessage](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PASSWORDMESSAGE)');
+    const endPasswordAuthMessage = passwordAuthMsg.writeLengthUint32Incl(chatty && 'password message');
+    passwordAuthMsg.writeUTF8StringNullTerminated(password);
+    endPasswordAuthMessage();
+
+    chatty && log(...highlightBytes(passwordAuthMsg.commentedString(), LogColours.client));
+    chatty && log('As ciphertext:');
+    await write(passwordAuthMsg.array());
   }
 
   chatty && log('The server tells us we’re in, and provides some other useful data.');
 
+  console.log('a')
   const postAuthBytes = new Bytes(read);
+  console.log('b')
   await postAuthBytes.expectUint8('R'.charCodeAt(0), chatty && '"R" = authentication request');
   const [endAuthOK] = await postAuthBytes.expectLengthUint32Incl(chatty && 'authentication result');
   await postAuthBytes.expectUint32(0, chatty && '[AuthenticationOk](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONOK)');
