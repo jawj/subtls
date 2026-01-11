@@ -159,7 +159,8 @@ The other classes used in several places are the subclasses of `ReadQueue` (foun
 
 ## Alternatives
 
-The only alternative JS TLS implementation I’m aware of is [Forge](https://github.com/digitalbazaar/forge). This is pure JS, without SubtleCrypto, making it somewhat slow. More importantly, its TLS parts are not very actively maintained. The main project supports up to TLS 1.1. There’s a fork that supports up to TLS 1.2, but even that supports none of the modern and secure ciphers you’d want to enable in TLS 1.2.
+* [Forge](https://github.com/digitalbazaar/forge). This is pure JS, without SubtleCrypto, making it somewhat slow. More importantly, its TLS parts are not very actively maintained. The main project supports up to TLS 1.1. There’s a fork that supports up to TLS 1.2, but even that supports none of the modern and secure ciphers you’d want to enable in TLS 1.2.
+* https://github.com/reclaimprotocol/tls
 
 ## Name
 
